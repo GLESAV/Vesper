@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Bash(xcodebuild -list -project /Users/yuwei/Downloads/Vesper/Vesper.xcodeproj)",
+      "Bash(xcrun simctl *)",
+      "WebSearch",
+      "Bash(swift --version)",
+      "Bash(swiftc -parse ContentView.swift -o /dev/null)",
+      "Bash(swiftc -parse /Users/yuwei/Downloads/Vesper/Vesper/ContentView.swift)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}
