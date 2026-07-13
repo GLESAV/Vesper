@@ -7,3 +7,19 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Build output
+build/
+*.xcarchive
+
+# Secrets — never commit
+fastlane/api_key.json
+*.p8
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output
+
+# Personal review contact info — keep out of public repo
+fastlane/metadata/review_information/

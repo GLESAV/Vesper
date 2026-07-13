@@ -1,0 +1,10 @@
+api_key_path("fastlane/api_key.json")
+app_identifier("com.gregorysavage.vesper")
+
+# Upload metadata + screenshots. We drive submission separately once the
+# build finishes processing and the remaining attestations are set.
+skip_binary_upload(true)
+force(true)                 # no interactive HTML preview
+overwrite_screenshots(true)
+run_precheck_before_submit(false)
+languages(["en-US"])
