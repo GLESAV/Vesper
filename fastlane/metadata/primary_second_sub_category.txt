@@ -1,1 +1,1 @@
-MZGenre.Puzzle
+GAMES_PUZZLE

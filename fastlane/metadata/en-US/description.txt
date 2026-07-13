@@ -13,3 +13,5 @@ There is no score to chase, no timer, no failure. Just a slow, satisfying loop y
 Whatever you just popped, it wasn't real anyway.
 
 Vesper collects no data and needs no sign-in. Just open it and breathe.
+
+Created by Kate Wu.
