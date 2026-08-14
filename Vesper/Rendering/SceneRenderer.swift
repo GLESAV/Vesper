@@ -66,7 +66,7 @@ struct SceneRenderer {
             let paint = style.paints[min(p.variantIndex, style.paints.count - 1)]
             let a = max(0, p.life)
             let s = p.size * (0.5 + a * 0.5)
-            let tint = color(paint.glow).opacity(Double(a))
+            let tint = GraphicsContext.Shading.color(color(paint.glow).opacity(Double(a)))
             drawParticle(p, shape: style.particleShape, size: s, tint: tint, into: &glow)
         }
 
