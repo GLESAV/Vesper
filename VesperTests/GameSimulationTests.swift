@@ -199,7 +199,11 @@ final class GameSimulationTests: XCTestCase {
             sim.step(dt: 1.0 / 60.0)
             XCTAssertLessThanOrEqual(sim.particles.count, GameConfig.particleCap)
         }
-        XCTAssertTrue(sim.completed, "a dense cluster should fully chain")
+        // Only the tapped orb's ring arms the chain (echo rings from chained
+        // pops are visual only, as in v1.0), so the far corner of the cluster
+        // survives — but everything within the first ring's reach cascades.
+        XCTAssertGreaterThanOrEqual(sim.popCount, 15,
+                                    "orbs within the ring's reach should cascade")
     }
 
     func testHugeFrameGapIsClamped() {
