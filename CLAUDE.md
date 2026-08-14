@@ -18,8 +18,12 @@ Created by Kate Wu. Bundle ID: `com.gregorysavage.vesper`. iOS 18.5+, iPhone + i
 
 The calm is the product. Any change must preserve:
 
-1. **No pressure mechanics.** No timers, scores, leaderboards, lives, streaks-with-loss,
-   or fail states. Lifetime counters are fine only if purely affirming.
+1. **No pressure mechanics.** No timers, leaderboards, lives, streaks-with-loss, or
+   fail states. Progression exists (pop points, unlocks — see `docs/pop_points.md`
+   and `docs/pop_progression.md`) but must stay **affirming-only**: numbers only
+   ever accrue, nothing is spent/lost/reset/time-limited/compared, every unlock is
+   reachable through ordinary play, and locked content shows a kind hint, never a
+   wall.
 2. **No monetization or dark patterns.** No ads, IAP prompts, rating nags, or push
    notifications that demand attention.
 3. **No data collection.** No analytics SDKs, no network calls, no accounts. Privacy is
@@ -38,12 +42,16 @@ Vesper/                     App source (Xcode file-system-synchronized group —
 ├── VesperApp.swift         @main entry; scene-phase → audio lifecycle
 ├── Game/
 │   ├── GameConfig.swift    All gameplay tuning constants (single source of truth)
-│   ├── Entities.swift      Orb / Particle / Ring / Mote value types (UI-free)
+│   ├── Entities.swift      Orb / Particle / Ring / Mote / FloatNote value types (UI-free)
 │   ├── SeededRandom.swift  SplitMix64 deterministic RNG
 │   ├── GameSimulation.swift  Pure, deterministic sim: seeding, taps, chain physics.
 │   │                         No SwiftUI/UIKit imports. Emits GameEvents. Unit-tested.
 │   ├── Fortunes.swift      Fortune message strings
-│   └── GameViewModel.swift ObservableObject; bridges sim → UI, audio, haptics, stats
+│   ├── GameViewModel.swift ObservableObject; bridges sim → UI, audio, haptics,
+│   │                       points, unlocks
+│   └── Pops/
+│       ├── PopStandard.swift  The formal pop schema (style/behavior/chain/unlock)
+│       └── PopCatalog.swift   All 100 pops as data; #001 codifies the v1.0 pop
 ├── Rendering/
 │   └── SceneRenderer.swift Palette + Canvas drawing (motes, orbs, rings, particles)
 ├── Audio/
@@ -52,11 +60,13 @@ Vesper/                     App source (Xcode file-system-synchronized group —
 ├── Haptics/
 │   └── HapticsEngine.swift Soft impact per pop (scaled by orb size), success on clear
 ├── Support/
-│   └── SettingsStore.swift UserDefaults-backed settings + lifetime stats
+│   ├── SettingsStore.swift UserDefaults-backed toggles (sound/haptics/whispers)
+│   └── ProgressionStore.swift  Pop points, lifetime stats, unlock evaluation
 └── Views/
     ├── ContentView.swift   Layer composition (canvas / tap layer / HUD / cards)
     ├── TapCatcherView.swift  UIKit tap recognizer (see note below)
-    ├── SettingsSheet.swift Sound/haptics toggles + stats
+    ├── SettingsSheet.swift Toggles + headline stats
+    ├── JourneySheet.swift  Collection grid, records, featured-pop selection
     └── Cards.swift         Fortune card + done card
 
 VesperTests/                Unit tests for GameSimulation (XCTest, @testable)
@@ -129,3 +139,6 @@ simulation free of UI imports, and rely on the CI workflow to verify the build.
 - `docs/STRATEGY.md` — what "AAA" means for Vesper, engineering/UX standards, budgets
 - `docs/ROADMAP.md` — milestones M0–M3 with acceptance criteria
 - `docs/BUILD_PLAN.md` — file-level build plan, test plan, release checklist
+- `docs/pop_standard.md` — the formal pop schema, envelopes, and authoring rules
+- `docs/pop_progression.md` — the journey: phases, unlock rules, featuring/Drift
+- `docs/pop_points.md` — scoring formula and how stats surface in/out of game

@@ -4,6 +4,7 @@ import SwiftUI
 // stats, and a credit line. Nothing to configure means nothing to worry about.
 struct SettingsSheet: View {
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var progression = ProgressionStore.shared
     @Environment(\.dismiss) private var dismiss
 
     private let heading = Color(red: 236/255, green: 234/255, blue: 244/255)
@@ -37,12 +38,16 @@ struct SettingsSheet: View {
                 toggleRow(title: "Haptics",
                           subtitle: "A gentle tap with every pop",
                           isOn: $settings.hapticsEnabled)
+                toggleRow(title: "Point whispers",
+                          subtitle: "Little +points that drift up from a pop",
+                          isOn: $settings.pointWhispersEnabled)
 
                 Divider().overlay(Color.white.opacity(0.08))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    statRow(value: settings.lifetimePops, label: "orbs set free")
-                    statRow(value: settings.fieldsCleared, label: "fields cleared")
+                    statRow(value: progression.popPoints, label: "pop points")
+                    statRow(value: progression.lifetimePops, label: "orbs set free")
+                    statRow(value: progression.fieldsCleared, label: "fields cleared")
                 }
 
                 Spacer()

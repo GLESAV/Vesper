@@ -37,6 +37,7 @@ struct FortuneCard: View {
 
 struct DoneCard: View {
     let count: Int
+    let sessionPoints: Int
     let lifetimePops: Int
     let onRestart: () -> Void
 
@@ -63,7 +64,14 @@ struct DoneCard: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .foregroundColor(Color(red: 155/255, green: 149/255, blue: 178/255))
-                    .padding(.bottom, lifetimePops > count ? 10 : 26)
+                    .padding(.bottom, 10)
+
+                Text("+\(sessionPoints.formatted()) pop points")
+                    .font(.system(size: 12, design: .serif))
+                    .italic()
+                    .monospacedDigit()
+                    .foregroundColor(Color(red: 195/255, green: 175/255, blue: 220/255).opacity(0.9))
+                    .padding(.bottom, lifetimePops > count ? 6 : 24)
 
                 if lifetimePops > count {
                     Text("\(lifetimePops.formatted()) set free, all time.")

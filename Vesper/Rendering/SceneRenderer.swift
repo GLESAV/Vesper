@@ -1,33 +1,11 @@
 import SwiftUI
 
-// MARK: - Palette
-
-struct Paint {
-    let fill: Color
-    let glow: Color
-}
-
-// The muted pastel palette — values unchanged from v1.0. Order matters:
-// the simulation refers to these by index.
-let palette: [Paint] = [
-    Paint(fill: Color(red: 233/255, green: 230/255, blue: 242/255),
-          glow: Color(red: 223/255, green: 220/255, blue: 238/255)), // off-white
-    Paint(fill: Color(red: 231/255, green: 213/255, blue: 192/255),
-          glow: Color(red: 220/255, green: 190/255, blue: 160/255)), // sand
-    Paint(fill: Color(red: 217/255, green: 201/255, blue: 230/255),
-          glow: Color(red: 195/255, green: 175/255, blue: 220/255)), // lilac
-    Paint(fill: Color(red: 198/255, green: 220/255, blue: 216/255),
-          glow: Color(red: 175/255, green: 205/255, blue: 198/255)), // sage
-    Paint(fill: Color(red: 230/255, green: 205/255, blue: 212/255),
-          glow: Color(red: 220/255, green: 180/255, blue: 190/255)), // dusty rose
-]
-
-// MARK: - Renderer
-
-// Draws the simulation into a Canvas. Read-only: must never mutate sim state.
+// Draws the simulation into a Canvas, styled entirely by each entity's pop
+// definition (PopStyle). Read-only: must never mutate sim state.
 struct SceneRenderer {
 
     private let moteColor = Color(red: 214/255, green: 208/255, blue: 235/255)
+    private let noteColor = Color(red: 210/255, green: 202/255, blue: 232/255)
 
     func draw(_ sim: GameSimulation, into context: inout GraphicsContext, size: CGSize) {
         var glow = context
@@ -43,44 +21,112 @@ struct SceneRenderer {
 
         // orbs: faint halo (additive) + flat solid disc + soft specular
         for o in sim.orbs where o.alive {
-            let paint = palette[o.paintIndex]
+            let style = PopCatalog.definition(for: o.popNumber).style
+            let paint = style.paints[min(o.variantIndex, style.paints.count - 1)]
+            let fill = color(paint.fill)
+            let glowColor = color(paint.glow)
             let R = o.r
+            let pulse = style.shimmer ? 1 - 0.06 * Double(sin(o.phase * 2)) : 1
+
             let haloRect = CGRect(x: o.pos.x - R * 2.2, y: o.pos.y - R * 2.2,
                                   width: R * 4.4, height: R * 4.4)
             let grad = Gradient(stops: [
-                .init(color: paint.glow.opacity(0.18), location: 0),
-                .init(color: paint.glow.opacity(0), location: 1)
+                .init(color: glowColor.opacity(style.haloOpacity * pulse), location: 0),
+                .init(color: glowColor.opacity(0), location: 1)
             ])
             glow.fill(Path(ellipseIn: haloRect),
                       with: .radialGradient(grad, center: o.pos,
                                             startRadius: R * 0.6, endRadius: R * 2.2))
 
             let bodyRect = CGRect(x: o.pos.x - R, y: o.pos.y - R, width: R * 2, height: R * 2)
-            context.fill(Path(ellipseIn: bodyRect), with: .color(paint.fill))
+            context.fill(Path(ellipseIn: bodyRect), with: .color(fill.opacity(pulse)))
 
             // a whisper of a highlight so the orb reads as a bubble
             let hr = R * 0.26
             let hRect = CGRect(x: o.pos.x - R * 0.38 - hr, y: o.pos.y - R * 0.42 - hr,
                                width: hr * 2, height: hr * 2)
-            glow.fill(Path(ellipseIn: hRect), with: .color(Color.white.opacity(0.14)))
+            glow.fill(Path(ellipseIn: hRect),
+                      with: .color(Color.white.opacity(style.highlightOpacity)))
         }
 
         // shockwave rings
         for r in sim.rings {
+            let style = PopCatalog.definition(for: r.popNumber).style
+            let paint = style.paints[min(r.variantIndex, style.paints.count - 1)]
             let rect = CGRect(x: r.pos.x - r.r, y: r.pos.y - r.r,
                               width: r.r * 2, height: r.r * 2)
             glow.stroke(Path(ellipseIn: rect),
-                        with: .color(palette[r.paintIndex].glow.opacity(Double(max(0, r.life) * 0.4))),
+                        with: .color(color(paint.glow).opacity(Double(max(0, r.life) * 0.4))),
                         lineWidth: 1 + r.life * 2)
         }
 
-        // particles
+        // particles, shaped per pop
         for p in sim.particles {
+            let style = PopCatalog.definition(for: p.popNumber).style
+            let paint = style.paints[min(p.variantIndex, style.paints.count - 1)]
             let a = max(0, p.life)
             let s = p.size * (0.5 + a * 0.5)
-            let rect = CGRect(x: p.pos.x - s, y: p.pos.y - s, width: s * 2, height: s * 2)
-            glow.fill(Path(ellipseIn: rect),
-                      with: .color(palette[p.paintIndex].glow.opacity(Double(a))))
+            let tint = color(paint.glow).opacity(Double(a))
+            drawParticle(p, shape: style.particleShape, size: s, tint: tint, into: &glow)
         }
+
+        // point whispers
+        for n in sim.notes {
+            let a = Double(max(0, min(1, n.life)))
+            let text = Text(n.text)
+                .font(.system(size: 11, design: .serif))
+                .italic()
+                .foregroundColor(noteColor.opacity(a * 0.85))
+            glow.draw(text, at: n.pos, anchor: .center)
+        }
+    }
+
+    private func drawParticle(_ p: Particle, shape: ParticleShape, size s: CGFloat,
+                              tint: GraphicsContext.Shading, into glow: inout GraphicsContext) {
+        switch shape {
+        case .dot:
+            let rect = CGRect(x: p.pos.x - s, y: p.pos.y - s, width: s * 2, height: s * 2)
+            glow.fill(Path(ellipseIn: rect), with: tint)
+
+        case .spark:
+            let angle = atan2(p.vel.dy, p.vel.dx)
+            let dx = cos(angle) * s * 1.8
+            let dy = sin(angle) * s * 1.8
+            var path = Path()
+            path.move(to: CGPoint(x: p.pos.x - dx, y: p.pos.y - dy))
+            path.addLine(to: CGPoint(x: p.pos.x + dx, y: p.pos.y + dy))
+            glow.stroke(path, with: tint, lineWidth: max(0.8, s * 0.6))
+
+        case .petal:
+            let angle = atan2(p.vel.dy, p.vel.dx)
+            let rect = CGRect(x: p.pos.x - s * 1.5, y: p.pos.y - s * 0.7,
+                              width: s * 3, height: s * 1.4)
+            let transform = CGAffineTransform(translationX: p.pos.x, y: p.pos.y)
+                .rotated(by: angle)
+                .translatedBy(x: -p.pos.x, y: -p.pos.y)
+            glow.fill(Path(ellipseIn: rect).applying(transform), with: tint)
+
+        case .shard:
+            let angle = atan2(p.vel.dy, p.vel.dx)
+            var path = Path()
+            path.move(to: point(from: p.pos, angle: angle, distance: s * 1.7))
+            path.addLine(to: point(from: p.pos, angle: angle + 2.4, distance: s))
+            path.addLine(to: point(from: p.pos, angle: angle - 2.4, distance: s))
+            path.closeSubpath()
+            glow.fill(path, with: tint)
+
+        case .ring:
+            let rect = CGRect(x: p.pos.x - s, y: p.pos.y - s, width: s * 2, height: s * 2)
+            glow.stroke(Path(ellipseIn: rect), with: tint, lineWidth: max(0.7, s * 0.45))
+        }
+    }
+
+    private func point(from origin: CGPoint, angle: CGFloat, distance: CGFloat) -> CGPoint {
+        CGPoint(x: origin.x + cos(angle) * distance,
+                y: origin.y + sin(angle) * distance)
+    }
+
+    private func color(_ c: PopColor) -> Color {
+        Color(red: c.r, green: c.g, blue: c.b)
     }
 }

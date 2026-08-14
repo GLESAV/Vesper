@@ -6,12 +6,16 @@ import Foundation
 // and every side effect (sound, haptics, UI) is expressed as a returned
 // GameEvent for the view model to act on. This is what makes the game
 // unit-testable and frame-rate independent.
+//
+// Content is data: each orb carries a pop number into PopCatalog, and the
+// sim reads that pop's behavior/chain values (see PopStandard.swift).
 final class GameSimulation {
 
     private(set) var orbs: [Orb] = []
     private(set) var particles: [Particle] = []
     private(set) var rings: [Ring] = []
     private(set) var motes: [Mote] = []
+    private(set) var notes: [FloatNote] = []
 
     private(set) var popCount = 0
     private(set) var completed = false
@@ -19,6 +23,10 @@ final class GameSimulation {
     private(set) var bounds: CGSize = .zero
 
     var reduceMotion = false
+
+    // The pops a new field may seed from (unlock logic lives in the view
+    // model / ProgressionStore; the sim just samples what it's given).
+    var availablePops: [Int] = [PopCatalog.classic.number]
 
     private var rng: SplitMix64
 
@@ -29,7 +37,7 @@ final class GameSimulation {
     // True once the field is cleared and every visual effect has faded —
     // the moment rendering can stop entirely.
     var isQuiescent: Bool {
-        completed && particles.isEmpty && rings.isEmpty
+        completed && particles.isEmpty && rings.isEmpty && notes.isEmpty
     }
 
     // MARK: - Setup
@@ -45,8 +53,11 @@ final class GameSimulation {
     func seedField() {
         orbs.removeAll()
         guard bounds.width > 0 else { return }
+        let pool = availablePops.isEmpty ? [PopCatalog.classic.number] : availablePops
         let count = Int.random(in: GameConfig.orbCountRange, using: &rng)
         for _ in 0..<count {
+            let popNumber = pool.randomElement(using: &rng) ?? PopCatalog.classic.number
+            let paintCount = PopCatalog.definition(for: popNumber).style.paints.count
             let r = rnd(GameConfig.orbRadiusRange)
             let inset = GameConfig.edgeInset
             var orb = Orb(
@@ -55,7 +66,8 @@ final class GameSimulation {
                 vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed),
                               dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed)),
                 r: r, baseR: r,
-                paintIndex: Int.random(in: 0..<GameConfig.paintCount, using: &rng),
+                popNumber: popNumber,
+                variantIndex: Int.random(in: 0..<max(1, paintCount), using: &rng),
                 phase: rnd(0 ... .pi * 2))
             orb.spawn = 1
             orbs.append(orb)
@@ -80,6 +92,7 @@ final class GameSimulation {
     func restart() {
         particles.removeAll()
         rings.removeAll()
+        notes.removeAll()
         popCount = 0
         completed = false
         started = false
@@ -92,9 +105,16 @@ final class GameSimulation {
         orbs = newOrbs
         particles.removeAll()
         rings.removeAll()
+        notes.removeAll()
         popCount = 0
         completed = false
         started = false
+    }
+
+    // A soft text whisper that drifts up from a point and fades.
+    func addNote(at p: CGPoint, text: String) {
+        notes.append(FloatNote(pos: p, text: text, life: 1))
+        if notes.count > 8 { notes.removeFirst(notes.count - 8) }
     }
 
     // MARK: - Input
@@ -123,18 +143,28 @@ final class GameSimulation {
         popCount += 1
 
         let orb = orbs[index]
+        let def = PopCatalog.definition(for: orb.popNumber)
         events.append(.popped(orb: orb, chained: chained))
         if orb.isFortune {
             events.append(.fortuneRevealed)
         }
 
-        spawnBurst(for: orb)
-        rings.append(Ring(pos: orb.pos,
-                          r: orb.baseR * 0.5,
-                          maxR: GameConfig.ringBaseMaxRadius + orb.baseR * GameConfig.ringRadiusPerOrbRadius,
-                          life: 1,
-                          paintIndex: orb.paintIndex,
-                          popped: chained))
+        spawnBurst(for: orb, def: def)
+
+        // Only the first ring of a direct pop arms further chains; echo
+        // rings — extras, and any ring from a chained pop — are visual only.
+        for k in 0..<max(1, def.chain.ringCount) {
+            let scale = 1 - 0.28 * CGFloat(k)
+            rings.append(Ring(
+                pos: orb.pos,
+                r: orb.baseR * 0.5 * scale,
+                maxR: (CGFloat(def.chain.maxRadiusBase)
+                       + orb.baseR * CGFloat(def.chain.maxRadiusPerOrbRadius)) * scale,
+                life: 1,
+                popNumber: orb.popNumber,
+                variantIndex: orb.variantIndex,
+                popped: chained || k > 0))
+        }
 
         if !completed && orbs.allSatisfy({ !$0.alive }) {
             completed = true
@@ -142,23 +172,26 @@ final class GameSimulation {
         }
     }
 
-    private func spawnBurst(for orb: Orb) {
+    private func spawnBurst(for orb: Orb, def: PopDefinition) {
         let strength = orb.baseR / GameConfig.orbRadiusRange.upperBound
-        var n = GameConfig.particleBaseCount + Int(orb.baseR)
+        var n = def.behavior.particleCountBase + Int(orb.baseR)
         if reduceMotion { n /= 2 }
         let overflow = particles.count + n - GameConfig.particleCap
         if overflow > 0 {
             particles.removeFirst(min(overflow, particles.count))
         }
+        let speed = def.behavior.particleSpeedRange
+        let size = def.style.particleSizeRange
         for _ in 0..<n {
             let a = rnd(0 ... .pi * 2)
-            let sp = rnd(1.2 ... 6) * (0.7 + strength)
+            let sp = rnd(CGFloat(speed.lowerBound) ... CGFloat(speed.upperBound)) * (0.7 + strength)
             particles.append(Particle(
                 pos: orb.pos,
                 vel: CGVector(dx: cos(a) * sp, dy: sin(a) * sp - rnd(0 ... 0.8)),
                 life: 1, decay: rnd(0.01 ... 0.024),
-                size: rnd(1.2 ... 3.4),
-                paintIndex: orb.paintIndex))
+                size: rnd(CGFloat(size.lowerBound) ... CGFloat(size.upperBound)),
+                popNumber: orb.popNumber,
+                variantIndex: orb.variantIndex))
         }
     }
 
@@ -174,6 +207,7 @@ final class GameSimulation {
         stepRings(f, into: &events)
         stepParticles(f)
         stepMotes(f)
+        stepNotes(f)
 
         return events
     }
@@ -210,20 +244,21 @@ final class GameSimulation {
     private func stepRings(_ f: CGFloat, into events: inout [GameEvent]) {
         let rc = rings.count
         for i in 0..<rc {
-            rings[i].r += (rings[i].maxR - rings[i].r) * GameConfig.ringGrowthFactor * f
-                + GameConfig.ringGrowthLinear * f
-            rings[i].life -= GameConfig.ringLifeDecay * f
+            let cb = PopCatalog.definition(for: rings[i].popNumber).chain
+            rings[i].r += (rings[i].maxR - rings[i].r) * CGFloat(cb.growthFactor) * f
+                + CGFloat(cb.growthLinear) * f
+            rings[i].life -= CGFloat(cb.lifeDecay) * f
 
             if !rings[i].popped && rings[i].r > GameConfig.ringArmRadius {
                 let rr = rings[i].r
                 for j in orbs.indices where orbs[j].alive {
                     let d = hypot(orbs[j].pos.x - rings[i].pos.x,
                                   orbs[j].pos.y - rings[i].pos.y)
-                    if d < rr + orbs[j].r && d > rr - GameConfig.ringShellThickness {
+                    if d < rr + orbs[j].r && d > rr - CGFloat(cb.shellThickness) {
                         detonate(index: j, chained: true, into: &events)
                     }
                 }
-                if rings[i].r > rings[i].maxR * GameConfig.ringDisarmFraction {
+                if rings[i].r > rings[i].maxR * CGFloat(cb.disarmFraction) {
                     rings[i].popped = true
                 }
             }
@@ -234,7 +269,8 @@ final class GameSimulation {
     private func stepParticles(_ f: CGFloat) {
         let damp = pow(GameConfig.particleDamping, f)
         for i in particles.indices {
-            particles[i].vel.dy += GameConfig.particleGravity * f
+            let gravity = CGFloat(PopCatalog.definition(for: particles[i].popNumber).behavior.particleGravity)
+            particles[i].vel.dy += gravity * f
             particles[i].vel.dx *= damp
             particles[i].vel.dy *= damp
             particles[i].pos.x += particles[i].vel.dx * f
@@ -255,6 +291,14 @@ final class GameSimulation {
             if motes[i].pos.x < -4 { motes[i].pos.x = bounds.width + 4 }
             if motes[i].pos.x > bounds.width + 4 { motes[i].pos.x = -4 }
         }
+    }
+
+    private func stepNotes(_ f: CGFloat) {
+        for i in notes.indices {
+            notes[i].pos.y -= 0.35 * f
+            notes[i].life -= 0.016 * f
+        }
+        notes.removeAll { $0.life <= 0 }
     }
 
     // MARK: - Helpers

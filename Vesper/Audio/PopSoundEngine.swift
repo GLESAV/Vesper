@@ -1,11 +1,13 @@
 import AVFoundation
 
-// Synthesizes every sound in the game — no audio assets. Pop buffers are
-// pre-rendered at init (8 pitch buckets × 3 detuned variants) so playback is
-// just scheduling: no per-tap synthesis on the main thread, ~zero latency.
-// A pool of player nodes lets chain reactions overlap instead of cutting
-// each other off. Sound is a nice-to-have throughout: every failure path
-// degrades to silence, never to a crash.
+// Synthesizes every sound in the game — no audio assets. Each pop's
+// SoundProfile (see PopStandard.swift) is rendered into a small bank of
+// buffers (pitch buckets × detuned variants) the first time it's needed —
+// ideally at field-seed time via prepare(_:) — so playback is just
+// scheduling: no synthesis on the tap path, ~zero latency. A pool of player
+// nodes lets chain reactions overlap instead of cutting each other off.
+// Sound is a nice-to-have throughout: every failure path degrades to
+// silence, never to a crash.
 final class PopSoundEngine {
     static let shared = PopSoundEngine()
 
@@ -15,9 +17,11 @@ final class PopSoundEngine {
     private var players: [AVAudioPlayerNode] = []
     private var nextPlayerIndex = 0
 
-    private let pitchBuckets = 8
-    private let variantsPerBucket = 3
-    private var popBuffers: [[AVAudioPCMBuffer]] = []
+    private let pitchBuckets = 6
+    private let variantsPerBucket = 2
+    private var bank: [SoundProfile: [[AVAudioPCMBuffer]]] = [:]
+    private var bankOrder: [SoundProfile] = []          // insertion order, for eviction
+    private let bankLimit = 14                          // ≈ profiles worth of buffers kept
     private var chimeBuffer: AVAudioPCMBuffer?
 
     private init() {
@@ -28,7 +32,8 @@ final class PopSoundEngine {
             engine.connect(node, to: engine.mainMixerNode, format: format)
             players.append(node)
         }
-        renderBuffers()
+        prepare([PopCatalog.classic.behavior.sound])
+        chimeBuffer = makeChimeBuffer()
         configureSession()
         observeInterruptions()
         ensureRunning()
@@ -38,16 +43,40 @@ final class PopSoundEngine {
     // call site a name.
     func warmUp() {}
 
+    // MARK: - Buffer bank
+
+    // Render banks for the given profiles if not already cached. Call at
+    // field-seed time so first pops never pay a synthesis cost.
+    func prepare(_ profiles: [SoundProfile]) {
+        for profile in profiles where bank[profile] == nil {
+            var buckets: [[AVAudioPCMBuffer]] = []
+            for b in 0..<pitchBuckets {
+                let pitch = Double(b) / Double(pitchBuckets - 1)
+                buckets.append((0..<variantsPerBucket).compactMap { _ in
+                    makePopBuffer(profile: profile, pitch: pitch,
+                                  detune: Double.random(in: -12...12))
+                })
+            }
+            bank[profile] = buckets
+            bankOrder.append(profile)
+        }
+        while bankOrder.count > bankLimit {
+            bank.removeValue(forKey: bankOrder.removeFirst())
+        }
+    }
+
     // MARK: - Playback
 
     // pitch: 0 = large/deep orb, 1 = small/bright orb
-    func playPop(pitch: Double) {
+    func playPop(profile: SoundProfile, pitch: Double) {
         guard SettingsStore.shared.soundEnabled else { return }
         ensureRunning()
-        guard engine.isRunning, !popBuffers.isEmpty else { return }
+        guard engine.isRunning else { return }
+        if bank[profile] == nil { prepare([profile]) }
+        guard let buckets = bank[profile] else { return }
         let clamped = min(1, max(0, pitch))
         let bucket = Int((clamped * Double(pitchBuckets - 1)).rounded())
-        guard let buffer = popBuffers[bucket].randomElement() else { return }
+        guard bucket < buckets.count, let buffer = buckets[bucket].randomElement() else { return }
         play(buffer)
     }
 
@@ -104,24 +133,17 @@ final class PopSoundEngine {
 
     // MARK: - Synthesis
 
-    private func renderBuffers() {
-        popBuffers = (0..<pitchBuckets).map { bucket in
-            let pitch = Double(bucket) / Double(pitchBuckets - 1)
-            return (0..<variantsPerBucket).compactMap { _ in
-                makePopBuffer(pitch: pitch, detune: Double.random(in: -12...12))
-            }
-        }
-        chimeBuffer = makeChimeBuffer()
-    }
-
-    private func makePopBuffer(pitch: Double, detune: Double) -> AVAudioPCMBuffer? {
-        let duration = 0.14
+    private func makePopBuffer(profile: SoundProfile, pitch: Double,
+                               detune: Double) -> AVAudioPCMBuffer? {
+        let duration = profile.duration
         let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
         buffer.frameLength = frameCount
 
-        let startFreq = 460.0 + pitch * 420.0 + detune
-        let endFreq = startFreq * 0.55
+        let startFreq = profile.startFreq + pitch * profile.freqSpread + detune
+        let endFreq = startFreq * profile.sweep
         let channel = buffer.floatChannelData![0]
 
         for frame in 0..<Int(frameCount) {
@@ -130,8 +152,13 @@ final class PopSoundEngine {
             let freq = startFreq + (endFreq - startFreq) * progress
             let phase = 2.0 * .pi * freq * t
             let attack = sin(min(1, progress * 40) * .pi / 2)
-            let decay = exp(-progress * 7.5)
-            channel[frame] = Float(sin(phase) * attack * decay * 0.5)
+            let decay = exp(-progress * profile.decay)
+            var sample = sin(phase)
+            if profile.brightness > 0 {
+                sample += sin(phase * 2) * profile.brightness
+            }
+            let norm = 1.0 + profile.brightness
+            channel[frame] = Float(sample / norm * attack * decay * 0.5)
         }
         return buffer
     }

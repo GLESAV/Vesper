@@ -2,11 +2,11 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = GameViewModel()
-    @ObservedObject private var settings = SettingsStore.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var pulse = false
     @State private var showSettings = false
+    @State private var showJourney = false
 
     private let renderer = SceneRenderer()
 
@@ -45,7 +45,8 @@ struct ContentView: View {
 
             if model.showDone {
                 DoneCard(count: model.count,
-                         lifetimePops: settings.lifetimePops,
+                         sessionPoints: model.sessionPoints,
+                         lifetimePops: model.progression.lifetimePops,
                          onRestart: model.restart)
             }
         }
@@ -59,6 +60,10 @@ struct ContentView: View {
         .onChange(of: reduceMotion) { _, value in model.sim.reduceMotion = value }
         .sheet(isPresented: $showSettings) {
             SettingsSheet()
+                .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showJourney) {
+            JourneySheet(model: model)
                 .preferredColorScheme(.dark)
         }
     }
@@ -89,6 +94,15 @@ struct ContentView: View {
                     .tracking(4)
                     .foregroundColor(Color(red: 139/255, green: 134/255, blue: 163/255))
                     .accessibilityHidden(true)
+                if model.sessionPoints > 0 {
+                    Text("\(model.sessionPoints) pop points")
+                        .font(.system(size: 9))
+                        .tracking(1.5)
+                        .monospacedDigit()
+                        .foregroundColor(Color(red: 139/255, green: 134/255, blue: 163/255).opacity(0.8))
+                        .padding(.top, 2)
+                        .transition(.opacity)
+                }
                 if let note = model.chainNote {
                     Text(note)
                         .font(.system(size: 11, design: .serif))
@@ -96,6 +110,19 @@ struct ContentView: View {
                         .foregroundColor(Color(red: 195/255, green: 175/255, blue: 220/255).opacity(0.75))
                         .transition(.opacity)
                         .padding(.top, 4)
+                }
+                if let note = model.unlockNote {
+                    Text("✦ \(note)")
+                        .font(.system(size: 11, design: .serif))
+                        .italic()
+                        .foregroundColor(Color(red: 214/255, green: 204/255, blue: 230/255).opacity(0.9))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Color(red: 24/255, green: 22/255, blue: 34/255).opacity(0.85))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        .padding(.top, 10)
                 }
             }
             .padding(.top, 8)
@@ -122,6 +149,9 @@ struct ContentView: View {
                     showSettings = true
                 }
                 Spacer()
+                glassButton(systemName: "sparkles", label: "The journey") {
+                    showJourney = true
+                }
                 glassButton(systemName: "arrow.clockwise", label: "Start over") {
                     model.restart()
                 }

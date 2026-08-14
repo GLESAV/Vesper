@@ -1,7 +1,8 @@
 import SwiftUI
 
 // Bridges the pure simulation to everything worldly: published UI state,
-// sound, haptics, persisted stats, and the timing of cards and whispers.
+// sound, haptics, pop points and unlocks, and the timing of cards and
+// whispers. Scoring rules: docs/pop_points.md · unlocks: docs/pop_progression.md.
 final class GameViewModel: ObservableObject {
 
     @Published private(set) var count = 0
@@ -10,17 +11,35 @@ final class GameViewModel: ObservableObject {
     @Published var showFortune = false
     @Published private(set) var fortuneText = ""
     @Published private(set) var chainNote: String?
+    @Published private(set) var unlockNote: String?
+    @Published private(set) var sessionPoints = 0
     @Published private(set) var renderingPaused = false
 
     let sim = GameSimulation()
     let settings = SettingsStore.shared
+    let progression = ProgressionStore.shared
 
     private var lastFrameDate: Date?
     private var fortuneDismissWork: DispatchWorkItem?
     private var chainFadeWork: DispatchWorkItem?
+    private var unlockFadeWork: DispatchWorkItem?
     private var doneRevealWork: DispatchWorkItem?
     private var lastPopAt: Date?
     private var chainStreak = 0
+    private var knownUnlocked: Set<Int>
+
+    init() {
+        knownUnlocked = progression.unlockedNumbers()
+        applyFieldPops()
+    }
+
+    private func applyFieldPops() {
+        let pops = progression.fieldPops()
+        sim.availablePops = pops
+        PopSoundEngine.shared.prepare(pops.map {
+            PopCatalog.definition(for: $0).behavior.sound
+        })
+    }
 
     // MARK: - Frame
 
@@ -61,13 +80,17 @@ final class GameViewModel: ObservableObject {
         dismissFortune()
         chainFadeWork?.cancel()
         chainNote = nil
+        unlockFadeWork?.cancel()
+        unlockNote = nil
         chainStreak = 0
         lastPopAt = nil
         lastFrameDate = nil
         count = 0
+        sessionPoints = 0
         started = false
         renderingPaused = false
         withAnimation(.easeInOut(duration: 0.35)) { showDone = false }
+        applyFieldPops()
         sim.restart()
     }
 
@@ -79,28 +102,51 @@ final class GameViewModel: ObservableObject {
             case .popped(let orb, let chained):
                 handlePop(orb: orb, chained: chained)
             case .fortuneRevealed:
+                progression.recordFortune()
                 triggerFortune()
             case .cleared:
                 handleCleared()
             }
         }
+        if !events.isEmpty { checkUnlocks() }
     }
 
     private func handlePop(orb: Orb, chained: Bool) {
         count = sim.popCount
         started = true
-        settings.recordPop()
 
+        let def = PopCatalog.definition(for: orb.popNumber)
         let range = GameConfig.orbRadiusRange
         let sizeNorm = Double((orb.baseR - range.lowerBound) / (range.upperBound - range.lowerBound))
-        PopSoundEngine.shared.playPop(pitch: 1 - sizeNorm)
-        HapticsEngine.shared.pop(intensity: 0.35 + sizeNorm * 0.5, chained: chained)
+
+        PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1 - sizeNorm)
+        HapticsEngine.shared.pop(profile: def.behavior.haptic, sizeNorm: sizeNorm, chained: chained)
 
         noteChainProgress()
+
+        let earned = points(for: def, sizeNorm: sizeNorm, fortune: orb.isFortune)
+        sessionPoints += earned
+        progression.recordPop(popNumber: orb.popNumber, points: earned,
+                              chainLength: chainStreak)
+        if settings.pointWhispersEnabled {
+            sim.addNote(at: CGPoint(x: orb.pos.x, y: orb.pos.y - orb.baseR - 8),
+                        text: "+\(earned)")
+        }
+    }
+
+    // Scoring per docs/pop_points.md: rarity base × size × chain multiplier,
+    // plus the fortune bonus. Points only ever add.
+    private func points(for def: PopDefinition, sizeNorm: Double, fortune: Bool) -> Int {
+        var value = Double(def.rarity.pointValue) * (1 + 0.5 * sizeNorm)
+        let multiplier = min(1 + 0.1 * Double(max(0, chainStreak - 1)), 2.0)
+        value *= multiplier
+        if fortune { value += 50 }
+        return Int(value.rounded())
     }
 
     private func handleCleared() {
-        settings.recordClear()
+        sessionPoints += 100
+        progression.recordClear(bonus: 100)
         doneRevealWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.sim.completed else { return }
@@ -110,6 +156,27 @@ final class GameViewModel: ObservableObject {
         }
         doneRevealWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + GameConfig.doneRevealDelay, execute: work)
+    }
+
+    // MARK: - Unlocks
+
+    private func checkUnlocks() {
+        let unlocked = progression.unlockedNumbers()
+        let fresh = unlocked.subtracting(knownUnlocked)
+        knownUnlocked = unlocked
+        guard !fresh.isEmpty else { return }
+
+        let names = fresh.sorted().map { PopCatalog.definition(for: $0).name }
+        let text = names.count == 1
+            ? "new pop · \(names[0])"
+            : "\(names.count) new pops found"
+        withAnimation(.easeOut(duration: 0.4)) { unlockNote = text }
+        unlockFadeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            withAnimation(.easeInOut(duration: 0.6)) { self?.unlockNote = nil }
+        }
+        unlockFadeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
     }
 
     // MARK: - Chain whisper

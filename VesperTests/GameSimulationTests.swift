@@ -17,7 +17,7 @@ final class GameSimulationTests: XCTestCase {
 
     private func orb(at pos: CGPoint, r: CGFloat, fortune: Bool = false) -> Orb {
         var o = Orb(pos: pos, vel: .zero, r: r, baseR: r,
-                    paintIndex: 0, phase: 0)
+                    popNumber: PopCatalog.classic.number, variantIndex: 0, phase: 0)
         o.spawn = 1
         o.isFortune = fortune
         return o
@@ -48,8 +48,21 @@ final class GameSimulationTests: XCTestCase {
         for (x, y) in zip(a.orbs, b.orbs) {
             XCTAssertEqual(x.pos, y.pos)
             XCTAssertEqual(x.baseR, y.baseR)
-            XCTAssertEqual(x.paintIndex, y.paintIndex)
+            XCTAssertEqual(x.popNumber, y.popNumber)
+            XCTAssertEqual(x.variantIndex, y.variantIndex)
             XCTAssertEqual(x.isFortune, y.isFortune)
+        }
+    }
+
+    func testFieldSeedsOnlyFromAvailablePops() {
+        let sim = GameSimulation(seed: 5)
+        sim.availablePops = [11, 21]
+        sim.layout(size: screen)
+        XCTAssertFalse(sim.orbs.isEmpty)
+        for o in sim.orbs {
+            XCTAssertTrue([11, 21].contains(o.popNumber))
+            let paints = PopCatalog.definition(for: o.popNumber).style.paints
+            XCTAssertTrue(o.variantIndex >= 0 && o.variantIndex < paints.count)
         }
     }
 

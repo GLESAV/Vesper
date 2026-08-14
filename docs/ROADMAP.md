@@ -46,7 +46,24 @@ Multisensory polish that makes every pop land, with zero new pressure.
 
 **Acceptance:** STRATEGY §7 criteria all met.
 
-## M2 — Depth, not breadth (v1.2 proposal)
+## M1.5 — The Collection Update (v1.2) ✅ *delivered in this branch*
+
+The pop engine: content as data, progression as a journey.
+
+- [x] Formal pop standard (`docs/pop_standard.md`) — style/behavior/chain/unlock
+      as pure data; engine interprets, authoring never touches engine code
+- [x] Pop #001 codifies the original v1.0 pop exactly (test-pinned)
+- [x] 100 unique pops across ten families, all inside the tested envelopes
+- [x] Pop points (`docs/pop_points.md`) — affirming-only scoring: whispers,
+      session line, done-card summary
+- [x] The Journey (`docs/pop_progression.md`) — six phases, kind unlock rules,
+      featured pop / Drift, collection + records screen
+- [x] Catalog + progression test suites
+
+**Acceptance:** classic pop byte-identical (tests); no pressure mechanics added
+(points only accrue, unlocks only open); CI green.
+
+## M2 — Depth, not breadth (v1.3 proposal)
 
 More texture inside the same loop. Candidates (each needs pillar review):
 
@@ -62,7 +79,7 @@ More texture inside the same loop. Candidates (each needs pillar review):
 
 **Acceptance:** still no score, timer, or failure; cold-launch and frame budgets hold.
 
-## M3 — Reach (v1.3+ proposal)
+## M3 — Reach (v1.4+ proposal)
 
 Same game, more people, still no data collected.
 
