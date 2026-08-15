@@ -49,9 +49,12 @@ Vesper/                     App source (Xcode file-system-synchronized group —
 │   ├── Fortunes.swift      Fortune message strings
 │   ├── GameViewModel.swift ObservableObject; bridges sim → UI, audio, haptics,
 │   │                       points, unlocks
-│   └── Pops/
-│       ├── PopStandard.swift  The formal pop schema (style/behavior/chain/unlock)
-│       └── PopCatalog.swift   All 100 pops as data; #001 codifies the v1.0 pop
+│   ├── Pops/
+│   │   ├── PopStandard.swift  The formal pop schema (style/behavior/chain/unlock)
+│   │   └── PopCatalog.swift   All 100 pops as data; #001 codifies the v1.0 pop
+│   └── Map/
+│       ├── PopMap.swift       MapStone + pure seeded generation (The Path)
+│       └── MapStore.swift     Map state, persistence, 3-day road fading
 ├── Rendering/
 │   └── SceneRenderer.swift Palette + Canvas drawing (motes, orbs, rings, particles)
 ├── Audio/
@@ -67,6 +70,7 @@ Vesper/                     App source (Xcode file-system-synchronized group —
     ├── TapCatcherView.swift  UIKit tap recognizer (see note below)
     ├── SettingsSheet.swift Toggles + headline stats
     ├── JourneySheet.swift  Collection grid, records, featured-pop selection
+    ├── PathSheet.swift     The infinite pop map (stepping stones)
     └── Cards.swift         Fortune card + done card
 
 VesperTests/                Unit tests for GameSimulation (XCTest, @testable)
@@ -142,3 +146,4 @@ simulation free of UI imports, and rely on the CI workflow to verify the build.
 - `docs/pop_standard.md` — the formal pop schema, envelopes, and authoring rules
 - `docs/pop_progression.md` — the journey: phases, unlock rules, featuring/Drift
 - `docs/pop_points.md` — scoring formula and how stats surface in/out of game
+- `docs/pop_map.md` — The Path: infinite stepping-stone map, roads, 3-day fading

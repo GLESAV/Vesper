@@ -16,6 +16,9 @@ struct VesperApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             PopSoundEngine.shared.setActive(phase == .active)
+            if phase == .active {
+                MapStore.shared.prune()
+            }
         }
     }
 }

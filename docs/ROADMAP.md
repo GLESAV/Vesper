@@ -63,6 +63,24 @@ The pop engine: content as data, progression as a journey.
 **Acceptance:** classic pop byte-identical (tests); no pressure mechanics added
 (points only accrue, unlocks only open); CI green.
 
+## M1.6 — The Path Update (v1.2) ✅ *delivered in this branch*
+
+The infinite pop map (`docs/pop_map.md`): navigation that lets go of itself.
+
+- [x] Stepping-stone map: one stone to start; a first clear opens 1–3 roads;
+      every visible stone playable and replayable
+- [x] Each stone fields 1–2 pops (rarely 3), distinct from parent/siblings;
+      ~35% host a locked "visitor" pop, playable there only
+- [x] The road behind fades after 3 days, down to the anchor stone + its roads
+- [x] Deterministic seeded generation; JSON persistence; launch still lands
+      straight in a field (pillar P1)
+- [x] PathSheet map screen + soft "the path continues / forks" notes
+- [x] MapStoreTests: genesis, road opening, uniqueness, determinism, fading,
+      persistence
+
+**Acceptance:** no locked-state walls on the map; anchor + roads ahead never
+fade; CI green.
+
 ## M2 — Depth, not breadth (v1.3 proposal)
 
 More texture inside the same loop. Candidates (each needs pillar review):

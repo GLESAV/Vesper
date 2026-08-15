@@ -12,17 +12,20 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var fortuneText = ""
     @Published private(set) var chainNote: String?
     @Published private(set) var unlockNote: String?
+    @Published private(set) var pathNote: String?
     @Published private(set) var sessionPoints = 0
     @Published private(set) var renderingPaused = false
 
     let sim = GameSimulation()
     let settings = SettingsStore.shared
     let progression = ProgressionStore.shared
+    let map = MapStore.shared
 
     private var lastFrameDate: Date?
     private var fortuneDismissWork: DispatchWorkItem?
     private var chainFadeWork: DispatchWorkItem?
     private var unlockFadeWork: DispatchWorkItem?
+    private var pathFadeWork: DispatchWorkItem?
     private var doneRevealWork: DispatchWorkItem?
     private var lastPopAt: Date?
     private var chainStreak = 0
@@ -30,15 +33,31 @@ final class GameViewModel: ObservableObject {
 
     init() {
         knownUnlocked = progression.unlockedNumbers()
+        map.ensureGenesis(unlocked: knownUnlocked)
         applyFieldPops()
     }
 
+    // A field seeds from the stone you stand on; free play (featured/Drift)
+    // when you're not on the path.
     private func applyFieldPops() {
-        let pops = progression.fieldPops()
+        let pops = map.activeStone?.popNumbers ?? progression.fieldPops()
         sim.availablePops = pops
         PopSoundEngine.shared.prepare(pops.map {
             PopCatalog.definition(for: $0).behavior.sound
         })
+    }
+
+    // MARK: - The Path
+
+    func playStone(_ stone: MapStone) {
+        map.setActive(stone.id)
+        restart()
+    }
+
+    // Featured/Drift selections step off the path into free play.
+    func leavePath() {
+        map.setActive(nil)
+        restart()
     }
 
     // MARK: - Frame
@@ -82,6 +101,8 @@ final class GameViewModel: ObservableObject {
         chainNote = nil
         unlockFadeWork?.cancel()
         unlockNote = nil
+        pathFadeWork?.cancel()
+        pathNote = nil
         chainStreak = 0
         lastPopAt = nil
         lastFrameDate = nil
@@ -147,6 +168,16 @@ final class GameViewModel: ObservableObject {
     private func handleCleared() {
         sessionPoints += 100
         progression.recordClear(bonus: 100)
+
+        if map.activeStoneID != nil {
+            let roads = map.recordClear(unlocked: progression.unlockedNumbers())
+            if !roads.isEmpty {
+                showPathNote(roads.count == 1
+                    ? "the path continues"
+                    : "the path forks — \(roads.count) roads ahead")
+            }
+        }
+
         doneRevealWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.sim.completed else { return }
@@ -176,6 +207,16 @@ final class GameViewModel: ObservableObject {
             withAnimation(.easeInOut(duration: 0.6)) { self?.unlockNote = nil }
         }
         unlockFadeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+    }
+
+    private func showPathNote(_ text: String) {
+        withAnimation(.easeOut(duration: 0.4)) { pathNote = text }
+        pathFadeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            withAnimation(.easeInOut(duration: 0.6)) { self?.pathNote = nil }
+        }
+        pathFadeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
     }
 

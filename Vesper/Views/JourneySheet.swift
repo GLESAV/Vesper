@@ -191,7 +191,7 @@ struct JourneySheet: View {
     private var driftRow: some View {
         Button {
             progression.featuredPop = nil
-            model.restart()
+            model.leavePath()
             dismiss()
         } label: {
             HStack(spacing: 10) {
@@ -233,7 +233,7 @@ struct JourneySheet: View {
         return Button {
             if isUnlocked {
                 progression.featuredPop = def.number
-                model.restart()
+                model.leavePath()
                 dismiss()
             } else {
                 withAnimation(.easeOut(duration: 0.25)) {

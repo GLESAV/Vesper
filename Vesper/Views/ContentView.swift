@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var pulse = false
     @State private var showSettings = false
     @State private var showJourney = false
+    @State private var showPath = false
 
     private let renderer = SceneRenderer()
 
@@ -66,6 +67,10 @@ struct ContentView: View {
             JourneySheet(model: model)
                 .preferredColorScheme(.dark)
         }
+        .sheet(isPresented: $showPath) {
+            PathSheet(model: model)
+                .preferredColorScheme(.dark)
+        }
     }
 
     private var background: some View {
@@ -111,6 +116,14 @@ struct ContentView: View {
                         .transition(.opacity)
                         .padding(.top, 4)
                 }
+                if let note = model.pathNote {
+                    Text(note)
+                        .font(.system(size: 11, design: .serif))
+                        .italic()
+                        .foregroundColor(Color(red: 195/255, green: 175/255, blue: 220/255).opacity(0.8))
+                        .transition(.opacity)
+                        .padding(.top, 6)
+                }
                 if let note = model.unlockNote {
                     Text("✦ \(note)")
                         .font(.system(size: 11, design: .serif))
@@ -147,6 +160,9 @@ struct ContentView: View {
             HStack {
                 glassButton(systemName: "gearshape", label: "Settings") {
                     showSettings = true
+                }
+                glassButton(systemName: "point.3.connected.trianglepath.dotted", label: "The path") {
+                    showPath = true
                 }
                 Spacer()
                 glassButton(systemName: "sparkles", label: "The journey") {
