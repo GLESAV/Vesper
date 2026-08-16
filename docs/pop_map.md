@@ -2,7 +2,7 @@
 
 *Top-level navigation as stepping stones. Implementation:
 `Game/Map/PopMap.swift` (model + pure generation), `Game/Map/MapStore.swift`
-(state, persistence, fading), `Views/PathSheet.swift` (the map screen).
+(state, persistence, the trace), `Views/PathSheet.swift` (the map screen).
 Contract enforced by `VesperTests/MapStoreTests.swift`.*
 
 ## 1. The idea
@@ -10,12 +10,14 @@ Contract enforced by `VesperTests/MapStoreTests.swift`.*
 The Path is an infinite map of **stepping stones across dark water**. Each stone
 is one playable level: a field seeded from that stone's own small set of pops.
 You stand on a stone, clear its field, and the path opens ahead — one road, a
-fork, or (rarely) a three-way. Behind you, the road quietly dissolves.
+fork, or (rarely) a three-way. Behind you, the walked road quietly settles
+into the sky as a thin constellation line — yours forever.
 
-This is Vesper's answer to level navigation: **the map only ever moves forward
-and lets go of itself** — which is the game's whole philosophy, made spatial.
-There is still no failure, no score gate, no timer: every stone that exists is
-playable, and replaying a cleared stone is always allowed.
+This is Vesper's answer to level navigation: **the map only ever moves
+forward, and everything it leaves behind becomes memory, not loss** — the
+game's whole philosophy, made spatial. There is still no failure, no score
+gate, no timer, and nothing ever expires: every stone that exists is playable,
+and replaying a cleared stone is always allowed.
 
 ## 2. The rules
 
@@ -35,21 +37,30 @@ playable, and replaying a cleared stone is always allowed.
 | Reachability | roads exist only once their parent is cleared, so **every stone on the map is playable** — there is no locked state to display |
 | Lanes | children spread left/center/right of the parent, clamped to the banks |
 
-### The fading past
+### The trace
 | Rule | Value |
 |---|---|
-| Fade window | a stone untouched for **3 days** dissolves |
-| Always kept | the **anchor** (the stone you stand on — or your most recently played one) and the roads directly ahead of it |
-| Effect | after a few quiet days the map "twiddles down" to your latest stone plus its open roads; untaken forks fade with the rest of the past |
-| When pruning runs | app foreground, map open, and view-model init |
+| Settle window | a stone untouched for **3 days** settles into the trace |
+| What settling is | the road **transmutes, never disappears**: it becomes a thin, permanent constellation line — quieter and dimmer, the map's memory. Its stones stay tappable and replayable |
+| Always bright | the **anchor** (the stone you stand on — or your most recently played one) and the roads directly ahead of it |
+| Untaken forks | settle into the constellation with the rest of the past — and remain quietly takeable, so there is nothing you could ever "miss" |
+| Effect | after quiet days the map leads with your latest stone plus its open roads; everything walked before hangs above as trace. History only accrues |
+| When settling runs | app foreground, map open, and view-model init |
+
+Nothing is ever pruned or deleted: `MapStore` replaces its 3-day removal pass
+with a settle-state transition (Phase 0 work, contract in `MapStoreTests` —
+*no stone or road is ever removed*). Settled geometry persists compactly
+(position, pops, cleared state), so an unbounded history stays cheap to store
+and draw.
 
 ### Determinism & persistence
 - Every stone carries a `seed`; its roads ahead (count, lanes, pop sets) are
   reproduced deterministically from it (SplitMix64) — testable, and stable if
   generation ever needs replaying.
 - The map persists as JSON in UserDefaults (`vesper.map.stones` / `.active`).
-  Nothing leaves the device. If the whole map ever fades away (long absence,
-  free play), a fresh first stone is laid from the current collection.
+  Nothing leaves the device. The map never empties: a long absence changes how
+  it looks (more constellation, one bright stone), never what you have — coming
+  back from a holiday means finding the sky fuller, not the road gone.
 
 ## 3. How it plays with the other systems
 
@@ -61,24 +72,32 @@ playable, and replaying a cleared stone is always allowed.
   Clearing a stone that opens roads shows a soft note: *"the path continues"* /
   *"the path forks — 3 roads ahead."*
 - **Free play remains:** choosing a featured pop or Drift in the Journey screen
-  steps off the path (the map keeps waiting, and keeps fading, exactly as it
-  would). Tapping any stone steps back on.
+  steps off the path (the map keeps waiting, and keeps settling, exactly as it
+  would). Tapping any stone — bright or trace — steps back on.
 
 ## 4. The map screen
 
 `PathSheet` (dotted-path button in the top bar): stones drawn newest-at-top,
 connected by faint dashed curves — the roads ahead of your stone tinted with
-the accent. Each stone shows its pops as small paint dots and its pop names
-beneath; cleared stones dim and carry a small check; the stone you stand on
-glows. A caption reminds you: *"the road behind fades after three days."*
-VoiceOver reads every stone's pops and state; all stones are 48pt targets.
+the accent. Settled roads render as thin constellation lines with small star
+points where their stones were: quieter than the active path, but always
+there, always tappable. Each active stone shows its pops as small paint dots
+and its pop names beneath; cleared stones dim and carry a small check; the
+stone you stand on glows. A caption, if one is needed at all, speaks of
+keeping, never losing: *"the road behind settles into the sky."* VoiceOver
+reads every stone's pops and state, trace included; all stones are 48pt
+targets.
 
 ## 5. Why these numbers
 
 - **1–3 pops, 1–3 roads** keeps each choice legible at a glance — a fork on a
   calm walk, not a skill tree.
-- **3-day fade** is long enough to revisit yesterday's stone, short enough that
-  the map never becomes a museum of obligation.
+- **3-day settle** is long enough that yesterday's stone is still bright when
+  you return to it, short enough that the map always leads with what's ahead —
+  without the past ever becoming either a museum of obligation or a loss. A
+  decay timer on the player's own history would break "nothing expires"; a
+  trace that only accrues keeps the same visual calm and gives you the sky
+  you earned.
 - **35% visitors** makes the path the place where tomorrow's pops first brush
   past you — wonder without FOMO, since nothing expires that you could "miss":
   new visitors keep arriving forever.
