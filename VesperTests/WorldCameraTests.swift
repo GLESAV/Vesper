@@ -35,6 +35,21 @@ import CoreGraphics
 //   resolves from position → testCommitAfterATransitDragResolvesFromPosition
 //   one continuous fade    → testTransitionCrossesTheCommitSeam*
 //
+// And W05c, the end-of-axis acknowledgement — a gated flick used to produce
+// nothing visible at all, and the light that answers it may not cost anything
+// the rest of this file proves:
+//
+//   the defect closed     → testAGatedFlickAtTheEndOfTheAxisIsAcknowledged
+//   invariant G           → testTheAcknowledgementNeverLeavesTheCameraNotAtRest
+//                         → testTheTapIsNeverSwallowedByAnAcknowledgement
+//   the ends, and only    → testOnlyTheEndsOfTheAxisAcknowledge
+//   exactly zero, always  → testTheAcknowledgementDecaysToExactlyZeroAndParks
+//   frame-rate & stalls   → testTheAcknowledgementIsFrameRateIndependent
+//   condition 11          → testTheAcknowledgementIsIdenticalUnderReduceMotion
+//   condition 13's shape  → testRepeatedFlicksAtTheCeilingDampAndNeverPump
+//                         → testACommitThatTravelsEndsTheAcknowledgementSequence
+//   the two questions     → testIsIdleAndIsAtRestAreDifferentQuestions
+//
 // No timing, no rendering, no randomness: `dt` is synthetic and fixed, exactly
 // as GameSimulationTests drives the sim.
 //
@@ -1367,5 +1382,422 @@ final class WorldCameraTests: XCTestCase {
         camera.viewHeight = 1366   // iPad, mid-session
         XCTAssertEqual(camera.offset, normalized, "the world position is not measured in points")
         XCTAssertEqual(camera.place, .sky)
+    }
+
+    // MARK: - W05c: the end of the axis, answered
+
+    // A trace of the acknowledgement, sampled on every frame from the one it
+    // is armed on to the one it goes out on. Everything a gated flick is
+    // allowed to touch is sampled beside it, because the whole risk of this
+    // feature is that it touches something.
+    private struct AckTrace {
+        var level: [CGFloat] = []
+        var atRest: [Bool] = []
+        var idle: [Bool] = []
+        var offset: [CGFloat] = []
+        var flow: [CGFloat] = []
+        var transiting: [Bool] = []
+        var frames = 0
+
+        var peak: CGFloat { level.max() ?? 0 }
+        var worstStep: CGFloat {
+            guard level.count > 1 else { return 0 }
+            var worst: CGFloat = 0
+            for i in 1..<level.count { worst = max(worst, abs(level[i] - level[i - 1])) }
+            return worst
+        }
+    }
+
+    // Steps until the camera has nothing left to step — `isIdle`, not
+    // `isAtRest`, which is the distinction this whole section exists to make.
+    private func traceAcknowledgement(_ camera: WorldCamera,
+                                      dt: TimeInterval? = nil,
+                                      limit: Int = 10_000) -> AckTrace {
+        let step = dt ?? frame
+        var trace = AckTrace()
+        func sample() {
+            trace.level.append(camera.acknowledgementLevel)
+            trace.atRest.append(camera.isAtRest)
+            trace.idle.append(camera.isIdle)
+            trace.offset.append(camera.offset)
+            trace.flow.append(camera.flow)
+            trace.transiting.append(camera.isTransitioning)
+        }
+        sample()
+        while !camera.isIdle && trace.frames < limit {
+            camera.step(dt: step)
+            trace.frames += 1
+            sample()
+        }
+        XCTAssertTrue(camera.isIdle, "the acknowledgement did not finish within \(limit) frames")
+        return trace
+    }
+
+    // Parks the camera at rest in `place`, with nothing left burning.
+    private func park(_ camera: WorldCamera, at place: Place) {
+        guard place != camera.place else { return }
+        camera.consume(.commit(place.rawValue < camera.place.rawValue ? .up : .down, velocity: 0))
+        runSettle(camera)
+        while !camera.isIdle { camera.step(dt: frame) }
+        XCTAssertEqual(camera.place, place)
+    }
+
+    // THE DEFECT, CLOSED. She is at the sky and flicks upward. The gesture
+    // passes both of the arbiter's commit gates and arrives here as a real
+    // `.commit`; the axis clamps, so the destination is the place she is
+    // already standing in and the camera does not move a pixel. Before W05c
+    // that was the whole of it — she asked and the world did not answer, which
+    // is the same class of defect as a swallowed tap.
+    func testAGatedFlickAtTheEndOfTheAxisIsAcknowledged() {
+        for (place, direction) in [(Place.sky, WorldDirection.up), (.journal, .down)] {
+            let camera = makeCamera()
+            park(camera, at: place)
+            XCTAssertNil(camera.edgeAcknowledgement, "nothing should be lit before she asks")
+
+            let before = camera.offset
+            camera.consume(.commit(direction, velocity: 2400))
+
+            XCTAssertFalse(camera.isIdle,
+                           "\(place): the world must wake up to run the envelope, or the pause "
+                           + "predicate leaves it frozen at zero")
+            camera.step(dt: frame)
+            let answer = camera.edgeAcknowledgement
+            XCTAssertNotNil(answer, "\(place): the world did not answer a gated flick")
+            XCTAssertEqual(answer?.edge, direction,
+                           "\(place): the light must be at the edge she tried to travel toward")
+            XCTAssertGreaterThan(answer?.level ?? 0, 0)
+            XCTAssertEqual(camera.offset, before, "the acknowledgement is light, not movement")
+            XCTAssertEqual(camera.place, place, "she is still where she was")
+        }
+    }
+
+    // INVARIANT G, and the single most important test in this section. The
+    // acknowledgement writes no position and no place, so `isAtRest` is
+    // bit-identical to what it would have been — which is what keeps
+    // `WorldModel.simActive` right, which is what keeps a touch-down on the
+    // field a pop. A light that could swallow a tap would be a far worse
+    // defect than the silence it replaced.
+    func testTheAcknowledgementNeverLeavesTheCameraNotAtRest() {
+        for reduced in [false, true] {
+            let camera = makeCamera(reduceMotion: reduced)
+            park(camera, at: .sky)
+            camera.consume(.commit(.up, velocity: 6000))
+
+            XCTAssertTrue(camera.isAtRest,
+                          "RM \(reduced): the camera reported motion for a world that is standing "
+                          + "still — this is the frame that costs her the next tap")
+            let trace = traceAcknowledgement(camera)
+
+            XCTAssertGreaterThan(trace.frames, 30, "the envelope was too short to prove anything")
+            for (i, rest) in trace.atRest.enumerated() {
+                XCTAssertTrue(rest, "RM \(reduced): frame \(i) claimed the world was moving")
+            }
+            for value in trace.offset {
+                XCTAssertEqual(value, trace.offset[0], "RM \(reduced): the world translated")
+            }
+            for value in trace.flow {
+                XCTAssertEqual(value, 0, "RM \(reduced): the acknowledgement produced optical flow")
+            }
+            for value in trace.transiting {
+                XCTAssertFalse(value, "RM \(reduced): a still world claimed to be in transit, so "
+                               + "condition 14 would have dimmed it")
+            }
+        }
+    }
+
+    // The same property said the way it is actually spent: `simActive` is
+    // `isAtRest && place == .field`, so the question is whether the field is
+    // live on the frame she lands, WITH a glow still burning.
+    //
+    // The geometry is deliberately tightened so the journey home is shorter
+    // than the envelope — at the shipped tuning the light always goes out
+    // first, and a test that passes by timing coincidence proves nothing.
+    func testTheTapIsNeverSwallowedByAnAcknowledgement() {
+        for reduced in [false, true] {
+            let camera = makeCamera(reduceMotion: reduced)
+            var tight = WorldCamera.Config.default
+            tight.travelPerPlace = 0.10
+            camera.apply(tight)
+
+            park(camera, at: .sky)
+            camera.consume(.commit(.up, velocity: 2400))
+            for _ in 0..<22 { camera.step(dt: frame) }
+            XCTAssertEqual(camera.acknowledgementLevel, 1, accuracy: 1e-12,
+                           "RM \(reduced): the glow should be at its peak here")
+
+            camera.consume(.commit(.down, velocity: 2400))
+            runSettle(camera)
+
+            XCTAssertGreaterThan(camera.acknowledgementLevel, 0,
+                                 "RM \(reduced): the glow finished before the landing — this test "
+                                 + "would then prove nothing")
+            XCTAssertTrue(camera.isAtRest && camera.place == .field,
+                          "RM \(reduced): THE TAP WAS SWALLOWED — `simActive` is false on the "
+                          + "frame the camera landed at the field")
+            while !camera.isIdle {
+                camera.step(dt: frame)
+                XCTAssertTrue(camera.isAtRest && camera.place == .field,
+                              "RM \(reduced): the field went dead part-way through the fade")
+            }
+        }
+    }
+
+    // The axis end is distinguished from EVERY other commit, which is the
+    // requirement — not "a commit whose destination equals its origin", which
+    // the per-commit cap can also produce and which means something completely
+    // different ("not that far in one go", not "there is nothing there").
+    func testOnlyTheEndsOfTheAxisAcknowledge() {
+        for (place, direction) in [(Place.field, WorldDirection.up), (.field, .down),
+                                   (.sky, .down), (.journal, .up)] {
+            let camera = makeCamera()
+            park(camera, at: place)
+            camera.consume(.commit(direction, velocity: 1500))
+            camera.step(dt: frame)
+            XCTAssertNil(camera.edgeAcknowledgement,
+                         "\(place) \(direction): a commit that travels must not light the edge")
+            XCTAssertFalse(camera.isAtRest, "\(place) \(direction): …and it must travel")
+        }
+    }
+
+    // A drag off the end followed by a flick back at it is BOTH: there is real
+    // distance to cover, and she still asked for somewhere that does not
+    // exist. The world answers with movement AND with light, and lands exactly
+    // on the end.
+    func testADragOffTheEndFollowedByAGatedFlickBothTravelsAndAcknowledges() {
+        let camera = makeCamera()
+        park(camera, at: .sky)
+        drag(camera, by: 0.1 * screenHeight)          // downward, off the sky
+        XCTAssertEqual(camera.offset, -0.65, accuracy: 1e-9)
+
+        camera.consume(.commit(.up, velocity: -2400))
+        camera.step(dt: frame)
+        XCTAssertNotNil(camera.edgeAcknowledgement, "the axis still clamped, so it still answers")
+        XCTAssertFalse(camera.isAtRest, "…and there was real distance to travel")
+
+        while !camera.isIdle { camera.step(dt: frame) }
+        XCTAssertEqual(camera.offset, -0.75, accuracy: 1e-12, "she is back at the end of the world")
+        XCTAssertEqual(camera.acknowledgementLevel, 0)
+    }
+
+    // EXACTLY zero — not "small", not "within a pixel" — and it stays there.
+    // A paused frame left holding a fraction of a glow is a world that has
+    // stopped with the lights half on.
+    func testTheAcknowledgementDecaysToExactlyZeroAndParks() {
+        let camera = makeCamera()
+        park(camera, at: .sky)
+        camera.consume(.commit(.up, velocity: 2400))
+        let trace = traceAcknowledgement(camera)
+
+        XCTAssertEqual(trace.level.last, 0, "the envelope must end on the literal zero")
+        XCTAssertEqual(camera.acknowledgementLevel, 0)
+        XCTAssertNil(camera.edgeAcknowledgement)
+        XCTAssertTrue(camera.isIdle)
+        for _ in 0..<600 { camera.step(dt: frame) }
+        XCTAssertEqual(camera.acknowledgementLevel, 0, "…and stay there for as long as she leaves it")
+        XCTAssertTrue(camera.isIdle, "a parked envelope must let the world pause")
+    }
+
+    // Frame-rate independence in the sense every other clock in this file has
+    // it: the level is a function of accumulated STEPPED time, so the whole
+    // envelope takes the same wall-clock at 30, 60 and 120 Hz to within one
+    // frame quantum — and a stalled frame is absorbed by `maxStep` rather than
+    // completing the envelope in one step.
+    func testTheAcknowledgementIsFrameRateIndependent() {
+        var durations: [TimeInterval] = []
+        for rate in [TimeInterval(1.0 / 120), 1.0 / 60, 1.0 / 30] {
+            let camera = makeCamera()
+            park(camera, at: .sky)
+            camera.consume(.commit(.up, velocity: 2400))
+            let trace = traceAcknowledgement(camera, dt: rate)
+            durations.append(TimeInterval(trace.frames) * rate)
+            XCTAssertEqual(trace.peak, 1, accuracy: 1e-12,
+                           "\(rate): the peak must not depend on the frame rate")
+            XCTAssertEqual(trace.level.last, 0)
+            print("[W05c] \(1 / rate) Hz: \(trace.frames) frames, "
+                  + "\(String(format: "%.4f", durations.last!)) s")
+        }
+        let nominal = WorldCamera.Config.default.acknowledgementRise
+            + WorldCamera.Config.default.acknowledgementFall
+        for (index, duration) in durations.enumerated() {
+            let rate = [1.0 / 120.0, 1.0 / 60.0, 1.0 / 30.0][index]
+            // One frame quantum, plus a hair for the floating-point
+            // arithmetic — the three rates land EXACTLY one quantum off the
+            // nominal, which is the best a sampled ramp can do and the same
+            // quality the settle's own `s = elapsed / duration` has.
+            XCTAssertLessThan(abs(duration - nominal), rate + 1e-6,
+                              "the envelope's duration drifted by more than one frame at "
+                              + "\(1 / rate) Hz")
+        }
+
+        // A stall. The world is paused at the sky, so the first frame after
+        // the flick carries however long she sat there — clamped to `maxStep`,
+        // exactly as a resumed settle's first frame is, and by the same line.
+        let stalled = makeCamera()
+        park(stalled, at: .sky)
+        stalled.consume(.commit(.up, velocity: 2400))
+        stalled.step(dt: 90)
+        XCTAssertEqual(stalled.acknowledgementLevel,
+                       CGFloat(WorldCamera.Config.default.maxStep
+                               / WorldCamera.Config.default.acknowledgementRise),
+                       accuracy: 1e-12,
+                       "a 90 s stall must advance the envelope by one clamped step and no more")
+        XCTAssertLessThan(stalled.acknowledgementLevel, 0.3,
+                          "…which is under a third of the way up, on the one frame where the "
+                          + "light is least noticeable anyway")
+        let trace = traceAcknowledgement(stalled)
+        XCTAssertEqual(trace.level.last, 0, "a stall must not leave a residue")
+    }
+
+    // BARRIER CONDITION 11, in the form this cue takes it: there is no Reduce
+    // Motion branch anywhere in the envelope, so the two paths are not merely
+    // equivalent, they are the same code producing the same numbers. Compared
+    // frame by frame rather than in aggregate, because "the same" is the claim.
+    func testTheAcknowledgementIsIdenticalUnderReduceMotion() {
+        var traces: [[CGFloat]] = []
+        for reduced in [false, true] {
+            let camera = makeCamera(reduceMotion: reduced)
+            park(camera, at: .sky)
+            camera.consume(.commit(.up, velocity: 2400))
+            traces.append(traceAcknowledgement(camera).level)
+        }
+        XCTAssertEqual(traces[0].count, traces[1].count,
+                       "the two motion modes ran the envelope for different lengths of time")
+        for (index, value) in traces[0].enumerated() {
+            XCTAssertEqual(value, traces[1][index], accuracy: 0,
+                           "frame \(index): Reduce Motion changed the acknowledgement")
+        }
+    }
+
+    // BARRIER CONDITION 13'S SHAPE ON THE SECOND SEQUENCE. Rocking the ceiling
+    // must not build the light up: each rapid re-attempt is smaller, the whole
+    // sequence is bounded by the first one's peak, and the floor means the
+    // fifth flick still gets an answer rather than the silence this feature
+    // exists to end.
+    func testRepeatedFlicksAtTheCeilingDampAndNeverPump() {
+        for gap in [1, 12, 30, 60, 120] {
+            let camera = makeCamera()
+            park(camera, at: .sky)
+            var levels: [CGFloat] = []
+            for _ in 0..<6 {
+                camera.consume(.commit(.up, velocity: 6000))
+                for _ in 0..<gap {
+                    camera.step(dt: frame)
+                    levels.append(camera.acknowledgementLevel)
+                }
+            }
+            while !camera.isIdle {
+                camera.step(dt: frame)
+                levels.append(camera.acknowledgementLevel)
+            }
+            let peak = levels.max() ?? 0
+            XCTAssertLessThanOrEqual(Double(peak), 1,
+                                     "gap \(gap): six flicks pumped the light past its bound")
+            XCTAssertGreaterThanOrEqual(Double(levels.min() ?? 0), 0,
+                                        "gap \(gap): the level went negative")
+            XCTAssertEqual(camera.acknowledgementLevel, 0, "gap \(gap): residue after the storm")
+            XCTAssertTrue(camera.isAtRest, "gap \(gap): rocking the ceiling moved the world")
+            print("[W05c] six flicks \(gap) frames apart: peak \(String(format: "%.3f", Double(peak)))")
+        }
+
+        // The damping is visible where it matters — a second flick a
+        // comfortable moment after the first is quieter, and a flick after a
+        // genuinely idle window is not.
+        let camera = makeCamera()
+        park(camera, at: .sky)
+        camera.consume(.commit(.up, velocity: 6000))
+        let first = traceAcknowledgement(camera)
+        camera.consume(.commit(.up, velocity: 6000))
+        let second = traceAcknowledgement(camera)
+        XCTAssertLessThan(Double(second.peak), Double(first.peak) - 0.1,
+                          "an immediate re-attempt must be quieter than the first")
+        XCTAssertGreaterThanOrEqual(Double(second.peak),
+                                    Double(WorldCamera.Config.default.acknowledgementDampingFloor),
+                                    "…but never so quiet that she is back to being ignored")
+
+        for _ in 0..<Int(2.0 / frame) { camera.step(dt: frame) }
+        camera.consume(.commit(.up, velocity: 6000))
+        let forgiven = traceAcknowledgement(camera)
+        XCTAssertEqual(forgiven.peak, 1, accuracy: 1e-12,
+                       "one idle window and the world answers in full again")
+    }
+
+    // A commit that actually travels ends the sequence, exactly as it ends a
+    // rocking sequence: the world has answered her with MOVEMENT, so the next
+    // time she does reach an end she gets a whole answer rather than an
+    // inherited whisper of one. And the light already burning settles back
+    // instead of being cut, which would be the one visible step in the design.
+    func testACommitThatTravelsEndsTheAcknowledgementSequence() {
+        let camera = makeCamera()
+        park(camera, at: .sky)
+        camera.consume(.commit(.up, velocity: 6000))
+        for _ in 0..<10 { camera.step(dt: frame) }
+        let burning = camera.acknowledgementLevel
+        XCTAssertGreaterThan(burning, 0)
+
+        camera.consume(.commit(.down, velocity: 6000))
+        XCTAssertEqual(camera.acknowledgementLevel, burning,
+                       "the commit must not cut the light — it settles back")
+        runSettle(camera)
+        XCTAssertEqual(camera.place, .field, "the legitimate commit travelled")
+        while !camera.isIdle { camera.step(dt: frame) }
+        XCTAssertEqual(camera.acknowledgementLevel, 0)
+
+        camera.consume(.commit(.down, velocity: 6000))   // field → journal, travels
+        runSettle(camera)
+        camera.consume(.commit(.down, velocity: 6000))   // and now the floor
+        let answer = traceAcknowledgement(camera)
+        XCTAssertEqual(answer.peak, 1, accuracy: 1e-12,
+                       "the journeys in between must have ended the damping sequence")
+    }
+
+    // THE TWO QUESTIONS, as a test rather than as a comment. This is the whole
+    // structural claim of W05c: "the world is moving" and "there is something
+    // left to step" are different, and there is a window in which they
+    // disagree. If they ever stop disagreeing, either the pause predicate has
+    // been narrowed back or the hit-testing gate has been widened, and one of
+    // those freezes the glow while the other takes her controls away.
+    func testIsIdleAndIsAtRestAreDifferentQuestions() {
+        let camera = makeCamera()
+        park(camera, at: .sky)
+        XCTAssertTrue(camera.isAtRest)
+        XCTAssertTrue(camera.isIdle, "at rest with nothing burning, both are true")
+
+        camera.consume(.commit(.up, velocity: 2400))
+        XCTAssertTrue(camera.isAtRest,
+                      "the world is genuinely standing still — this is what keeps her taps")
+        XCTAssertFalse(camera.isIdle,
+                       "…and it is asked of the PHASE, not of the level: the envelope is armed "
+                       + "but has not been stepped, so a level test would answer 'nothing to do' "
+                       + "on exactly the frame whose job is to un-pause the world")
+
+        var disagreed = 0
+        while !camera.isIdle {
+            camera.step(dt: frame)
+            if camera.isAtRest && !camera.isIdle { disagreed += 1 }
+            XCTAssertTrue(camera.isAtRest || !camera.isIdle,
+                          "`isAtRest` false with `isIdle` true is unrepresentable: the render "
+                          + "half must never be weaker than the moving half")
+        }
+        XCTAssertGreaterThan(disagreed, 30,
+                             "the two questions never disagreed, so nothing is being proved")
+    }
+
+    // INVARIANT A and INVARIANT D, extended to the light. A camera nobody has
+    // touched never glows, and one that does not know its own screen height
+    // refuses the acknowledgement along with everything else — a world that
+    // answers a gesture it also refused would be worse than either.
+    func testAnUntouchedOrUnlaidOutCameraNeverAcknowledges() {
+        let idle = makeCamera()
+        for _ in 0..<2400 { idle.step(dt: frame) }
+        XCTAssertEqual(idle.acknowledgementLevel, 0)
+        XCTAssertNil(idle.edgeAcknowledgement)
+        XCTAssertTrue(idle.isIdle)
+
+        let unlaidOut = WorldCamera(viewHeight: 0)
+        unlaidOut.consume(.commit(.up, velocity: 2400))
+        unlaidOut.step(dt: frame)
+        XCTAssertEqual(unlaidOut.acknowledgementLevel, 0)
+        XCTAssertNil(unlaidOut.edgeAcknowledgement)
+        XCTAssertTrue(unlaidOut.isIdle)
     }
 }

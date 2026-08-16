@@ -31,6 +31,17 @@ import CoreGraphics
 //       → testLuminanceIsExactlyFullAtEveryPlaceCentre
 //       → testNeitherCueLeavesAResidueAfterAnInterruptedSettle
 //
+// And W05c's third cue — the end-of-axis acknowledgement, the only one that
+// is not a function of camera position:
+//
+//   the scale is linear, bounded, and exactly zero at zero
+//       → testEdgeAcknowledgementScalesTheEnvelopeAndNothingElse
+//       → testEdgeAcknowledgementRefusesNonsenseWithNoLight
+//   the light rises and returns without a step anyone can see
+//       → testTheAcknowledgementRisesAndReturnsWithoutAFlicker
+//   and it costs the other two cues NOTHING, because the world is at rest
+//       → testAnAcknowledgementNeitherDimsTheWorldNorMovesItsDust
+//
 // `@MainActor` mirrors the camera's own isolation, for the same reason
 // WorldCameraTests states it: the camera is written from UIKit touch callbacks
 // and read from the SwiftUI render closure, both main.
@@ -448,5 +459,129 @@ final class WorldRenderTests: XCTestCase {
         XCTAssertEqual(home.parallax.last, 0, "…and so is her dust")
         XCTAssertEqual(home.luminance.last, 1, "…and so is her light")
         XCTAssertLessThan(home.worstLuminanceStep, 0.01)
+    }
+
+    // MARK: - The end-of-axis acknowledgement (W05c)
+
+    // The cue as `WorldView.edgeAcknowledgement` computes it: the camera's
+    // normalized envelope, scaled and nothing else.
+    private func edgeLight(_ camera: WorldCamera) -> Double {
+        WorldRender.edgeAcknowledgementOpacity(level: camera.acknowledgementLevel)
+    }
+
+    // The renderer SCALES the camera's envelope; it does not shape it. A curve
+    // here would be the second curve in a fight over one number — the same
+    // mistake ruling 7 bars when it bars `withAnimation` on a camera value —
+    // so linearity is the property, and it is a test rather than a comment.
+    func testEdgeAcknowledgementScalesTheEnvelopeAndNothingElse() {
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: 0), 0,
+                       "exactly zero at zero: this is what the pause predicate rides on")
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: 1),
+                       WorldRender.edgeAcknowledgementPeak, accuracy: 1e-12)
+
+        for index in 0...1000 {
+            let level = CGFloat(index) / 1000
+            let value = WorldRender.edgeAcknowledgementOpacity(level: level)
+            XCTAssertEqual(value, WorldRender.edgeAcknowledgementPeak * Double(level),
+                           accuracy: 1e-12, "level \(level): the renderer added a shape")
+            XCTAssertLessThanOrEqual(value, WorldRender.edgeAcknowledgementPeak + 1e-12,
+                                     "the light may never exceed its stated peak")
+            XCTAssertGreaterThanOrEqual(value, 0)
+        }
+
+        // The peak, stated once so a later tuning change has to come past a
+        // number: it is the alpha `SkyView` gives a quiet star's halo, which
+        // is the dimmest light this world already draws on purpose.
+        XCTAssertEqual(WorldRender.edgeAcknowledgementPeak, 0.10, accuracy: 1e-12)
+        XCTAssertLessThan(WorldRender.edgeAcknowledgementPeak, 0.12,
+                          "…and under the white hairline the cards use for 'just visible'")
+    }
+
+    // Failing toward the picture that existed before W05c, exactly as
+    // `transitLuminance` fails toward full light: a degenerate level draws no
+    // acknowledgement rather than a NaN alpha over a full-screen gradient.
+    func testEdgeAcknowledgementRefusesNonsenseWithNoLight() {
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: .nan), 0)
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: .infinity), 0)
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: -1), 0)
+        XCTAssertEqual(WorldRender.edgeAcknowledgementOpacity(level: 5),
+                       WorldRender.edgeAcknowledgementPeak, accuracy: 1e-12,
+                       "a level past the bound clamps to the peak rather than exceeding it")
+    }
+
+    // End to end on a real camera, in both motion modes. The light comes up,
+    // reaches its peak, and goes out EXACTLY — and it gets there without a
+    // step anyone would see, which is the whole risk this cue carries. A
+    // visible pulse at the top of the screen every time she flicks at the
+    // ceiling would be worse than the silence it replaced.
+    func testTheAcknowledgementRisesAndReturnsWithoutAFlicker() {
+        for reduced in [false, true] {
+            for (place, direction) in [(Place.sky, WorldDirection.up), (.journal, .down)] {
+                let camera = makeCamera(reduceMotion: reduced)
+                camera.consume(.commit(direction, velocity: 0))
+                _ = traceToRest(camera)
+                XCTAssertEqual(camera.place, place)
+
+                camera.consume(.commit(direction, velocity: 2400))
+                var light: [Double] = [edgeLight(camera)]
+                var frames = 0
+                while !camera.isIdle && frames < 10_000 {
+                    camera.step(dt: frame)
+                    frames += 1
+                    light.append(edgeLight(camera))
+                }
+                XCTAssertTrue(camera.isIdle)
+
+                XCTAssertEqual(light.first, 0, "RM \(reduced) \(place): it starts from nothing")
+                XCTAssertEqual(light.last, 0,
+                               "RM \(reduced) \(place): and ends at exactly nothing, so a paused "
+                               + "frame is never left mid-glow")
+                XCTAssertEqual(light.max() ?? 0, WorldRender.edgeAcknowledgementPeak,
+                               accuracy: 1e-12,
+                               "RM \(reduced) \(place): an undamped answer reaches the full peak")
+
+                var worst: Double = 0
+                for index in 1..<light.count {
+                    worst = max(worst, abs(light[index] - light[index - 1]))
+                }
+                XCTAssertLessThan(worst, 0.006,
+                                  "RM \(reduced) \(place): the light stepped by \(worst) in one "
+                                  + "frame — an acknowledgement that flickers is worse than none")
+                print("[W05c] \(place) \(direction) RM \(reduced): \(frames) frames, "
+                      + "peak \(String(format: "%.4f", light.max() ?? 0)), "
+                      + "worst step \(String(format: "%.5f", worst))")
+            }
+        }
+    }
+
+    // THE COST TO THE OTHER TWO CUES IS ZERO, and it has to be measured rather
+    // than asserted, because both of them key off motion the camera is not
+    // making here. Through the whole of an acknowledgement the world is at
+    // rest: the dust sits exactly where the field is and the light stays
+    // exactly full. If either of these ever moves, condition 14 has started
+    // dimming a world that is standing still.
+    func testAnAcknowledgementNeitherDimsTheWorldNorMovesItsDust() {
+        for reduced in [false, true] {
+            let camera = makeCamera(reduceMotion: reduced)
+            camera.consume(.commit(.up, velocity: 0))
+            _ = traceToRest(camera)
+            let parked = parallax(camera)
+            XCTAssertEqual(parked, 0, "the sky is a rest offset, so the dust is home")
+
+            camera.consume(.commit(.up, velocity: 2400))
+            var frames = 0
+            while !camera.isIdle && frames < 10_000 {
+                camera.step(dt: frame)
+                frames += 1
+                XCTAssertEqual(luminance(camera), 1,
+                               "RM \(reduced) frame \(frames): a still world was dimmed")
+                XCTAssertEqual(parallax(camera), parked,
+                               "RM \(reduced) frame \(frames): a still world moved its dust")
+                XCTAssertFalse(camera.isTransitioning,
+                               "RM \(reduced) frame \(frames): a still world claimed a transit")
+            }
+            XCTAssertGreaterThan(frames, 30, "the envelope was too short to prove anything")
+            XCTAssertEqual(edgeLight(camera), 0)
+        }
     }
 }

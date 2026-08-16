@@ -106,6 +106,31 @@ import Foundation
 //       Never `paused: sim.isQuiescent` on its own, and never
 //       `paused: … && camera.isAtRest`.
 //
+//       AMENDED AT W05c — "KEEP RENDERING" AND "THE WORLD IS MOVING" ARE TWO
+//       QUESTIONS. They only ever looked like one because movement was the
+//       only per-frame state this object had. The end-of-axis acknowledgement
+//       is a time envelope that runs while the camera is GENUINELY AT REST, so
+//       the host publishes both halves and spends them on different things:
+//
+//           @Published private(set) var worldMoving = false   // mirrors !isAtRest
+//           @Published private(set) var worldAwake  = false   // mirrors !isIdle
+//
+//           TimelineView(.animation(paused: … && !model.worldAwake))
+//           …
+//           .allowsHitTesting(model.place == place && !model.worldMoving)
+//
+//       Overloading `worldMoving` with the acknowledgement instead would make
+//       the sky's stars untappable for the third of a second after every flick
+//       at the ceiling, breaking W09's ≥ 44 pt targets. Pausing on
+//       `worldMoving` instead would freeze the envelope mid-glow — the
+//       unobservable-pause failure this whole contract exists to forbid,
+//       reached from the other side.
+//
+//       `!isAtRest` implies `!isIdle`, so `worldAwake` is strictly weaker than
+//       `worldMoving` and can never pause anything the W04 predicate kept
+//       alive. `worldAwake` is written in the same touch handler and cleared
+//       by the same deferred hop, for the same reasons.
+//
 //   H4. `viewHeight` and `reduceMotion` are written by the view (on layout,
 //       and from the live system setting via `onAppear` + `onChange`).
 //       `config` is written only through `apply(_:)`.
@@ -155,6 +180,16 @@ import Foundation
 // drag past an end stops dead at it. It does not wrap (waking up somewhere she
 // did not choose) and it does not rubber-band (a rubber band is a rebound, and
 // a rebound is a direction reversal — see the settle contract below).
+//
+// BUT CLAMPING IS NOT SILENCE (W05c). A flick at an end passes every gate the
+// arbiter has and then resolves to the place she is already standing in, which
+// before W05c produced nothing visible at all — she asked, and the world did
+// not answer. It answers now, WITH LIGHT RATHER THAN WITH MOVEMENT: a soft
+// brightening at the leading edge that rises and settles back, costing zero
+// translation and therefore zero optical flow. `resolveCommit(moving:)` is
+// where the axis end is distinguished from every other commit, and
+// `Config.acknowledgementRise` carries the ruling and the four reasons a
+// rubber-band was refused.
 // ─────────────────────────────────────────────────────────────────────────
 //
 // AMARA OSEI'S VESTIBULAR BARRIER CONDITIONS (R-SPIKE items 10–14) are pass
@@ -203,6 +238,12 @@ import Foundation
 //   F. The place of record is always the destination of the settle in flight.
 //      `apply(_:)` depends on it, and every path that assigns `motion =
 //      .settling` also assigns `place`.
+//   G. THE ACKNOWLEDGEMENT IS NOT MOTION. It writes no position and no place,
+//      so `isAtRest` — and therefore `WorldModel.simActive`, and therefore
+//      whether a touch-down pops an orb — is bit-identical to what it would
+//      have been if W05c had never happened. A light that could swallow a tap
+//      would be a far worse defect than the silence it replaced.
+//      (testTheAcknowledgementNeverLeavesTheCameraNotAtRest)
 
 // MARK: - Place
 
@@ -397,6 +438,86 @@ final class WorldCamera {
         // breakpoint, or a resumed app must not teleport the world across the
         // screen in one step.
         var maxStep: TimeInterval = 0.05
+
+        // ─────────────────────────────────────────────────────────────────
+        // W05c — THE END-OF-AXIS ACKNOWLEDGEMENT, its whole time envelope.
+        //
+        // THE DEFECT THESE CLOSE. At the sky, an upward flick passes both of
+        // the arbiter's commit gates, arrives here as a real `.commit`, and
+        // resolves — correctly — to the place she is already in, because
+        // there is nothing above the sky. The world then did NOTHING AT ALL:
+        // she asked and got silence, which is the same class of defect as a
+        // swallowed tap, and it was the last open item of W05.
+        //
+        // THE FORM IS LIGHT, NOT MOVEMENT (Director's ruling; settled, not to
+        // be re-litigated). A soft brightening at the leading edge of the
+        // world — the edge she tried to travel toward — which rises and
+        // settles back. An iOS-style rubber-band translation was explicitly
+        // REFUSED, on four grounds worth carrying here so nobody has to
+        // reconstruct them:
+        //
+        //   * a bounce is an out-and-back translation, which is verbatim the
+        //     direction-reversal signature barrier condition 12 removed from
+        //     the settle. Reintroducing it at the axis end reintroduces the
+        //     kinematics Amara blocked, at the one moment the world is most
+        //     likely to be flicked at repeatedly;
+        //   * under Reduce Motion it would have to produce zero translation
+        //     anyway (condition 11), so it would need a second,
+        //     non-translating variant: two behaviours to tune and two to test;
+        //   * a luminance cue costs ZERO OPTICAL FLOW, so it cannot erode the
+        //     ceiling `maxOpticalFlow` exists to defend (condition 10). There
+        //     is no arithmetic above to re-check because there is no motion;
+        //   * it is more Vesper. This game acknowledges with light.
+        //
+        // So the envelope is IDENTICAL WITH AND WITHOUT REDUCE MOTION and
+        // produces zero translation on both paths. Nothing below reads
+        // `reduceMotion`, deliberately — there is no second path to keep
+        // honest, which is most of the point.
+        // ─────────────────────────────────────────────────────────────────
+
+        // 0.18 s up. Fast enough that the light still reads as CAUSED BY the
+        // flick — a visual change has roughly 200 ms to appear before it stops
+        // being bound to the gesture that asked for it — and slow enough to be
+        // a rise rather than a blink.
+        var acknowledgementRise: TimeInterval = 0.18
+
+        // 0.42 s back down: longer than the rise by a factor of 2.3, because a
+        // symmetric envelope reads as a flash and an asymmetric one reads as
+        // something settling.
+        //
+        // AND THE SUM IS THE REAL CONSTANT. 0.18 + 0.42 = 0.60 s, just inside
+        // `maxSettleDuration`, so the world's answer to "there is nothing
+        // above this" never takes longer than actually going somewhere would
+        // have. If either number is retuned, keep the sum under the band.
+        var acknowledgementFall: TimeInterval = 0.42
+
+        // BARRIER CONDITION 13'S SHAPE, APPLIED TO A SECOND SEQUENCE.
+        // Repeated flicks at the ceiling are the same behaviour as repeated
+        // spring-backs — a person asking twice — so they get the same
+        // treatment: each rapid re-attempt keeps `Factor` of the last one's
+        // peak, down to `Floor`, and one genuinely idle `Window` forgives.
+        //
+        // SEPARATE CONSTANTS RATHER THAN REUSING `oscillationWindow` AND
+        // `dragDamping*`, even though they are set to the same numbers,
+        // because the two sequences are independent behaviours: rocking the
+        // world and flicking at a wall are different things a person does, and
+        // either may need retuning without disturbing the other's proof.
+        //
+        // THE FLOOR IS LOAD-BEARING, not a rounding detail. An acknowledgement
+        // that damped all the way to nothing would put the fifth flick back
+        // exactly where the first one started — asking and getting silence —
+        // which is the defect this envelope exists to close.
+        //
+        // AND THE CLOCK IS STAMPED WHEN AN ENVELOPE ENDS, NOT WHEN IT BEGINS.
+        // That is R-ARCH major 4's lesson (see `lastReturnAt`) applied here
+        // before it could be relearned: the envelope occupies 0.6 s of a 1 s
+        // window, so stamping at the trigger would let a second flick 0.7 s
+        // later — while the first has barely finished — read as a fresh,
+        // undamped attempt, and the damping would terminate itself exactly as
+        // the spring-back damping once did.
+        var acknowledgementWindow: TimeInterval = 1.0
+        var acknowledgementDampingFactor: CGFloat = 0.6
+        var acknowledgementDampingFloor: CGFloat = 0.35
 
         static let `default` = Config()
     }
@@ -609,6 +730,29 @@ final class WorldCamera {
         return false
     }
 
+    // "IS THERE ANYTHING LEFT TO STEP?" — AND IT IS NOT THE SAME QUESTION AS
+    // `isAtRest`. W05c is the item that proves they are two: during an
+    // end-of-axis acknowledgement the world is genuinely at rest — nothing
+    // translates, `offset` does not change, `flow` is exactly zero — and yet
+    // the camera is carrying a time envelope that must be stepped every frame
+    // or it freezes part-way through a glow.
+    //
+    // The host pairs the two with two published mirrors and spends them on
+    // different questions; the whole of that is written out at host contract
+    // H3's W05c amendment, and the short form is:
+    //
+    //   isAtRest → worldMoving → hit-testing, and the field's sim gate
+    //   isIdle   → worldAwake  → the pause predicate
+    //
+    // ASKED OF THE PHASE, NEVER OF THE LEVEL. The trigger arrives in a touch
+    // callback and the first step comes a frame later, so a newly armed
+    // acknowledgement is still sitting at level zero: an `isIdle` that read
+    // the level would answer "nothing to do" on precisely the frame whose job
+    // is to un-pause the world, and the envelope would never be stepped at
+    // all. That is the frozen-world failure, reached through the one door
+    // W05c opens.
+    var isIdle: Bool { isAtRest && acknowledgementPhase == .idle }
+
     // BARRIER CONDITION 14. How fast the world is sliding on screen, in
     // screen heights per second, measured over the frame that just ended.
     //
@@ -653,8 +797,40 @@ final class WorldCamera {
     // The camera's own clock, in seconds, advanced only by `step(dt:)` with dt
     // clamped. Not wall-clock: during a stall it deliberately runs slow,
     // because it measures motion, not time of day. Only the oscillation
-    // damping reads it.
+    // damping and the acknowledgement damping read it.
     private(set) var elapsed: TimeInterval = 0
+
+    // MARK: The end-of-axis acknowledgement the view reads (W05c)
+
+    // How far into the acknowledgement the world is, in [0, 1].
+    //
+    // A NORMALIZED ENVELOPE AND NOT A BRIGHTNESS. What one unit of it looks
+    // like is `WorldRender.edgeAcknowledgementOpacity`'s decision, in the
+    // renderer, for exactly the reason the mote lag and the transit dim live
+    // there (W05b): the camera decides how the world moves and the renderer
+    // decides what that looks like, and the camera may never decide the
+    // second thing. Turning the renderer's peak to zero must leave every
+    // number in this file bit-identical.
+    //
+    // Zero at rest, and EXACTLY zero: the fall assigns the literal 0 and parks
+    // the phase, so a paused frame can never be left holding a fraction of a
+    // glow.
+    private(set) var acknowledgementLevel: CGFloat = 0
+
+    // Which edge of the world she asked to travel past, and therefore which
+    // edge answers. It means nothing while the level is zero, which is why
+    // `edgeAcknowledgement` is the accessor a view should use: it makes a
+    // level without an edge unrepresentable.
+    private(set) var acknowledgementEdge: WorldDirection = .up
+
+    // THE ACCESSOR THE VIEW READS — once per frame, inside the frame closure,
+    // at the moment it is needed, exactly like every other per-frame scalar on
+    // this object (ruling 7). `nil` means there is nothing to draw, which is
+    // the overwhelmingly common answer.
+    var edgeAcknowledgement: (edge: WorldDirection, level: CGFloat)? {
+        guard acknowledgementLevel > 0 else { return nil }
+        return (acknowledgementEdge, acknowledgementLevel)
+    }
 
     // MARK: Private state
 
@@ -713,6 +889,22 @@ final class WorldCamera {
     // departure must never be able to classify the next gesture's settle.
     private var gestureOrigin: CGFloat?
 
+    // W05c. The acknowledgement's own little state machine. Three named
+    // states rather than a pair of Bools, so "rising and falling at once" is
+    // unrepresentable and `isIdle` has one thing to ask.
+    private enum AcknowledgementPhase: Equatable { case idle, rising, falling }
+    private var acknowledgementPhase: AcknowledgementPhase = .idle
+
+    // The peak this acknowledgement is climbing toward, in
+    // [acknowledgementDampingFloor, 1], and — between attempts — the memory of
+    // the last one's peak. `dragGain`'s counterpart for this sequence.
+    private var acknowledgementGoal: CGFloat = 1
+
+    // The camera clock at which the last acknowledgement FINISHED. On the end,
+    // not on the start, for the reason spelled out on the Config constants and
+    // learned the hard way at `lastReturnAt`.
+    private var lastAcknowledgedAt: TimeInterval?
+
     // Distances below this are already arrived.
     private let epsilon: CGFloat = 1e-9
 
@@ -737,6 +929,14 @@ final class WorldCamera {
     // jump — while the rate may step once, at the instant of a deliberate
     // tuning change. It cannot overshoot or reverse: the new settle is a fresh
     // single-signed ease from here to there.
+    //
+    // THE ACKNOWLEDGEMENT IS DELIBERATELY NOT REBUILT (W05c). It carries no
+    // positions and no places, so a geometry change cannot leave it aiming at
+    // an offset that no longer exists — the failure this whole function exists
+    // to prevent is simply not available to it. A change to its own durations
+    // takes effect on the next `step(dt:)` as a change of ramp rate, with no
+    // step in the level, which is the same continuity guarantee the rebuilt
+    // settle gets.
     func apply(_ newConfig: Config) {
         config = newConfig
         axisPosition = clampToAxis(axisPosition)
@@ -839,8 +1039,33 @@ final class WorldCamera {
         }
     }
 
-    // Where a commit in `direction` goes, resolved FROM THE AXIS (invariant E)
-    // and bounded by `maxTransitPerCommit` (barrier condition 10).
+    // WHERE A COMMIT GOES, AND WHY IT GOES THERE. Resolved FROM THE AXIS
+    // (invariant E) and bounded by `maxTransitPerCommit` (barrier condition
+    // 10) — and, since W05c, also reporting whether the answer is the place
+    // she is already standing in BECAUSE THE AXIS CLAMPED.
+    //
+    // THE TWO WAYS A COMMIT CAN NAME ITS OWN ORIGIN ARE DIFFERENT EVENTS, and
+    // the caller has to be able to tell them apart, which is the whole reason
+    // this returns a pair rather than a `Place`:
+    //
+    //   * THE AXIS END. `destination(from:moving:)`'s two clamping rows —
+    //     `.up` from the sky, `.down` from the journal — answer the origin
+    //     because there is nothing beyond it. She asked to go somewhere that
+    //     does not exist, and the world owes her an answer for that (W05c);
+    //   * THE PER-COMMIT CAP. A proposal further than `maxTransitPerCommit`
+    //     falls back to the place the camera is nearest. That is the world
+    //     saying "not that far in one go", which is not the same sentence at
+    //     all, and it does not get the light. At the shipped 1.5 it never
+    //     binds anyway — it is the invariant that keeps a future retune honest.
+    //
+    // The two are disjoint by construction rather than by ordering: when the
+    // table clamps, `nominal` is exactly zero, so the cap could never have
+    // been the reason.
+    //
+    // THIS IS THE ONLY PLACE THAT CAN KNOW. The arbiter emits a direction and
+    // never a destination — deliberately, so the direction → place table
+    // exists once — so nothing upstream of here has any idea the axis has
+    // ends, and nothing upstream of here should be taught.
     //
     // R-ARCH blocker 1: this used to read `destination(from: place, …)`, which
     // is the place she committed to earlier and not where the camera is. After
@@ -851,9 +1076,19 @@ final class WorldCamera {
     // event in the app, which is the exact provocation barrier condition 12
     // exists to forbid. `.settleToNearest` already resolved from position; now
     // every path does.
-    private func commitDestination(moving direction: WorldDirection) -> Place {
+    private struct CommitResolution {
+        let destination: Place
+        let gatedByAxisEnd: Bool
+    }
+
+    private func resolveCommit(moving direction: WorldDirection) -> CommitResolution {
         let origin = nearestPlace
         let proposed = destination(from: origin, moving: direction)
+
+        // The end of the world, and the only thing that ever sets this flag.
+        guard proposed != origin else {
+            return CommitResolution(destination: origin, gatedByAxisEnd: true)
+        }
 
         // R-ARCH#2 blocker 2: measured BETWEEN REST OFFSETS, never from the
         // live axis position. Measuring from the axis made this a gate that
@@ -864,12 +1099,14 @@ final class WorldCamera {
         // that keeps a future retune honest rather than a live decision.
         let cap = config.maxTransitPerCommit * config.travelPerPlace
         let nominal = abs(restOffset(of: proposed) - restOffset(of: origin))
-        guard nominal > cap + epsilon else { return proposed }
+        guard nominal > cap + epsilon else {
+            return CommitResolution(destination: proposed, gatedByAxisEnd: false)
+        }
 
         // Too far for one commit: stop at the place she is nearest, which is
         // never more than half a place away and always lies in the direction
         // she asked for (it is between the camera and `proposed`).
-        return origin
+        return CommitResolution(destination: origin, gatedByAxisEnd: false)
     }
 
     // The `from` of the crossfade pair for the settle about to begin: of the
@@ -963,7 +1200,24 @@ final class WorldCamera {
             // happens here, and only here, because `viewHeight` lives here.
             // `viewHeight > 0` is guaranteed by the guard at the top of this
             // function (invariant D), so the division is safe.
-            beginSettle(to: commitDestination(moving: direction),
+            let resolved = resolveCommit(moving: direction)
+
+            // W05c. A commit that cannot go anywhere still gets an answer, and
+            // a commit that CAN ends the run of them — barrier condition 13's
+            // "a decision ends the sequence", applied to the second sequence.
+            //
+            // Both are decided here rather than inside `beginSettle`, because
+            // `beginSettle` cannot see the difference: an axis-gated commit and
+            // an ordinary one arrive there as the same three arguments, and at
+            // an end the distance is usually zero, which is also what an
+            // already-arrived settle looks like.
+            if resolved.gatedByAxisEnd {
+                acknowledgeAxisEnd(direction)
+            } else {
+                endAcknowledgementSequence()
+            }
+
+            beginSettle(to: resolved.destination,
                         seededSpeed: abs(velocity) / viewHeight,
                         reason: .commit)
 
@@ -1142,6 +1396,134 @@ final class WorldCamera {
         return max(config.dragDampingFloor, dragGain * config.dragDampingFactor)
     }
 
+    // MARK: - The end-of-axis acknowledgement (W05c)
+
+    // She asked to travel past the end of the world. Arm the light.
+    //
+    // THE LEVEL IS NEVER WRITTEN HERE — only the goal, the edge and the phase
+    // — and that is what makes a re-trigger free of any step. Whatever the
+    // light is doing it goes on doing from exactly where it is: either
+    // climbing toward a new goal (which is never higher than the one it was
+    // already climbing toward) or beginning its fall. A person flicking at the
+    // ceiling four times in a second sees one continuous, decaying light
+    // rather than four restarts, and there is no frame anywhere in that
+    // sequence on which the brightness jumps.
+    private func acknowledgeAxisEnd(_ direction: WorldDirection) {
+        let goal = acknowledgementAmplitude()
+        acknowledgementGoal = goal
+
+        // Set unconditionally, so the light always names the edge she actually
+        // asked about. Moving a LIT glow from one edge to the other would be a
+        // step at both ends of the screen, but it is unreachable: getting from
+        // one end of the axis to the other costs 1.5 place-units of travel,
+        // which takes longer than this entire envelope, so the level is always
+        // zero by the time the edge can change.
+        acknowledgementEdge = direction
+
+        // Already brighter than this attempt is entitled to? Then it does not
+        // rise again; it settles from where it is. The light can only ever be
+        // handed downward inside a sequence.
+        acknowledgementPhase = acknowledgementLevel < goal ? .rising : .falling
+    }
+
+    // A commit that actually travels ends the sequence, exactly as it ends a
+    // rocking sequence (barrier condition 13, the Director's R-ARCH#2 ruling).
+    // Both halves of the damping are cleared, so the next time she does reach
+    // an end she gets a whole answer rather than an inherited whisper of one.
+    //
+    // It also stops a rising glow rising: the world has just answered her with
+    // MOVEMENT, which is the thing the light was standing in for, so the light
+    // has nothing left to say and settles back. Set to `.falling` rather than
+    // zeroed — zeroing it would be the one visible step in this whole design.
+    private func endAcknowledgementSequence() {
+        lastAcknowledgedAt = nil
+        acknowledgementGoal = 1
+        if acknowledgementPhase == .rising { acknowledgementPhase = .falling }
+    }
+
+    // The peak the acknowledgement about to begin is allowed to reach.
+    // `gainForDragBeginningNow`'s counterpart, and deliberately the same
+    // arithmetic on the same shape of state.
+    private func acknowledgementAmplitude() -> CGFloat {
+        let damped = max(config.acknowledgementDampingFloor,
+                         acknowledgementGoal * config.acknowledgementDampingFactor)
+
+        // ONE ALREADY IN FLIGHT IS A RE-ATTEMPT BY DEFINITION, and it has to
+        // be named explicitly: the window's clock is stamped when an envelope
+        // ENDS, so during a glow there is nothing for the guard below to
+        // measure against, and a person flicking faster than 0.6 s apart —
+        // which is what flicking at a wall looks like — would never damp at
+        // all.
+        guard acknowledgementPhase == .idle else { return damped }
+
+        // And it forgives: one genuinely idle window after the last light went
+        // out and the next flick gets the full answer again.
+        guard let last = lastAcknowledgedAt,
+              elapsed - last < config.acknowledgementWindow else { return 1 }
+        return damped
+    }
+
+    // The envelope, stepped once per frame from `step(dt:)`, with the same
+    // clamped dt everything else in this file uses.
+    //
+    // A FIXED-RATE LINEAR RAMP IN BOTH DIRECTIONS, and both consequences of
+    // that are wanted. The on-screen SLOPE of the light is the same however
+    // damped the glow is — a quieter answer is a smaller one, not a slower
+    // one, and slope is what decides whether a light reads as a flash. And the
+    // level is a plain function of accumulated stepped time, so 60 Hz and
+    // 120 Hz agree to within one frame quantum, exactly as the settle's own
+    // `s = elapsed / duration` does.
+    //
+    // NOT A SPRING, AND NOT AN EXPONENTIAL DECAY, for the reason `Ease` is not
+    // a spring: an exponential never reaches zero, and "never reaches zero" on
+    // a value the pause predicate is watching means a world that never pauses.
+    //
+    // IT REACHES EXACTLY ZERO AND PARKS THERE. The literal `0` is assigned and
+    // the phase goes `.idle`, so `isIdle` turns true, the host lets the world
+    // pause, and no paused frame is ever left holding a fraction of a glow.
+    private func stepAcknowledgement(_ clamped: TimeInterval) {
+        switch acknowledgementPhase {
+        case .idle:
+            break
+
+        case .rising:
+            // Guarded exactly as the divisions by `travelPerPlace` are: a
+            // degenerate duration resolves to "instant" rather than to an
+            // infinity or a NaN travelling out into every colour on screen.
+            guard config.acknowledgementRise > 0 else {
+                acknowledgementLevel = acknowledgementGoal
+                acknowledgementPhase = .falling
+                return
+            }
+            acknowledgementLevel += CGFloat(clamped / config.acknowledgementRise)
+            if acknowledgementLevel >= acknowledgementGoal {
+                // CLIPPED TO THE GOAL rather than allowed past it. This line,
+                // together with the fact that a goal only ever shrinks inside
+                // a window, is the whole of why repeated flicks cannot pump
+                // the light: the level is bounded above by the largest goal
+                // ever set, which is 1.
+                acknowledgementLevel = acknowledgementGoal
+                acknowledgementPhase = .falling
+            }
+
+        case .falling:
+            guard config.acknowledgementFall > 0 else {
+                acknowledgementLevel = 0
+                acknowledgementPhase = .idle
+                lastAcknowledgedAt = elapsed
+                return
+            }
+            acknowledgementLevel -= CGFloat(clamped / config.acknowledgementFall)
+            if acknowledgementLevel <= 0 {
+                acknowledgementLevel = 0
+                acknowledgementPhase = .idle
+                // Stamped where the light actually went out, for the reason
+                // `lastReturnAt` is stamped where the world actually stopped.
+                lastAcknowledgedAt = elapsed
+            }
+        }
+    }
+
     private func clampToAxis(_ value: CGFloat) -> CGFloat {
         // The ends of the world. Clamp, not wrap, not rubber-band.
         let limit = config.travelPerPlace
@@ -1184,6 +1566,14 @@ final class WorldCamera {
                                    isReturn: isReturn)
             }
         }
+
+        // W05c. Stepped OUTSIDE the settle block, because it is not a settle:
+        // it runs while the camera is at rest, which is the entire reason
+        // `isIdle` exists next to `isAtRest`. It writes no position, so it
+        // contributes nothing to `flow` below and nothing to `isTransitioning`
+        // — an acknowledgement never dims the world (W05b) and never claims a
+        // transit, because there is none.
+        stepAcknowledgement(clamped)
 
         flow = abs(offset - reference) / CGFloat(clamped)
         flowReference = offset

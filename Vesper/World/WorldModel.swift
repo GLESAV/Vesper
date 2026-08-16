@@ -7,10 +7,11 @@ import Foundation
 // simulation behind `GameViewModel` (no wall-clock), and SwiftUI itself.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// IT PUBLISHES `place` AND `worldMoving`, AND NOTHING ELSE.
+// IT PUBLISHES `place`, `worldMoving` AND `worldAwake`, AND NOTHING ELSE.
 //
-// That is a blocking acceptance condition carried onto W04 by R-ARCH, not a
-// style preference, and the two halves fail in opposite directions:
+// The rule this obeys is a blocking acceptance condition carried onto W04 by
+// R-ARCH, not a style preference, and the two halves fail in opposite
+// directions:
 //
 //   * publishing MORE — above all the camera's per-frame offset — rebuilds
 //     the TimelineView/Canvas/input subtree 120 times a second, which is
@@ -20,9 +21,38 @@ import Foundation
 //     observable and nothing about it can wake a SwiftUI view (host contract
 //     H3 in WorldCamera.swift, which is written for this file).
 //
-// Both published values change at most a couple of times per gesture:
-// `place` at the commit instant, `worldMoving` once when the world starts
-// moving and once when it stops.
+// THE THIRD VALUE IS W05c, AND IT IS A SPLIT RATHER THAN AN ADDITION.
+// R-ARCH wrote the condition as "`place` and `worldMoving` and nothing else"
+// at a moment when movement was the only per-frame state the camera had, so
+// "keep the frame clock running" and "the world is travelling" were the same
+// sentence. The end-of-axis acknowledgement is the item that separates them:
+// it is a time envelope that must be stepped every frame WHILE THE CAMERA IS
+// AT REST. So the one flag became the two questions it always was:
+//
+//   worldMoving   mirrors `!camera.isAtRest`. "The world is travelling."
+//                 It gates HIT-TESTING (`WorldView.placed`) and rides with
+//                 the sim gate — a place's controls must not take the touch
+//                 that is trying to catch the world mid-flight.
+//   worldAwake    mirrors `!camera.isIdle`. "There is per-frame camera state
+//                 here." It gates THE PAUSE PREDICATE, and nothing else.
+//
+// `worldMoving` implies `worldAwake`, so the render half is strictly weaker
+// than the moving half and can never pause anything the W04 predicate kept
+// alive. Overloading `worldMoving` with the acknowledgement instead would
+// make the sky's stars untappable for the third of a second after every flick
+// at the ceiling, breaking W09's ≥ 44 pt targets; pausing on `worldMoving`
+// would freeze the envelope mid-glow.
+//
+// AND IT IS NOT A VALUE DERIVED FROM THE OTHER TWO — the thing R-ARCH refused
+// when it refused an `offField` or a published `simActive`. A derived flag is
+// stale against its sources for about a frame at each end of every settle,
+// which is exactly the window that costs a pop. `worldAwake` is mirrored from
+// the camera, in the same handler and on the same frame as `worldMoving`, and
+// carries information neither of the other two has.
+//
+// All three change at most a couple of times per gesture: `place` at the
+// commit instant, and each flag once when its condition begins and once when
+// it ends.
 // ─────────────────────────────────────────────────────────────────────────
 //
 // `@MainActor` for the same reason the camera is: this object is written from
@@ -38,9 +68,25 @@ final class WorldModel: ObservableObject {
     // outside the render pass and therefore safe to publish from.
     @Published private(set) var place: Place = .field
 
-    // The MOVING half of the pause predicate (H3). Never derived in a view
-    // body, never read from the camera by SwiftUI.
+    // "THE WORLD IS TRAVELLING." Mirrors `!camera.isAtRest`. Never derived in
+    // a view body, never read from the camera by SwiftUI.
+    //
+    // Since W05c this is NOT the pause predicate's term — see `worldAwake`
+    // below. It gates hit-testing, so widening it to cover anything that is
+    // not translation takes controls away from her while the world is
+    // standing still.
     @Published private(set) var worldMoving = false
+
+    // "THERE IS PER-FRAME CAMERA STATE; KEEP THE CLOCK RUNNING." Mirrors
+    // `!camera.isIdle`, and it is the pause predicate's term (H3, as amended
+    // at W05c).
+    //
+    // It is true for the whole of every settle AND for the whole of every
+    // end-of-axis acknowledgement, which is the case `worldMoving` cannot
+    // express: at the sky, a flick at the ceiling leaves the camera at rest
+    // with an envelope to step, and the W04 predicate would have paused the
+    // world over it and frozen the glow at whatever fraction it had reached.
+    @Published private(set) var worldAwake = false
 
     // MARK: - Owned, and deliberately not published
 
@@ -105,7 +151,18 @@ final class WorldModel: ObservableObject {
         // same reason — `.panChanged` arrives at digitizer rate, and an
         // unguarded write here would republish 120 times a second and undo
         // the whole point of ruling 7.
+        //
+        // BOTH FLAGS, BOTH MIRRORED FROM THE CAMERA, NEITHER DERIVED FROM THE
+        // OTHER. `worldAwake` is the one that has to be right on this line for
+        // the acknowledgement to exist at all: an axis-gated flick leaves the
+        // camera AT REST, so `worldMoving` correctly stays false, and if
+        // nothing else were published here the world would stay paused and the
+        // envelope would never be stepped. This handler is a UIKit touch
+        // callback — outside the render pass — which is what makes publishing
+        // from it safe, and it is also the only moment at which an
+        // acknowledgement can ever be armed.
         if !worldMoving && !camera.isAtRest { worldMoving = true }
+        if !worldAwake && !camera.isIdle { worldAwake = true }
     }
 
     // MARK: - The frame
@@ -153,6 +210,7 @@ final class WorldModel: ObservableObject {
         game.simActive = simActive
 
         if camera.isAtRest { worldSettled() }
+        if camera.isIdle { worldQuietened() }
     }
 
     // Clears the moving half of the pause predicate (H3).
@@ -175,6 +233,27 @@ final class WorldModel: ObservableObject {
                 // path the deferral opens.
                 guard self.camera.isAtRest else { return }
                 self.worldMoving = false
+            }
+        }
+    }
+
+    // Clears the pause predicate's own term, once the camera has nothing left
+    // to step — no settle in flight AND no acknowledgement still fading.
+    //
+    // Deferred and re-checked for exactly the reasons `worldSettled` is, and
+    // the re-check matters slightly more here: the touch that can land in the
+    // gap is the second flick of a rocking sequence at the ceiling, which
+    // re-arms an envelope without ever making the camera move. Clearing
+    // `worldAwake` underneath it would pause the world over a live glow and
+    // leave it frozen part-lit — the exact failure this pair of flags exists
+    // to prevent, reached through the one door the deferral opens.
+    func worldQuietened() {
+        guard worldAwake else { return }
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard self.camera.isIdle else { return }
+                self.worldAwake = false
             }
         }
     }

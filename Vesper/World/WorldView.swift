@@ -49,8 +49,10 @@ import SwiftUI
 
 // Owns the world for the lifetime of the scene, and does nothing else.
 //
-// The split exists for one reason: `WorldModel` publishes `place` and
-// `worldMoving` AND NOTHING ELSE (a blocking acceptance condition), so the
+// The split exists for one reason: `WorldModel` publishes `place`,
+// `worldMoving` and `worldAwake` AND NOTHING ELSE (a blocking acceptance
+// condition; the third is W05c splitting "keep rendering" out of "the world is
+// moving" — see that file's header), so the
 // `GameViewModel` it owns is not observable through it. Rather than widen
 // that published surface — or forward another object's changes through it,
 // which comes to the same thing while being harder to review — the game is
@@ -194,7 +196,9 @@ private struct WorldScene: View {
             //
             // THE PAUSE PREDICATE (H3, and a blocking acceptance condition):
             // the field's quiescence OR her absence from it, AND the
-            // published `worldMoving`.
+            // published `worldAwake` — which is `worldMoving` plus the one
+            // other thing the camera steps per frame without translating (the
+            // end-of-axis acknowledgement, W05c).
             //
             // RULED, NOT IMPROVISED. The off-field half of this line is a
             // Director ruling on a defect raised from this file, and it is
@@ -223,19 +227,32 @@ private struct WorldScene: View {
             //     un-pause it is invisible to SwiftUI. Naming
             //     `sim.isQuiescent` raw instead of its published mirror has
             //     the identical defect, for the identical reason.
-            //   * NOT A THIRD PUBLISHED VALUE — an `offField`, a
-            //     `worldPaused`, a published `simActive`. `WorldModel`
-            //     publishes `place` and `worldMoving` AND NOTHING ELSE, which
-            //     is a blocking acceptance; and a third value derived from
-            //     those two is a value that can be stale against them, for
-            //     about a frame at each end of every settle, which is exactly
-            //     the window that costs a pop.
+            //   * NOT A VALUE DERIVED FROM THE PUBLISHED ONES — an
+            //     `offField`, a `worldPaused`, a published `simActive`. A flag
+            //     computed from `place` and the others is stale against them
+            //     for about a frame at each end of every settle, which is
+            //     exactly the window that costs a pop. `worldAwake` is not
+            //     that: it is mirrored from `camera.isIdle` in the same touch
+            //     handler as `worldMoving` and carries information neither of
+            //     the other two has — W05c splitting one flag into the two
+            //     questions it always was, not a fourth value bolted on.
             //   * NOT `place != .field` ON ITS OWN. `place` flips at the
             //     COMMIT instant — the start of the travel, not the end — so
             //     on its own it would pause the world in the middle of the
-            //     settle she just asked for. `!worldMoving` is the term that
+            //     settle she just asked for. `!worldAwake` is the term that
             //     keeps a settle alive; it is cleared only once the camera
-            //     has actually arrived (`worldSettled`, deferred).
+            //     has actually arrived (`worldQuietened`, deferred).
+            //   * NOT `!worldMoving`, WHICH IS WHAT THIS LINE SAID UNTIL
+            //     W05c. The two flags mean different things now: `worldMoving`
+            //     is "the world is travelling" and gates hit-testing;
+            //     `worldAwake` is "the camera still has per-frame state to
+            //     step" and is this line's term. The case that separates them
+            //     is a flick at the end of the axis — the camera stays AT REST
+            //     and answers with an envelope of light instead — and with
+            //     `worldMoving` here the world would pause over it and freeze
+            //     the glow part-lit. `worldMoving` implies `worldAwake`, so
+            //     this is strictly weaker than what it replaced and cannot
+            //     pause anything the W04 predicate kept alive.
             //
             // Both terms are PUBLISHED, so both can wake it, and every route
             // back into motion — swipe or whisper tap — goes through
@@ -256,7 +273,7 @@ private struct WorldScene: View {
             // an ordinary SwiftUI invalidation and does not need a clock.
             TimelineView(.animation(minimumInterval: nil,
                                     paused: (model.place != .field || game.renderingPaused)
-                                        && !model.worldMoving)) { timeline in
+                                        && !model.worldAwake)) { timeline in
                 movingBody(at: timeline.date, size: size)
             }
             // The places answer for themselves from here — the ruling
@@ -339,6 +356,19 @@ private struct WorldScene: View {
         let luminance = WorldRender.transitLuminance(isTransitioning: camera.isTransitioning,
                                                      crossfade: camera.transition.t)
 
+        // W05c, THE END-OF-AXIS ACKNOWLEDGEMENT, read here with the rest and
+        // for the same reason. `nil` on all but a fraction of a second in any
+        // evening, and `nil` is a view that is not built at all rather than a
+        // transparent one — a full-screen container above the input layer is
+        // not something to leave lying around even at zero opacity.
+        //
+        // It is the one per-frame value here that is NOT a function of the
+        // camera's position: it is a time envelope the camera steps, which is
+        // why the pause predicate above now reads `worldAwake` rather than
+        // `worldMoving`. If this line ever draws nothing on a device where the
+        // glow should be visible, that predicate is the first place to look.
+        let acknowledgement = camera.edgeAcknowledgement
+
         // BARRIER CONDITION 11. Under Reduce Motion the world produces ZERO
         // translation and the places crossfade through each other instead.
         // `camera.offset` is already identically zero there; the `rm` branch
@@ -374,8 +404,85 @@ private struct WorldScene: View {
                    y: y(.field), alpha: alpha(.field), luminance: luminance, size: size)
             placed(JournalView(model: model), as: .journal,
                    y: y(.journal), alpha: alpha(.journal), luminance: luminance, size: size)
+
+            // ABOVE THE PLACES, AND NOT ONE OF THEM. It is the edge of the
+            // WORLD catching light, not the edge of whichever place happens to
+            // be under it, so it takes no `y`, no `alpha` and no `luminance`:
+            // it does not travel, it does not crossfade, and it is not dimmed
+            // by condition 14 (which is moot anyway — the camera is at rest
+            // while this plays, so `isTransitioning` is false and `luminance`
+            // is exactly 1).
+            //
+            // Still inside the moving body rather than out in `composition`
+            // because it reads a per-frame camera scalar, and those are read
+            // inside the frame closure and nowhere else (ruling 7). It sits
+            // below the whispers and the cards, which keep their own light.
+            edgeAcknowledgement(acknowledgement, size: size)
         }
         .frame(width: size.width, height: size.height)
+    }
+
+    // MARK: - The end of the axis, answered (W05c)
+
+    // She flicked at the ceiling. The gesture passed both of the arbiter's
+    // commit gates, the camera resolved it — correctly — to the place she is
+    // already standing in, and before this existed the world did nothing at
+    // all. It answers now: a soft brightening at the leading edge, the edge she
+    // tried to travel toward, rising and settling back.
+    //
+    // LIGHT, NOT MOVEMENT, and that is a Director's ruling rather than a
+    // choice made here. The whole of the reasoning — and the four grounds on
+    // which an iOS-style rubber-band was refused — is on
+    // `WorldCamera.Config.acknowledgementRise`. What matters at this site is
+    // the consequence: THERE IS NO REDUCE MOTION BRANCH BELOW, because there
+    // is nothing to branch. The behaviour is identical with the setting on and
+    // off, and both produce zero translation, so there is no second path here
+    // to keep honest.
+    //
+    // `.allowsHitTesting(false)` IS LOAD-BEARING, not hygiene. Since the
+    // hit-testing ruling the moving body sits ABOVE the input layer, so a
+    // full-screen container in this subtree that answered touches would eat
+    // every pop and every swipe for as long as it existed. It exists for about
+    // 0.6 s after every flick at an end of the axis, which is to say: at
+    // exactly the moment she is most likely to try again.
+    @ViewBuilder
+    private func edgeAcknowledgement(_ answer: (edge: WorldDirection, level: CGFloat)?,
+                                     size: CGSize) -> some View {
+        if let answer {
+            let up = answer.edge == .up
+            LinearGradient(
+                stops: [
+                    // Three stops rather than two: a straight linear ramp over
+                    // 152 pt bands visibly on an OLED at these levels, and a
+                    // band in a soft glow reads as a defect. The middle stop
+                    // pulls the falloff toward the edge so most of the depth
+                    // is spent near nothing, which is also what keeps the
+                    // average alpha across the band around a third of its peak.
+                    .init(color: Palette.edgeLight, location: 0),
+                    .init(color: Palette.edgeLight.opacity(0.34), location: 0.45),
+                    .init(color: Palette.edgeLight.opacity(0), location: 1)
+                ],
+                startPoint: up ? .top : .bottom,
+                endPoint: up ? .bottom : .top
+            )
+            .frame(height: WorldRender.edgeAcknowledgementDepth * size.height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: up ? .top : .bottom)
+            // The renderer decides what one unit of the camera's envelope
+            // looks like; the camera decides the envelope. One multiply, no
+            // second curve — and no `.animation` anywhere near it, for the
+            // reason ruling 7 gives: this level IS the animation.
+            .opacity(WorldRender.edgeAcknowledgementOpacity(level: answer.level))
+            .allowsHitTesting(false)
+            // A NICETY, NEVER THE ONLY SIGNAL, so nothing here is announced
+            // and nothing here carries meaning VoiceOver cannot reach. The
+            // accessible answer to "there is nothing above the sky" is
+            // structural and already shipped: the whisper that would name the
+            // place she is already in is simply not there, at that end, ever
+            // (see `wayfindingWhisper`). A person who never sees this light is
+            // told the same thing by the signage, which is the right way round.
+            .accessibilityHidden(true)
+        }
     }
 
     // Each place is a full screen of world, translated along the one axis.
@@ -418,11 +525,21 @@ private struct WorldScene: View {
             // while the world is still flying toward them, and a hand landing
             // on the glass to catch the world could catch a star instead.
             //
+            // AND IT IS `worldMoving`, NOT `worldAwake` — the two are
+            // different questions since W05c and this is the moving one. The
+            // acknowledgement plays with the camera AT REST, at the sky or the
+            // journal, which is precisely where the ≥ 44 pt star and row
+            // targets live: gating this line on the awake flag instead would
+            // take her controls away for a third of a second every time she
+            // flicked at the end of the axis, which is exactly when she is
+            // most likely to reach for one.
+            //
             // BOTH TERMS ARE PUBLISHED and change at most once per commit —
             // no camera value is named (ruling 7), so this is not a per-frame
-            // invalidation, and it cannot latch: `worldMoving == true` forces
-            // the timeline UNPAUSED by the predicate above, so the frame
-            // closure keeps running and `worldSettled` always clears it.
+            // invalidation, and it cannot latch: `worldMoving == true` implies
+            // `worldAwake == true`, which forces the timeline UNPAUSED by the
+            // predicate above, so the frame closure keeps running and
+            // `worldSettled` always clears it.
             //
             // Nothing here reaches the input layer. It is a sibling of this
             // whole subtree and is never given a predicate of any kind.
@@ -660,8 +777,15 @@ private struct WorldScene: View {
     // Navigation, and the whole of it. The same call the swipe makes, with no
     // flick behind it: velocity 0 means the camera times the settle from the
     // distance alone. `handle` is a touch callback — outside the render pass
-    // — and it is what writes `place` and `worldMoving`, so this tap also
-    // un-pauses the world it is about to move.
+    // — and it is what writes `place`, `worldMoving` and `worldAwake`, so this
+    // tap also un-pauses the world it is about to move.
+    //
+    // It can never be an axis-gated commit: `wayfindingWhisper` above builds no
+    // whisper at all at an end of the axis, so there is no control here to tap
+    // that would ask for somewhere that does not exist. The end-of-axis
+    // acknowledgement is therefore a swipe-only answer, which is the right way
+    // round — the swipe is the path on which she can ask an impossible
+    // question, and the signage is the path that never lets her.
     private func go(_ direction: WorldDirection) {
         model.handle([.commit(direction, velocity: 0)])
     }
@@ -723,6 +847,12 @@ private struct WorldScene: View {
 private enum Palette {
     static let bright = Color(red: 244/255, green: 242/255, blue: 250/255)
     static let soft   = Color(red: 214/255, green: 204/255, blue: 230/255)
+    // The one tone here that is not the field's: the end-of-axis
+    // acknowledgement belongs to the world, not to a place. It is `soft`
+    // rather than a new colour on purpose — the world already has a muted
+    // pastel for "a little light", and the answer to a flick at the ceiling
+    // is not the moment to introduce a second one.
+    static let edgeLight = soft
     static let accent = Color(red: 195/255, green: 175/255, blue: 220/255)
     static let dim    = Color(red: 139/255, green: 134/255, blue: 163/255)
     static let card   = Color(red: 24/255, green: 22/255, blue: 34/255)

@@ -1,25 +1,36 @@
 import SwiftUI
 
-// MARK: - Travel-only render cues (W05b)
+// MARK: - Camera render cues (W05b, W05c)
 
-// The two things the camera is allowed to do to the picture while the world is
-// travelling between places: the ambient motes fall behind the field a little,
-// and the light comes down a little. Both are stated here as PURE FUNCTIONS OF
-// THE CAMERA'S CURRENT POSITION, so both are provable in `WorldRenderTests`
-// without a screen, a clock, or a frame.
+// The three things the camera is allowed to do to the picture. Two of them
+// belong to TRAVEL — while the world is moving between places the ambient
+// motes fall behind the field a little and the light comes down a little — and
+// the third belongs to ARRIVING NOWHERE: a soft brightening at the leading
+// edge when she asks to travel past the end of the axis (W05c).
 //
 // THEY ARE RENDERING CONSTANTS, NOT CAMERA CONSTANTS, and they live here
 // rather than in `WorldCamera.Config` deliberately. The camera decides how the
 // world moves; this file decides what that looks like, and it may never decide
-// the first thing. Turning either number to zero must leave the navigation
-// itself — distances, durations, ceilings, gates — bit-identical.
+// the first thing. Turning any of these numbers to zero must leave the
+// navigation itself — distances, durations, ceilings, gates, and `isAtRest` —
+// bit-identical.
 //
-// NEITHER IS AN INTEGRATION. Each reads where the camera IS this frame and
-// answers for this frame; neither accumulates across frames, so neither can
-// drift, and rendering stays stateless. That is also why neither is multiplied
-// by the clamped frame factor `f` that every piece of MOTION in this app
-// scales by — see the paragraph on `moteParallax`, which a later reader will
-// otherwise arrive to "fix".
+// ALL THREE ARE PURE FUNCTIONS OF A SINGLE ARGUMENT THE CAMERA HANDS THEM, so
+// all three are provable in `WorldRenderTests` without a screen, a Canvas or a
+// wall-clock. NONE OF THEM IS AN INTEGRATION: nothing here accumulates across
+// frames, so nothing here can drift, and rendering stays stateless. That is
+// also why none of them is multiplied by the clamped frame factor `f` that
+// every piece of MOTION in this app scales by — see the paragraph on
+// `moteParallax`, which a later reader will otherwise arrive to "fix".
+//
+// WHERE THE THIRD ONE DIFFERS, STATED SO IT IS NOT MISREAD AS AN EXCEPTION.
+// The travel cues take the camera's POSITION; the acknowledgement takes a
+// normalized level from a TIME ENVELOPE, because "she asked to go past the end
+// of the world" is an event rather than a place, and an event with no duration
+// is a single frame nobody sees. The envelope itself — its rise, its fall, its
+// damping, and its exact return to zero — is `WorldCamera`'s, stepped in
+// `step(dt:)` where every other clock in the world layer is stepped. This file
+// still only scales.
 enum WorldRender {
 
     // MARK: Mote parallax
@@ -164,6 +175,81 @@ enum WorldRender {
         let progress = Double(min(1, max(0, t.isFinite ? t : 1)))
         let bell = 4 * progress * (1 - progress)
         return 1 - transitDim * bell
+    }
+
+    // MARK: End-of-axis acknowledgement (W05c)
+
+    // THE THIRD CUE, AND THE ONLY ONE THAT IS NOT A FUNCTION OF POSITION.
+    // The other two read where the camera IS on this frame; this one reads a
+    // time envelope the camera steps, because "she asked to go past the end of
+    // the world" is an EVENT and an event has to have a duration or it is a
+    // single frame nobody sees. `WorldCamera.acknowledgementLevel` owns the
+    // envelope and everything about its timing, damping and exact return to
+    // zero; this file owns only what one unit of it looks like.
+    //
+    // THE SPLIT IS THE SAME ONE AS ABOVE and matters more here than anywhere:
+    // turning `edgeAcknowledgementPeak` to zero must leave the navigation —
+    // distances, durations, ceilings, gates, and `isAtRest` — bit-identical.
+    // It does, because the camera never reads this file.
+
+    // THE PEAK OPACITY of the acknowledgement's brightest pixel: the row
+    // exactly on the edge of the screen she asked to travel past, at the top
+    // of a fully undamped envelope. Everything else in the band is dimmer, and
+    // every repeat is dimmer still.
+    //
+    // WHY 0.10, ANCHORED RATHER THAN GUESSED. It is the alpha `SkyView` gives
+    // a QUIET STAR'S HALO (`glowColor.opacity(0.10)`) — the dimmest light the
+    // world already draws on purpose, and one a person sits and looks at
+    // without ever calling it bright. At its very loudest, this cue is exactly
+    // as loud as a star at rest. It is also under the 0.12 white hairline the
+    // cards use for "just visible", and it is applied to a muted pastel rather
+    // than to white.
+    //
+    // AND IT IS SIZED AGAINST BEING SEEN AS A FLASH, not against being seen.
+    // Averaged over the band the added alpha is about 0.03, because the
+    // falloff spends most of its depth near zero; averaged over the whole
+    // screen it is under 0.006. If W22's motion-safety screen reports that the
+    // acknowledgement is missed rather than felt, THIS is the number to turn
+    // up, and it is the only one here that may be turned without touching the
+    // camera.
+    static let edgeAcknowledgementPeak: Double = 0.10
+
+    // How deep into the screen the light reaches, in screen heights: 0.18, or
+    // 152 pt on the 844 pt reference screen.
+    //
+    // DEEP ENOUGH NOT TO BE A LINE. A bright hairline at the edge of a display
+    // reads as a rendering artefact — something has gone wrong — where a soft
+    // band the depth of the world's own vignette reads as the edge of the
+    // world catching a little light, which is the sentence this cue is trying
+    // to say.
+    //
+    // AND IT NEVER CROSSES A WORD. The whispers sit 60 pt from the head and
+    // 34 pt from the foot, so a band this deep passes behind one — but it
+    // never has to, because the end of the axis and the end with no whisper
+    // are the same end (`WorldView.wayfindingWhisper` omits the whisper that
+    // would name the place she is already in). The light always answers on the
+    // empty edge.
+    static let edgeAcknowledgementDepth: CGFloat = 0.18
+
+    // THE BAND'S OPACITY THIS FRAME, in [0, edgeAcknowledgementPeak].
+    //
+    // LINEAR IN THE LEVEL, DELIBERATELY. The camera's envelope already IS the
+    // shape — rise, peak, settle back — and a curve laid over it here would be
+    // the second curve in a fight over one number, which is the same mistake
+    // ruling 7 bars when it bars `withAnimation` on a camera value. This
+    // function scales; it does not shape.
+    //
+    // EXACTLY ZERO AT ZERO, which is the property the pause predicate rides
+    // on: the camera decays its level to the literal 0 and parks there, and
+    // `0 × peak` is exactly 0, so the last frame before the world pauses draws
+    // precisely the picture it drew before any of this existed.
+    //
+    // A non-finite or out-of-range level resolves to no light at all rather
+    // than to a NaN alpha — failing toward the picture that existed before
+    // W05c, exactly as `transitLuminance` fails toward full light.
+    static func edgeAcknowledgementOpacity(level: CGFloat) -> Double {
+        guard level.isFinite, level > 0 else { return 0 }
+        return edgeAcknowledgementPeak * Double(min(1, level))
     }
 }
 

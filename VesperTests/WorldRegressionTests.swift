@@ -1060,13 +1060,26 @@ final class WorldRegressionTests: XCTestCase {
     // MARK: - R-ARCH carry-forward, the parts testable without a device
 
     // BLOCKING ACCEPTANCE: "`WorldModel` publishes `place` and `worldMoving`,
-    // and nothing else."
+    // and nothing else" — amended at W05c to "`place`, `worldMoving` and
+    // `worldAwake`, and nothing else".
+    //
+    // THE AMENDMENT IS A SPLIT, NOT A RELAXATION. R-ARCH wrote the condition
+    // when movement was the only per-frame state the camera had, so "keep the
+    // frame clock running" and "the world is travelling" were one sentence.
+    // The end-of-axis acknowledgement is per-frame camera state that runs
+    // while the camera is AT REST, so the one flag became the two questions it
+    // always was: `worldMoving` (mirrors `!camera.isAtRest`) gates
+    // hit-testing, `worldAwake` (mirrors `!camera.isIdle`) gates the pause
+    // predicate. Neither is derived from the other or from `place`, both are
+    // written in the same touch handler, and both still change at most twice
+    // per gesture. The thing the condition actually forbids — a per-frame
+    // value on this object — is unchanged and still checked below.
     //
     // Checked STRUCTURALLY rather than by review, because the failure mode is
     // somebody adding one convenient `@Published var offset` — verbatim the
     // condition ruling 7 blames for cancelled taps, and one that no behavioural
     // test would notice until the device felt wrong in somebody's hands.
-    func testWorldModelPublishesPlaceAndWorldMovingAndNothingElse() {
+    func testWorldModelPublishesPlaceMovingAndAwakeAndNothingElse() {
         let model = WorldModel()
         var published: Set<String> = []
         for child in Mirror(reflecting: model).children {
@@ -1074,7 +1087,7 @@ final class WorldRegressionTests: XCTestCase {
             guard String(describing: type(of: child.value)).hasPrefix("Published<") else { continue }
             published.insert(String(label.dropFirst()))
         }
-        XCTAssertEqual(published, ["place", "worldMoving"],
+        XCTAssertEqual(published, ["place", "worldMoving", "worldAwake"],
                        "WorldModel's published surface changed. Anything per-frame here rebuilds "
                        + "the TimelineView/Canvas/input subtree at frame rate, which is the "
                        + "condition ruling 7 names for cancelled taps.")
@@ -1104,11 +1117,15 @@ final class WorldRegressionTests: XCTestCase {
     }
 
     // BLOCKING ACCEPTANCE: the pause predicate is
-    // `sim.isQuiescent && !model.worldMoving`, and it may never read the camera.
-    // The failure it prevents is a world frozen mid-settle, so the invariant to
-    // pin is the implication: whenever the camera is NOT at rest, `worldMoving`
-    // is true — the predicate can never pause a moving world. The converse is
-    // allowed to lag by one main-queue hop, and does.
+    // `sim.isQuiescent && !model.worldAwake` (it was `!worldMoving` until
+    // W05c split the flag), and it may never read the camera. The failure it
+    // prevents is a world frozen mid-settle, so the invariant to pin is the
+    // implication: whenever the camera is NOT at rest, `worldMoving` is true —
+    // and `worldMoving` implies `worldAwake`, so the predicate can never pause
+    // a moving world. The converse is allowed to lag by one main-queue hop,
+    // and does. `WorldCameraTests` pins the other half — that `worldAwake`'s
+    // source, `camera.isIdle`, stays false for the whole of an end-of-axis
+    // acknowledgement while `isAtRest` stays true.
     func testWorldMovingIsTrueEveryFrameTheCameraIsNotAtRest() {
         let model = WorldModel()
         model.camera.viewHeight = screenHeight
