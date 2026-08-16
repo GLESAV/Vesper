@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<!--
+  Vesper screenshot compositor.
+
+  Renders composed App Store scenes by porting SceneRenderer's drawing math
+  (colors, halo/highlight geometry, particle shapes, ring strokes) and the
+  SwiftUI chrome (HUD, cards, sheets) to Canvas + HTML. Driven by
+  capture.js: ?scene=play|path|journey|fortune|done&device=phone|pad
+
+  Note: composed on Linux Chromium these are faithful drafts — for
+  pixel-perfect New York/SF type, re-capture on a simulator before shipping
+  (see docs/RELEASE_v1.2.md).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --ink: #ECEAF4;
+    --muted: #9B95B2;
+    --faint: #8B86A3;
+    --accent: #C3AFDC;
+    --card: #181622;
+    --sheet: #100F18;
+    --serif: Georgia, "Liberation Serif", "DejaVu Serif", serif;
+    --sans: "Helvetica Neue", Arial, "Liberation Sans", "DejaVu Sans", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #09080E; }
+  body { font-family: var(--sans); position: relative; }
+  #field { position: absolute; inset: 0; }
+
+  .hud { position: absolute; top: 0; left: 0; right: 0; text-align: center; color: var(--ink); }
+  .count { font-family: var(--serif); font-weight: 300; font-size: 62px;
+           color: #F4F2FA; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .detonated { font-size: 9px; letter-spacing: 4px; color: var(--faint); font-weight: 500; margin-top: 8px; }
+  .sessionpts { font-size: 9px; letter-spacing: 1.5px; color: rgba(139,134,163,0.8); margin-top: 4px; }
+  .chainnote { font-family: var(--serif); font-style: italic; font-size: 11px;
+               color: rgba(195,175,220,0.75); margin-top: 6px; }
+
+  .topbar { position: absolute; left: 22px; right: 22px; display: flex; gap: 8px; }
+  .btn { width: 44px; height: 44px; border-radius: 12px; background: rgba(20,18,32,0.55);
+         border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center;
+         justify-content: center; }
+  .btn svg { stroke: #ECEAF4; fill: none; stroke-width: 1.6; stroke-linecap: round; }
+  .spacer { flex: 1; }
+
+  .cardwrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .fortune { max-width: 290px; padding: 24px 30px; background: rgba(24,22,34,0.92);
+             border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; text-align: center;
+             box-shadow: 0 12px 30px rgba(0,0,0,0.4); }
+  .fortune .star { font-size: 15px; color: rgba(214,204,230,0.85); margin-bottom: 10px; }
+  .fortune .msg { font-family: var(--serif); font-style: italic; font-size: 15px;
+                  line-height: 1.55; color: #E8E4F2; }
+
+  .scrim { position: absolute; inset: 0; background: rgba(14,13,20,0.55); }
+  .done { max-width: 340px; padding: 44px; background: rgba(22,20,32,0.9);
+          border: 1px solid rgba(255,255,255,0.1); border-radius: 22px; text-align: center;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.5); position: relative; }
+  .done .check { width: 52px; height: 52px; border: 1px solid rgba(255,255,255,0.3);
+                 border-radius: 50%; margin: 0 auto 22px; display: flex; align-items: center;
+                 justify-content: center; }
+  .done h1 { font-family: var(--serif); font-weight: 300; font-size: 30px; color: #fff; margin-bottom: 12px; }
+  .done .sub { font-size: 13.5px; line-height: 1.45; color: #9B95B2; margin-bottom: 10px; }
+  .done .pts { font-family: var(--serif); font-style: italic; font-size: 12px;
+               color: rgba(195,175,220,0.9); margin-bottom: 6px; }
+  .done .life { font-family: var(--serif); font-style: italic; font-size: 11px;
+                color: rgba(139,134,163,0.8); margin-bottom: 24px; }
+  .done .go { display: inline-block; padding: 13px 30px; border-radius: 11px; background: #E9E6F4;
+              color: #12111A; font-size: 12px; font-weight: 600; letter-spacing: 2px; }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #100F18;
+           border-radius: 24px 24px 0 0; padding: 14px 24px 24px; overflow: hidden; }
+  .pad .sheet { left: 50%; right: auto; top: 50%; bottom: auto; width: 560px; height: 940px;
+                transform: translate(-50%, -50%); border-radius: 24px; }
+  .grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.18);
+             margin: 0 auto 18px; }
+  .sheet h1 { font-family: var(--serif); font-weight: 300; font-size: 24px; color: var(--ink); }
+  .sheet .subtitle { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sheet .x { position: absolute; top: 24px; right: 20px; color: var(--muted); font-size: 15px; }
+  .label { font-size: 9px; letter-spacing: 3px; color: var(--muted); font-weight: 500;
+           text-transform: uppercase; }
+
+  .jpoints { font-family: var(--serif); font-weight: 300; font-size: 44px; color: var(--ink);
+             font-variant-numeric: tabular-nums; margin-top: 18px; }
+  .records { display: flex; margin-top: 18px; padding: 14px 0; background: rgba(24,22,34,0.6);
+             border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+  .rec { flex: 1; text-align: center; }
+  .rec .v { font-family: var(--serif); font-weight: 300; font-size: 17px; color: var(--ink);
+            font-variant-numeric: tabular-nums; }
+  .rec .k { font-size: 9px; letter-spacing: 1px; color: var(--muted); margin-top: 3px; }
+  .ahead { margin-top: 14px; padding: 16px; background: rgba(24,22,34,0.6);
+           border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+  .ahead .row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; }
+  .ahead .who { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink); }
+  .ahead .how { font-size: 11px; color: var(--muted); }
+  .meter { height: 5px; border-radius: 3px; background: #1E1C2B; margin-top: 10px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .collhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 22px; }
+  .collhead .n { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .famhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; margin-bottom: 8px; }
+  .famhead .fn { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink); }
+  .famhead .fc { font-size: 10px; color: rgba(139,134,163,0.8); font-variant-numeric: tabular-nums; }
+  .cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .cell .dot { width: 26px; height: 26px; border-radius: 50%; }
+  .cell.locked .dot { background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.14); }
+  .cell.secret .dot { display:flex; align-items:center; justify-content:center;
+                      font-family: var(--serif); font-size: 12px; color: rgba(155,149,178,0.7); }
+  .cell .nm { font-size: 7px; color: var(--muted); max-width: 100%; overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; }
+  .cell.locked .nm { color: rgba(110,104,127,0.7); }
+
+  #pathmap { position: relative; margin-top: 6px; }
+  .stone { position: absolute; transform: translate(-50%, -50%); text-align: center; }
+  .stone .circ { width: 48px; height: 48px; border-radius: 50%; background: rgba(24,22,34,0.9);
+                 border: 1px solid rgba(255,255,255,0.28); display: flex; align-items: center;
+                 justify-content: center; gap: 4px; margin: 0 auto; position: relative; }
+  .stone .pd { width: 8px; height: 8px; border-radius: 50%; }
+  .stone.active .circ { border: 2px solid var(--accent); box-shadow: 0 0 18px rgba(195,175,220,0.35); }
+  .stone.cleared { opacity: 0.5; }
+  .stone.cleared .circ { border-color: rgba(255,255,255,0.12); }
+  .stone .check { position: absolute; bottom: 4px; left: 0; right: 0; font-size: 8px;
+                  color: rgba(155,149,178,0.8); }
+  .stone .nm { font-size: 8.5px; color: var(--muted); margin-top: 6px; max-width: 96px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pathcap { text-align: center; font-family: var(--serif); font-style: italic; font-size: 11px;
+             color: rgba(155,149,178,0.7); margin-top: 14px; }
+  #roads { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<canvas id="field"></canvas>
+<div id="ui"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const scene = params.get("scene") || "play";
+const device = params.get("device") || "phone";
+const W = window.innerWidth, H = window.innerHeight;
+if (device === "pad") document.body.classList.add("pad");
+
+// deterministic rng (SplitMix-ish)
+let _s = 0x9E3779B9 ^ 42;
+function rnd() {
+  _s = (_s + 0x6D2B79F5) | 0;
+  let t = Math.imul(_s ^ (_s >>> 15), 1 | _s);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// palette — fills from PopCatalog; glows derived exactly like pv() (×.93/.89/.95)
+const pv = (r, g, b) => ({ fill: [r, g, b], glow: [r * 0.93, g * 0.89, b * 0.95] });
+const PAINTS = {
+  classic0: { fill: [233,230,242], glow: [223,220,238] },
+  classic1: { fill: [231,213,192], glow: [220,190,160] },
+  classic2: { fill: [217,201,230], glow: [195,175,220] },
+  classic3: { fill: [198,220,216], glow: [175,205,198] },
+  classic4: { fill: [230,205,212], glow: [220,180,190] },
+  ember:    pv(233,199,171),
+  kindle:   pv(236,206,168),
+  clover:   pv(204,224,202),
+  bloom:    pv(235,209,219),
+  tide:     pv(190,212,224),
+  frost:    pv(222,232,240),
+  chime:    pv(238,226,196),
+  lantern:  pv(240,220,184),
+  current:  pv(213,204,238),
+  wisteria: pv(214,202,229),
+};
+const rgba = (c, a) => `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+
+// ---- field drawing (ports SceneRenderer) ----
+const canvas = document.getElementById("field");
+canvas.width = W; canvas.height = H;
+canvas.style.width = W + "px"; canvas.style.height = H + "px";
+const ctx = canvas.getContext("2d");
+
+function drawBackground() {
+  const g = ctx.createRadialGradient(W * 0.5, H * 0.3, 0, W * 0.5, H * 0.3, 700);
+  g.addColorStop(0, "#16151F");
+  g.addColorStop(0.5, "#100F18");
+  g.addColorStop(1, "#09080E");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawMotes(n) {
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * W, y = rnd() * H;
+    const s = lerp(0.8, 2.2, rnd());
+    const a = lerp(0.04, 0.12, rnd()) * lerp(0.6, 1.0, rnd());
+    ctx.fillStyle = rgba([214,208,235], a);
+    ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function drawOrb(o) {
+  const p = PAINTS[o.paint], R = o.r;
+  const x = o.x * W, y = o.y * H;
+  ctx.globalCompositeOperation = "lighter";
+  const halo = ctx.createRadialGradient(x, y, R * 0.6, x, y, R * 2.2);
+  halo.addColorStop(0, rgba(p.glow, o.halo ?? 0.18));
+  halo.addColorStop(1, rgba(p.glow, 0));
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(x, y, R * 2.2, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = rgba(p.fill, 1);
+  ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  ctx.beginPath(); ctx.arc(x - R * 0.38, y - R * 0.42, R * 0.26, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function drawRing(r) {
+  const p = PAINTS[r.paint];
+  ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = rgba(p.glow, r.life * 0.4);
+  ctx.lineWidth = 1 + r.life * 2;
+  ctx.beginPath(); ctx.arc(r.x * W, r.y * H, r.r, 0, 7); ctx.stroke();
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function drawBurst(b) {
+  // particles radiating from a pop, shaped per family (dot/spark/petal/shard/ring)
+  const p = PAINTS[b.paint];
+  const cx = b.x * W, cy = b.y * H;
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < b.n; i++) {
+    const ang = rnd() * Math.PI * 2;
+    const dist = lerp(b.spread * 0.25, b.spread, Math.sqrt(rnd()));
+    const life = lerp(0.35, 1, rnd());
+    const s = lerp(1.2, 3.4, rnd()) * (0.5 + life * 0.5);
+    const x = cx + Math.cos(ang) * dist, y = cy + Math.sin(ang) * dist;
+    ctx.fillStyle = rgba(p.glow, life);
+    ctx.strokeStyle = rgba(p.glow, life);
+    if (b.shape === "spark") {
+      ctx.lineWidth = Math.max(0.8, s * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(ang) * s * 1.8, y - Math.sin(ang) * s * 1.8);
+      ctx.lineTo(x + Math.cos(ang) * s * 1.8, y + Math.sin(ang) * s * 1.8);
+      ctx.stroke();
+    } else if (b.shape === "petal") {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+      ctx.beginPath(); ctx.ellipse(0, 0, s * 1.5, s * 0.7, 0, 0, 7); ctx.fill();
+      ctx.restore();
+    } else if (b.shape === "shard") {
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(ang) * s * 1.7, y + Math.sin(ang) * s * 1.7);
+      ctx.lineTo(x + Math.cos(ang + 2.4) * s, y + Math.sin(ang + 2.4) * s);
+      ctx.lineTo(x + Math.cos(ang - 2.4) * s, y + Math.sin(ang - 2.4) * s);
+      ctx.closePath(); ctx.fill();
+    } else if (b.shape === "ring") {
+      ctx.lineWidth = Math.max(0.7, s * 0.45);
+      ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill();
+    }
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function drawWhisper(x, y, text) {
+  ctx.globalCompositeOperation = "lighter";
+  ctx.font = "italic 11px " + getComputedStyle(document.body).getPropertyValue("--serif");
+  ctx.fillStyle = "rgba(210,202,232,0.85)";
+  ctx.textAlign = "center";
+  ctx.fillText(text, x * W, y * H);
+  ctx.globalCompositeOperation = "source-over";
+}
+
+// ---- HTML chrome ----
+const ui = document.getElementById("ui");
+const el = (cls, html, parent) => {
+  const d = document.createElement("div");
+  d.className = cls; if (html !== undefined) d.innerHTML = html;
+  (parent || ui).appendChild(d); return d;
+};
+const safeTop = device === "pad" ? 30 : 62;
+
+const ICONS = {
+  gear: '<svg width="19" height="19" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.2"/><path d="M10 2v2.4M10 15.6V18M2 10h2.4M15.6 10H18M4.3 4.3l1.7 1.7M14 14l1.7 1.7M15.7 4.3L14 6M6 14l-1.7 1.7"/></svg>',
+  path: '<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="4" cy="16" r="1.8"/><circle cx="10" cy="7" r="1.8"/><circle cx="16" cy="14" r="1.8"/><path stroke-dasharray="1.5 2.5" d="M5.2 14.4 L8.8 8.6 M11.4 8 L14.8 12.8"/></svg>',
+  sparkles: '<svg width="19" height="19" viewBox="0 0 20 20"><path d="M10 3 L11.2 8.8 L17 10 L11.2 11.2 L10 17 L8.8 11.2 L3 10 L8.8 8.8 Z" fill="#ECEAF4" stroke="none"/><path d="M16 3.4 L16.4 5 L18 5.4 L16.4 5.8 L16 7.4 L15.6 5.8 L14 5.4 L15.6 5 Z" fill="#ECEAF4" stroke="none"/></svg>',
+  reload: '<svg width="19" height="19" viewBox="0 0 20 20"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 2.8 V6 H12.8" /></svg>',
+};
+
+function topBar() {
+  const bar = el("topbar");
+  bar.style.top = safeTop + "px";
+  el("btn", ICONS.gear, bar);
+  el("btn", ICONS.path, bar);
+  el("spacer", "", bar);
+  el("btn", ICONS.sparkles, bar);
+  el("btn", ICONS.reload, bar);
+}
+
+function hud(count, pts, chain) {
+  const h = el("hud");
+  h.style.top = (safeTop + 6) + "px";
+  el("count", String(count), h);
+  el("detonated", "DETONATED", h);
+  if (pts) el("sessionpts", pts + " pop points", h);
+  if (chain) el("chainnote", "chain of " + chain, h);
+}
+
+// ---- shared field scenes ----
+function playField(full) {
+  drawBackground();
+  drawMotes(36);
+  const orbs = [
+    { x: 0.20, y: 0.30, r: 30, paint: "classic2" },
+    { x: 0.72, y: 0.24, r: 22, paint: "classic3" },
+    { x: 0.84, y: 0.42, r: 26, paint: "ember" },
+    { x: 0.38, y: 0.47, r: 19, paint: "classic1" },
+    { x: 0.16, y: 0.60, r: 33, paint: "tide" },
+    { x: 0.62, y: 0.56, r: 24, paint: "clover" },
+    { x: 0.30, y: 0.76, r: 21, paint: "classic0" },
+    { x: 0.80, y: 0.70, r: 28, paint: "frost" },
+    { x: 0.52, y: 0.86, r: 25, paint: "classic4" },
+    { x: 0.12, y: 0.88, r: 20, paint: "chime" },
+  ];
+  if (device === "pad" || full) {
+    orbs.push(
+      { x: 0.44, y: 0.18, r: 23, paint: "bloom" },
+      { x: 0.90, y: 0.86, r: 22, paint: "current" },
+      { x: 0.06, y: 0.42, r: 18, paint: "kindle" },
+      { x: 0.68, y: 0.90, r: 27, paint: "lantern" },
+    );
+  }
+  orbs.forEach(drawOrb);
+  return orbs;
+}
+
+// ---- scenes ----
+const scenes = {
+
+  play() {
+    playField();
+    // a pop mid-burst: ember spark burst + expanding rings + a chained echo
+    drawBurst({ x: 0.47, y: 0.36, paint: "ember", n: 42, spread: 60, shape: "spark" });
+    drawRing({ x: 0.47, y: 0.36, r: 74, life: 0.72, paint: "ember" });
+    drawRing({ x: 0.47, y: 0.36, r: 40, life: 0.9, paint: "ember" });
+    drawBurst({ x: 0.60, y: 0.42, paint: "classic2", n: 26, spread: 34, shape: "dot" });
+    drawRing({ x: 0.60, y: 0.42, r: 26, life: 0.95, paint: "classic2" });
+    drawWhisper(0.47, 0.30, "+18");
+    drawWhisper(0.61, 0.375, "+12");
+    topBar(); hud(9, 214, 4);
+  },
+
+  fortune() {
+    playField();
+    drawBurst({ x: 0.30, y: 0.55, paint: "classic4", n: 20, spread: 44, shape: "dot" });
+    topBar(); hud(5, 96);
+    const wrap = el("cardwrap");
+    const card = el("fortune", "", wrap);
+    el("star", "✦", card);
+    el("msg", "Whatever you just popped, it wasn't real anyway.", card);
+  },
+
+  done() {
+    drawBackground();
+    drawMotes(36);
+    el("scrim");
+    topBar(); hud(13, 446);
+    const wrap = el("cardwrap");
+    const card = el("done", "", wrap);
+    el("check", '<svg width="22" height="22" viewBox="0 0 22 22"><path d="M4 11.5 L9 16.5 L18 6" stroke="#ECEAF4" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>', card);
+    card.insertAdjacentHTML("beforeend",
+      '<h1>Nicely done.</h1>' +
+      '<div class="sub">You cleared all 13 orbs.<br>Nothing left to worry about — for now.</div>' +
+      '<div class="pts">+446 pop points</div>' +
+      '<div class="life">12,431 set free, all time.</div>' +
+      '<div class="go">GO AGAIN</div>');
+  },
+
+  journey() {
+    playField();
+    const sheet = el("sheet");
+    if (device !== "pad") sheet.style.top = "56px";
+    el("grabber", "", sheet);
+    el("x", "✕", sheet);
+    sheet.insertAdjacentHTML("beforeend", "<h1>The Journey</h1>");
+    el("jpoints", "24,180", sheet);
+    el("label", "Pop points", sheet);
+    const recs = el("records", "", sheet);
+    [["1,847","set free"],["96","fields"],["14","fortunes"],["7","best chain"]].forEach(([v,k]) => {
+      el("rec", '<div class="v">' + v + '</div><div class="k">' + k + '</div>', recs);
+    });
+    const ahead = el("ahead", "", sheet);
+    el("label", "Somewhere ahead", ahead);
+    ahead.insertAdjacentHTML("beforeend",
+      '<div class="row"><span class="who">Stillness</span>' +
+      '<span class="how">gather 25,000 pop points</span></div>' +
+      '<div class="meter"><i style="width:97%"></i></div>');
+    const ch = el("collhead", "", sheet);
+    el("label", "Collection", ch);
+    el("n", "47 of 100 found", ch);
+
+    const families = [
+      ["Vesper — the original dusk", "10 of 10",
+        [["Vesper","classic0"],["Gloaming","classic2"],["Eventide","tide"],["Halflight","classic1"],
+         ["Quiet Hour","classic1"],["Duskfall","classic2"],["First Star","classic0"],
+         ["Violet Hush","wisteria"],["Night Air","tide"],["Last Light","classic1"]]],
+      ["Ember — warmth without harm", "10 of 10",
+        [["Ember","ember"],["Kindle","kindle"],["Hearth","ember"],["Cinder","ember"],
+         ["Warmth","kindle"],["Slow Burn","ember"],["Marigold","chime"],["Bonfire","ember"],
+         ["Foxglow","ember"],["Solstice","kindle"]]],
+      ["Tide — the weight of water", "7 of 10",
+        [["Tide","tide"],["Undertow","tide"],["Seaglass","clover"],["Driftwood","classic1"],
+         ["Moonpull","current"],["Salt Air","frost"],["Deepwater","tide"],
+         [null,null],[null,null],[null,null]]],
+      ["Bloom — soft things opening", "4 of 10",
+        [["Bloom","bloom"],["Petalfall","bloom"],["Clover","clover"],["Willow","clover"],
+         [null,null],[null,null],[null,null],[null,null],[null,null],[null,null]]],
+    ];
+    for (const [name, cnt, cells] of families) {
+      const fh = el("famhead", "", sheet);
+      el("fn", name, fh); el("fc", cnt, fh);
+      const grid = el("cells", "", sheet);
+      for (const [nm, paint] of cells) {
+        if (nm) {
+          const c = el("cell", "", grid);
+          const d = el("dot", "", c);
+          d.style.background = rgba(PAINTS[paint].fill, 1);
+          el("nm", nm, c);
+        } else {
+          const c = el("cell locked", "", grid);
+          el("dot", "", c);
+          el("nm", "· · ·", c);
+        }
+      }
+    }
+  },
+
+  path() {
+    playField();
+    const sheet = el("sheet");
+    if (device !== "pad") sheet.style.top = "56px";
+    el("grabber", "", sheet);
+    el("x", "✕", sheet);
+    sheet.insertAdjacentHTML("beforeend",
+      "<h1>The Path</h1><div class='subtitle'>each stone is a field of its own pops</div>");
+
+    const mapH = (device === "pad" ? 700 : H - 250);
+    const map = el("", "", sheet); map.id = "pathmap";
+    map.style.height = mapH + "px";
+    const stones = [
+      { x: 0.50, y: 0.88, pops: ["classic0"], name: "Vesper", cleared: true },
+      { x: 0.36, y: 0.62, pops: ["ember", "clover"], name: "Ember · Clover", cleared: true },
+      { x: 0.68, y: 0.62, pops: ["tide"], name: "Tide", cleared: true, faded: true },
+      { x: 0.44, y: 0.36, pops: ["frost", "chime"], name: "Frost · Chime", active: true },
+      { x: 0.24, y: 0.12, pops: ["bloom"], name: "Bloom" },
+      { x: 0.58, y: 0.12, pops: ["current", "lantern", "wisteria"], name: "Current · Lantern · Wisteria" },
+    ];
+    const edges = [[0,1],[0,2],[1,3],[3,4],[3,5]];
+    const rc = document.createElement("canvas");
+    rc.id = "roads";
+    const mw = (device === "pad" ? 560 - 48 : W - 48);
+    rc.width = mw; rc.height = mapH;
+    map.appendChild(rc);
+    const rctx = rc.getContext("2d");
+    for (const [a, b] of edges) {
+      const A = stones[a], B = stones[b];
+      const onward = A.active;
+      rctx.strokeStyle = onward ? "rgba(195,175,220,0.35)" : "rgba(255,255,255,0.12)";
+      rctx.lineWidth = 1;
+      rctx.setLineDash([2, 6]);
+      rctx.beginPath();
+      rctx.moveTo(A.x * mw, A.y * mapH);
+      rctx.bezierCurveTo(A.x * mw, A.y * mapH - 40, B.x * mw, B.y * mapH + 40, B.x * mw, B.y * mapH);
+      rctx.stroke();
+    }
+    for (const s of stones) {
+      const cls = "stone" + (s.active ? " active" : "") + (s.cleared ? " cleared" : "");
+      const d = el(cls, "", map);
+      d.style.left = (s.x * 100) + "%";
+      d.style.top = (s.y * 100) + "%";
+      if (s.faded) d.style.opacity = 0.3;
+      const circ = el("circ", "", d);
+      for (const p of s.pops) {
+        const pd = el("pd", "", circ);
+        pd.style.background = rgba(PAINTS[p].fill, 1);
+      }
+      if (s.cleared) el("check", "✓", circ);
+      el("nm", s.name, d);
+    }
+    el("pathcap", "the road behind fades after three days", sheet);
+  },
+};
+
+scenes[scene]();
+document.title = "vesper-" + scene;
+</script>
+</body>
+</html>

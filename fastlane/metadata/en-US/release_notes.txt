@@ -1,1 +1,13 @@
-First release. Tap the orbs, let go, breathe.
+The Feel & Collection Update.
+
+Vesper plays exactly the way it did — it just feels better, and there is more of it to find.
+
+- Every pop now lands with a soft haptic tap and instant sound, sized to the orb.
+- 100 pops to discover: embers, tides, blooms, frost, chimes, lanterns and more — each with its own colors, debris, sound, and ripple. The original is pop #001, unchanged.
+- The Journey: a quiet collection screen with your pop points, records, and what's somewhere ahead. Feature one pop, or drift among everything you've found.
+- Pop points only ever add up. Nothing is lost, timed, ranked, or sold. Unlocks are gifts, not gates.
+- Little point whispers drift up from each pop (you can turn them off).
+- A gentle chime when you clear the field; faint motes drift in the dark.
+- Kinder to your battery, your motion settings, and VoiceOver.
+
+Still no ads, no accounts, no timers, and nothing collected. Just open it and breathe.

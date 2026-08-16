@@ -1,11 +1,14 @@
 Vesper is a small, calm space for letting go.
 
-Soft, glowing orbs drift across a dark, quiet screen. Tap one and it bursts into light — with a gentle pop and a spreading shockwave that can set off the orbs around it. Clear them all, take a breath, and start again.
+Soft, glowing orbs drift across a dark, quiet screen. Tap one and it bursts into light — with a gentle pop, a soft haptic, and a spreading shockwave that can set off the orbs around it. Clear them all, take a breath, and start again.
 
 There is no score to chase, no timer, no failure. Just a slow, satisfying loop you can pick up for ten seconds or ten minutes.
 
 - Tap to pop. Simple, tactile, endlessly repeatable.
 - Chain reactions. Bursts ripple outward and set off nearby orbs.
+- 100 pops to find. Embers, tides, blooms, frost, chimes, lanterns and more — each with its own colors, debris, tone, and ripple. The original is pop #001, unchanged.
+- The path. Stepping stones across dark water, each one a little field of its own. The road behind fades after a few days; the way forward always stays.
+- A quiet journey. Pop points only ever add up — nothing is lost, timed, ranked, or sold. Unlocks are gifts, not gates.
 - Soft synthesized sound. Every pop has its own gentle tone — never harsh.
 - Hidden fortunes. Now and then an orb leaves a small, kind message behind.
 - Made to calm. Muted colors, no ads, no pressure, no accounts.

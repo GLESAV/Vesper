@@ -1,0 +1,84 @@
+# The Infinite Pop Map — "The Path"
+
+*Top-level navigation as stepping stones. Implementation:
+`Game/Map/PopMap.swift` (model + pure generation), `Game/Map/MapStore.swift`
+(state, persistence, fading), `Views/PathSheet.swift` (the map screen).
+Contract enforced by `VesperTests/MapStoreTests.swift`.*
+
+## 1. The idea
+
+The Path is an infinite map of **stepping stones across dark water**. Each stone
+is one playable level: a field seeded from that stone's own small set of pops.
+You stand on a stone, clear its field, and the path opens ahead — one road, a
+fork, or (rarely) a three-way. Behind you, the road quietly dissolves.
+
+This is Vesper's answer to level navigation: **the map only ever moves forward
+and lets go of itself** — which is the game's whole philosophy, made spatial.
+There is still no failure, no score gate, no timer: every stone that exists is
+playable, and replaying a cleared stone is always allowed.
+
+## 2. The rules
+
+### Stones
+| Rule | Value |
+|---|---|
+| Pops per stone | **1–2, rarely 3** (50% / 40% / 10%) |
+| Uniqueness | a stone's pops avoid its parent's and its siblings' pops whenever the collection allows |
+| Visitors | ~35% of stones host **one visitor** — a pop you haven't unlocked, playable on that stone only. A taste of what's ahead; the permanent unlock still comes through the journey's rules |
+| First stone | the map begins as **one dot**, lane-centered, drawn from whatever you've unlocked |
+
+### Roads
+| Rule | Value |
+|---|---|
+| Roads opened per first clear | **1 (45%) · 2 (45%) · 3 (10%)** |
+| When they open | on a stone's *first* clear only — replays open nothing new |
+| Reachability | roads exist only once their parent is cleared, so **every stone on the map is playable** — there is no locked state to display |
+| Lanes | children spread left/center/right of the parent, clamped to the banks |
+
+### The fading past
+| Rule | Value |
+|---|---|
+| Fade window | a stone untouched for **3 days** dissolves |
+| Always kept | the **anchor** (the stone you stand on — or your most recently played one) and the roads directly ahead of it |
+| Effect | after a few quiet days the map "twiddles down" to your latest stone plus its open roads; untaken forks fade with the rest of the past |
+| When pruning runs | app foreground, map open, and view-model init |
+
+### Determinism & persistence
+- Every stone carries a `seed`; its roads ahead (count, lanes, pop sets) are
+  reproduced deterministically from it (SplitMix64) — testable, and stable if
+  generation ever needs replaying.
+- The map persists as JSON in UserDefaults (`vesper.map.stones` / `.active`).
+  Nothing leaves the device. If the whole map ever fades away (long absence,
+  free play), a fresh first stone is laid from the current collection.
+
+## 3. How it plays with the other systems
+
+- **Launch is unchanged (pillar P1):** the app still opens straight into a
+  field. If you were on a stone, that field *is* the stone's field. The map is
+  navigation you visit, never a menu between you and the first pop.
+- **Points and unlocks flow normally** on the path — same scoring
+  (`docs/pop_points.md`), same journey rules (`docs/pop_progression.md`).
+  Clearing a stone that opens roads shows a soft note: *"the path continues"* /
+  *"the path forks — 3 roads ahead."*
+- **Free play remains:** choosing a featured pop or Drift in the Journey screen
+  steps off the path (the map keeps waiting, and keeps fading, exactly as it
+  would). Tapping any stone steps back on.
+
+## 4. The map screen
+
+`PathSheet` (dotted-path button in the top bar): stones drawn newest-at-top,
+connected by faint dashed curves — the roads ahead of your stone tinted with
+the accent. Each stone shows its pops as small paint dots and its pop names
+beneath; cleared stones dim and carry a small check; the stone you stand on
+glows. A caption reminds you: *"the road behind fades after three days."*
+VoiceOver reads every stone's pops and state; all stones are 48pt targets.
+
+## 5. Why these numbers
+
+- **1–3 pops, 1–3 roads** keeps each choice legible at a glance — a fork on a
+  calm walk, not a skill tree.
+- **3-day fade** is long enough to revisit yesterday's stone, short enough that
+  the map never becomes a museum of obligation.
+- **35% visitors** makes the path the place where tomorrow's pops first brush
+  past you — wonder without FOMO, since nothing expires that you could "miss":
+  new visitors keep arriving forever.
