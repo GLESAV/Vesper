@@ -238,3 +238,46 @@ enum InputOutcome: Equatable {
     case cancelToRest
 }
 ```
+
+### R-ARCH — **PASS (with notes)** · Nadia Rhee (chair) · Keiko Yamada
+
+Two blocking rounds, then clean: zero blockers remaining. What the gate caught,
+in order — commit resolving its destination from the place of record rather
+than the camera's actual position; a Reduce Motion crossfade riding on a signed
+scalar that inverts at the commit instant (found independently by both
+reviewers); anti-oscillation damping that self-terminated, then leaked across a
+completed commit and broke 1:1 finger tracking; a per-commit cap with a
+discontinuity at the place centre; and a pause predicate naming a value that
+cannot wake a SwiftUI view.
+
+**Blocking acceptance carried onto W04** (a settle freezing mid-flight is the
+failure these prevent):
+
+- `WorldModel` publishes **`place` and `worldMoving`, and nothing else**.
+  `worldMoving` is set in the same handler that calls `camera.consume(_:)` and
+  cleared via a deferred `DispatchQueue.main.async` when a settle arrives — the
+  render pass may never publish. The predicate is
+  `paused: sim.isQuiescent && !model.worldMoving`; it may never read the camera.
+- **Exactly one owner calls `camera.step(dt:)`** — the world's frame closure,
+  every frame the world is on screen. A debug-build trap catches a second
+  stepper (previews and debug overlays are the realistic offenders).
+- Bind `isFieldAtRest` to **`{ camera.isAtRest && camera.place == .field }`**,
+  not `{ camera.isAtRest }` — otherwise a touch-down while resting *at the sky*
+  pops an off-screen field. `W07`'s `simActive` derives from the same predicate.
+- **Ruling 8 structurally:** `WorldInputLayer` is a stable ZStack sibling —
+  never inside the moving body, never `.id()`'d, never given the camera offset
+  or a transform — and the field `Canvas` is pinned to a constant size.
+- The view writes `camera.viewHeight` on layout and `camera.reduceMotion` from
+  the live system setting (`onAppear` + `onChange`), and reads every per-frame
+  scalar inside the `TimelineView` closure, never mirroring one into `@State`.
+
+**Carried onto W05:** consume `isTransitioning` (not `flow`) as the single
+question for luminance attenuation; unify the two velocity ceilings (arbiter
+2400 pt/s vs camera 2.0 screen-heights/s) into one screen-height-relative
+number; decide the end-of-axis acknowledgement, since a gated flick at the sky
+currently produces nothing visible.
+
+**Device-only, for the owner's pass:** ruling 6's twenty swipes begun on an orb;
+tap latency median/p99 against the W20a baseline on A12-class hardware; whether
+the 1.125-screen-height worst-case commit *feels* inside Amara's ceiling; and
+whether a Reduce Motion crossfade reads as travel rather than as a cut.
