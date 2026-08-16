@@ -32,6 +32,12 @@ we chose.
   (the hundred pops), *the quiet things* (sound, haptics, point whispers,
   begin again). Pages turn by **tapping** the words along the foot, never by
   swiping.
+- Three quiet things the world does **only while you are travelling**: the
+  drifting dust lags a little behind the field, the scene dims by about 5% at
+  the midpoint of a trip, and the top and bottom ends of the world answer a
+  swipe that has nowhere to go with a soft glow. All three are new, all three
+  are deliberately subtle, and §§5e–5f ask about them specifically. A still
+  screen is drawn exactly as it was before any of them existed.
 - The pop engine, sounds, haptics, points, unlocks, fortunes, chains — all
   untouched from v1.2. If a pop feels different, that is a finding, because
   nothing in the pop was changed.
@@ -401,6 +407,64 @@ One deliberate variant: **pop as fast as you can for thirty seconds** in the
 middle of a full field, and watch whether the camera ever moves when you didn't
 ask it to. It must never move unasked. If the screen ever drifts on its own
 during a flurry of popping, that is a stop-the-line finding.
+
+### 5e. The end of the world, on purpose
+
+Go to the **sky** (swipe up from the field, or tap the words at the top). You
+are now at the top of the world; there is nothing above it.
+
+**Now swipe up again, decisively — as if you meant to keep going.**
+
+Something should answer: a soft brightening along the top edge, rising and
+settling back over about half a second. The world does not move, because there
+is nowhere to move to — but it should not sit there as if you hadn't touched
+it.
+
+Then do the same at the bottom: go to the **journal** and swipe down.
+
+The question, and be blunt about the answer:
+
+- **Did you notice it at all?** In a lit room, on a phone at arm's length, not
+  looking for it.
+- **Did it read as "I heard you, there's nothing up here"** — or as a flicker,
+  a glitch, or the screen doing something odd?
+- **How does it compare to just being ignored?** Try it, then decide whether
+  you'd rather have nothing there.
+
+*Why we're asking:* this was a deliberate call and it may be the wrong one. The
+obvious answer was a rubber-band bounce, the way iOS scroll views do it. That
+was rejected because a bounce is an out-and-back movement, which is exactly the
+kind of motion we removed everywhere else for motion-comfort reasons, and it
+would need a whole second version for Reduce Motion. So the world answers with
+**light instead of movement**. The risk we knowingly took is that light is too
+quiet to notice. If it is, say so plainly — it is a one-number change to make
+it brighter, and "I never saw it" is the finding that would change it.
+
+### 5f. Two things you are allowed to not notice
+
+These are both new, both deliberately subtle, and **if you don't spot them that
+is a legitimate answer** — please don't hunt for them. Play first; read this
+after your first session; then look on purpose.
+
+**The dust.** The faint specks drifting behind the orbs now travel slightly
+slower than the field when you move between places, so the field reads as
+nearer and the dust as further behind it. It is a depth cue.
+
+- Does it read as **depth**, or as the specks *swimming* / sliding around?
+- The honest caveat: the dust falls behind and then catches back up within a
+  single trip, rather than staying behind. That is a deliberate trade — it is
+  what guarantees a still screen looks identical no matter where you arrived
+  from — but it means the motion is out-and-back, and out-and-back is exactly
+  the kind of thing that can read as *wrong* rather than as *deep*.
+
+**The light while travelling.** The world dims by about 5% at the midpoint of
+every trip and returns to full when it lands. It is a motion-comfort measure —
+less bright light in a large moving image is easier on the eyes.
+
+- Did you see any **flicker** or pulse when starting or finishing a trip? That
+  would be a bug and we want to know immediately.
+- Is 5% doing anything for you at all? It is set deliberately low. If travel
+  feels visually loud, we can turn it up without touching how the world moves.
 
 ---
 
