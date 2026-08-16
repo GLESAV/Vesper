@@ -145,3 +145,96 @@ else advises and does not stop the line.
 | **Pop-vs-pan on device** — the plan-killer | If the 20-attempt swipe-from-orb case fails, or p99 tap latency regresses on A12-class hardware, fallback stage 1 is called at R-SPIKE. No second attempt at threshold tuning — threshold-chasing is how two weeks becomes six. |
 | **Published-per-frame camera state** re-entering the SwiftUI rebuild hazard | Any PR where camera offset reaches an `@Published` property, or the input layer's identity changes during a move, is blocked at review. One swallowed tap in the W20 pop storm stops W05 and calls in Keiko. |
 | **Single-engineer critical path** on world composition | If W04 and W05 have not both landed within the first third of the build window, W09 or W11 becomes a static placeholder. The owner playing a slightly empty journal is a real playtest; the owner not playing anything is not. |
+
+## 7. Gate log
+
+### R-SPIKE — **GO (with notes)** · Jun Park · Viktor Sørensen · Amara Osei
+
+The camera bet holds. All three reviewers returned go-with-notes; Amara's
+vestibular review — the barrier — passes *conditionally*, and her conditions
+bind W01/W05 before any camera reaches a person. Director's rulings on the
+findings, all adopted:
+
+**Fixes to the spike itself (W03′, Rafael):**
+
+1. **Delete the input layer's hit test.** Emit `.pop(p)` unconditionally on
+   touch-down while the field is at rest; `GameSimulation.tap` stays the single
+   authority on what an orb is. *Jun and Viktor found this independently: a
+   second copy of the hit-test rule can only ever subtract pops, and it drifts
+   against a field that keeps moving. It also keeps the W20a baseline a
+   like-for-like comparison.*
+2. **`fieldAtRest` becomes a closure queried at touch-down**, never a snapshot
+   pushed through `updateUIView`. *SwiftUI's update pass is not ordered against
+   UIKit touch delivery, so a pushed copy is wrong for about a frame at each end
+   of a settle — and being wrong there costs a pop.*
+3. **Add `.settleToNearest`.** A transit grab released without a decisive
+   gesture settles to the nearer place by current offset — a near-complete move
+   completes, an early catch springs home. *`.cancelToRest` cannot express this,
+   and today a 90%-complete move would be thrown away.*
+4. **Scope the dead zones to commits, not to catches.** During transit a touch
+   anywhere — dead zone included — grabs the camera; the dead zone still
+   suppresses commits. *Otherwise an edge touch mid-settle produces total
+   silence, breaking "every move is interruptible."*
+5. **Clamp release velocity** (`Config.maxCommitVelocity`). *The arbiter must
+   not be able to hand the camera a number the camera is not allowed to honour.*
+6. **Housekeeping:** batch outcomes across the coalesced-touch loop and collapse
+   consecutive `.panChanged` to one write per frame; mutate the sample buffer in
+   place; iterate `touches` in deterministic (timestamp) order; retain velocity
+   samples by time rather than count; add the thumb-stall test (move fast, hold
+   still, lift → `.cancelToRest`).
+
+**Design rulings (mine, prompted by the gate):**
+
+7. **The bottom whisper is the primary path to the journal and to quiet; the
+   down-swipe is the enhancement.** *Jun showed the down-swipe is the weakest
+   gesture on the screen — a one-handed thumb starting low has ~144 pt of runway
+   and must spend 93 of it. The five-second mute target may not depend on the
+   weakest gesture. This adopts part of fallback stage 1 for the downward
+   direction, deliberately and now, rather than under duress later.*
+8. **Journal pages turn by tap, not by horizontal swipe.** *The arbiter owns one
+   axis. A second axis solved later with a scroll view is exactly the recognizer
+   conflict this layer exists to avoid.*
+9. **Cards and whispers are world-level overlays that survive transit.** *A
+   navigation swipe that begins on an orb pops it — Rafael estimates 20–30% of
+   swipe starts on a ~11-orb field. Nothing is lost when that happens, but a
+   fortune revealed on the way to the sky must still be readable when she gets
+   there.*
+
+**Amara's barrier conditions — named pass conditions at R-ARCH (W01) and on
+W05:**
+
+10. Commit the inter-place travel distance as a named camera constant in
+    screen-height units, and a hard peak optical-flow ceiling; the clamped
+    velocity above serves it.
+11. **Reduce Motion is the default whenever the system setting is on**, observed
+    live (`onAppear` + `onChange`), never read once at launch. Under RM the
+    camera produces **zero translation** — places crossfade — while drag still
+    gives proportional non-translating feedback, so the control never feels dead.
+12. **The settle must be monotone and non-overshooting** — critically damped or
+    single-signed ease-out, terminal velocity converging to zero, no rubber-band
+    past the destination at any seeded velocity. *A direction reversal at the end
+    of a large-field flow event is a substantial vestibular provocation.*
+13. **Damp repeated spring-backs:** a return beginning within ~1 s of a previous
+    return is slower and shorter, so re-attempts cannot build a low-frequency
+    vertical oscillation.
+14. **Attenuate pop and chain-flash peak luminance while camera speed exceeds a
+    named threshold** — the light takes turns during transit, exactly as it does
+    during a dense cascade.
+15. **A motion-safety screen runs before any continuous-camera build reaches a
+    person — Kate and the owner included, not exempt as insiders.** It ships as
+    part of `docs/PLAYTEST.md` (W22): supine and seated, dark room, minimum
+    brightness, forced repeated transits, and a plain "stop if you feel unwell"
+    instruction with symptom notes before and after.
+
+**The shared outcome contract** (fixed here so W01 and W03′ cannot drift):
+
+```swift
+enum InputOutcome: Equatable {
+    case pop(CGPoint)                                // never retracted, ever
+    case panBegan
+    case panChanged(translation: CGFloat)            // cumulative, from anchor
+    case commit(WorldDirection, velocity: CGFloat)   // clamped
+    case settleToNearest                             // transit grab, released undecided
+    case cancelToRest
+}
+```
