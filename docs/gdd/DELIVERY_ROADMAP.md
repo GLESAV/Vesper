@@ -274,9 +274,34 @@ failure these prevent):
   the live system setting (`onAppear` + `onChange`), and reads every per-frame
   scalar inside the `TimelineView` closure, never mirroring one into `@State`.
 
-**Carried onto W05:** consume `isTransitioning` (not `flow`) as the single
-question for luminance attenuation; decide the end-of-axis acknowledgement,
-since a gated flick at the sky currently produces nothing visible.
+**Carried onto W05 — all closed.** Luminance attenuation consumes
+`isTransitioning` and nothing else (W05b), shaped by the camera's own
+crossfade so the gate opens and closes where the shape is ~0 rather than
+stepping the full factor twice per navigation. The end-of-axis
+acknowledgement is decided and built (W05c).
+
+**Director's ruling on the end-of-axis acknowledgement: light, not movement.**
+A soft brightening at the edge she tried to travel toward, peak opacity 0.10 —
+exactly the alpha `SkyView` already gives a quiet star's halo. An iOS-style
+rubber-band was rejected on three grounds: a bounce is an out-and-back
+translation, which is the direction-reversal signature condition 12 removed
+from the settle; under Reduce Motion it would need a second non-translating
+variant, giving two behaviours to tune and two to test; and light costs zero
+optical flow, so it cannot erode the ceiling condition 10 defends. It behaves
+identically in both motion modes.
+
+**W05c split `worldMoving` in two, amending an R-ARCH blocking condition.**
+"`WorldModel` publishes `place` and `worldMoving` and nothing else" was written
+when movement was the only per-frame camera state, so "keep the frame clock
+running" and "the world is travelling" were one sentence. An acknowledgement
+runs while the camera is at rest, which neither flag could express:
+`worldMoving` (mirrors `!isAtRest`) gates hit-testing; `worldAwake` (mirrors
+`!isIdle`) gates the pause predicate. Overloading the first would have made the
+sky's stars untappable for a third of a second after every flick at the
+ceiling; pausing on it would have frozen the glow mid-rise. Neither is derived
+from the other — the staleness hazard R-ARCH refused. The condition's actual
+prohibition, a per-frame value on that object, is unchanged and still checked
+structurally.
 
 **Closed at W05a — the two velocity ceilings are one.** The arbiter's
 `maxCommitVelocity` (2400 pt/s) is deleted rather than converted, and
@@ -300,6 +325,15 @@ screen-height rate is genuinely more provocative there. The accident of unit
 was, by luck, pointing the right way. Whether the ceiling should be a function
 of device class rather than one constant is Amara's call, on iPad hardware, and
 it does not block a build that two people will play on iPhones.
+
+**Added to the device-only list by W05 (feel judgements no test can make):**
+whether the mote parallax reads as depth or as the dust *swimming* — it is
+out-and-back within a leg, because it must be exactly zero at both rest
+offsets, so the dust falls behind and catches back up; whether a 5% transit dim
+is felt at all, since it is deliberately at the conservative end and is the one
+number that can be turned up without touching the camera; and whether a
+luminance-only end-of-axis cue reads as "I heard you" in a bright room, which
+is the one risk the ruling above accepts knowingly.
 
 **Device-only, for the owner's pass:** ruling 6's twenty swipes begun on an orb;
 tap latency median/p99 against the W20a baseline on A12-class hardware; whether
