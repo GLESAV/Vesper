@@ -103,24 +103,47 @@ final class WorldInputView: UIView {
         super.willMove(toWindow: newWindow)
         // Leaving the window means no touchesCancelled is guaranteed to
         // arrive; drop the steering touch so the next gesture starts clean.
+        //
+        // LIVENESS (Keiko's finding). This used to be a silent
+        // `arbiter.reset()`, and silence is exactly the wrong thing here.
+        // `.dragging` is absorbing under an empty input sequence: the camera
+        // leaves it only when a further outcome arrives. Dropping an armed
+        // touch without terminating the gesture therefore strands the camera
+        // mid-drag with no finger on the glass and nothing left that could
+        // ever end it. Cancelling instead emits the one terminating outcome
+        // the gesture had earned — `.cancelToRest` from rest,
+        // `.settleToNearest` from a transit grab — and emits nothing at all
+        // when no pan was armed, which is the ordinary teardown case.
         if newWindow == nil {
             steeringTouch = nil
-            arbiter.reset()
+            flush(arbiter.cancelled())
         }
     }
 
     // MARK: - Raw touches
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        var batch: [InputOutcome] = []
+
         // Recovery: if the arbiter still believes it is steering but the
         // touch object is gone (a cancel delivered for a set that did not
         // include it, or the weak reference died), clear it. Without this the
         // arbiter would refuse to adopt any future touch and navigation would
         // be dead for the rest of the session — the worst possible failure
         // for a layer whose whole job is to never lose a touch.
-        if arbiter.isTracking && steeringTouch == nil { arbiter.reset() }
+        //
+        // LIVENESS (Keiko's finding): recover by CANCELLING, not by silently
+        // resetting. The lost touch may have had an armed pan, and the camera
+        // will sit in `.dragging` forever unless something terminates it —
+        // see `willMove(toWindow:)`. The terminating outcome goes into the
+        // same batch, ahead of this event's own outcomes, so the stranded
+        // gesture ends before the new one begins and the whole thing is still
+        // one ordered delivery. When nothing was armed this contributes
+        // nothing, exactly as the old reset did.
+        if arbiter.isTracking && steeringTouch == nil {
+            batch.appendCollapsingPanChanges(arbiter.cancelled())
+        }
 
-        var batch: [InputOutcome] = []
         // `touches` is a Set, so its iteration order is a hash order that can
         // differ between runs and between OS versions. Two fingers landing in
         // one event would then pop in an arbitrary order, and an arbitrary

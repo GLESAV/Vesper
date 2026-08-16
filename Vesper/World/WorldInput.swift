@@ -336,20 +336,32 @@ struct InputArbiter {
         return [undecidedRelease(of: touch)]
     }
 
-    // The system took the touch away (a call arrived, a system gesture won).
+    // The system took the touch away (a call arrived, a system gesture won),
+    // or the host lost the touch some other way (leaving the window, a weak
+    // UITouch that died). This is the ONLY way to drop a tracked touch other
+    // than `ended`, and it is deliberately not silent.
+    //
+    // There used to be a `reset()` beside this that dropped the touch and
+    // emitted nothing, offered to the host as a lifecycle escape hatch. It
+    // was a liveness hole: `.dragging` is absorbing under an empty input
+    // sequence — the camera leaves that state only when a further outcome
+    // arrives — so dropping an ARMED touch without an outcome strands the
+    // camera mid-drag with no finger on the glass and nothing left to end it.
+    // The hatch is gone rather than merely unused, because "drop the touch
+    // quietly" is a shape that reads as harmless at every future call site.
+    //
+    // Emits exactly one terminating outcome when a pan was armed, and nothing
+    // at all otherwise: a touch that never armed has no camera state to
+    // terminate, and a bare touch-down must stay a pure pop.
+    //
     // Anything already popped stays popped: there is no outcome case that
-    // could undo it, by design (ruling 4).
+    // could undo it, by design (ruling 4). Idempotent — a second call after
+    // the touch is gone emits nothing.
     mutating func cancelled() -> [InputOutcome] {
         guard let touch = tracking else { return [] }
         tracking = nil
         guard touch.panArmed else { return [] }
         return [undecidedRelease(of: touch)]
-    }
-
-    // Lifecycle escape hatch for the host (view disappearing, place changing).
-    // Drops the steering touch without emitting anything.
-    mutating func reset() {
-        tracking = nil
     }
 
     // MARK: - Gates

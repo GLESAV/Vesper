@@ -9,11 +9,83 @@ import Foundation
 // eyes, and it has to be provable in CI rather than argued about on a device
 // (DELIVERY_ROADMAP §3 W01, gate R-ARCH).
 //
-// NOT `@Published`, NOT `ObservableObject`, and it never will be (ruling 7).
-// The view reads `offset` once per frame inside its own draw; a published
-// per-frame offset rebuilds the TimelineView/Canvas/input subtree 120 times a
-// second, which is verbatim the condition v1.2 blames for cancelled taps.
-// `WorldModel` publishes `place` only (W07).
+// ─────────────────────────────────────────────────────────────────────────
+// RULING 7, IN FULL. NOT `@Published`, NOT `ObservableObject`, and it never
+// will be. The view reads this object's per-frame values once per frame
+// inside its own draw; a published per-frame value rebuilds the
+// TimelineView/Canvas/input subtree 120 times a second, which is verbatim the
+// condition v1.2 blames for cancelled taps. `WorldModel` publishes `place`
+// only (W07).
+//
+// That applies to EVERY derived per-frame scalar on this object, not only to
+// `offset`: `offset`, `dragProgress`, `transition` (and the `opacity(of:)`
+// helper built on it), `flow`, `exceedsTransitFlow`, `elapsed`, `isAtRest`.
+// All of them are read INSIDE the `TimelineView` content closure, at the
+// moment they are needed. None of them may be:
+//
+//   * mirrored into an `@Published` property, an `@State`, an
+//     `@ObservedObject`, or any other value SwiftUI diffs;
+//   * captured into a `withAnimation` block or an `.animation(_:value:)`
+//     modifier — this camera IS the animation, and layering SwiftUI's
+//     interpolation on top of it produces two curves fighting over one
+//     number, which is how overshoot re-enters a settle that is provably
+//     monotone here (barrier condition 12);
+//   * written back to the camera from the render pass in any form.
+//
+// The single legitimate `@Published` in the world layer is `WorldModel.place`,
+// which changes at most once per commit.
+// ─────────────────────────────────────────────────────────────────────────
+//
+// ─────────────────────────────────────────────────────────────────────────
+// HOST CONTRACT — the camera cannot enforce these, so they are stated here
+// and any host that breaks one is a review failure.
+//
+//   H1. EXACTLY ONE OWNER CALLS `step(dt:)`. One camera, one driver — the
+//       world's `TimelineView` frame closure. A second caller (a second view,
+//       a preview, a debug overlay, a Combine timer) double-advances every
+//       settle and halves its duration, and nothing about the result looks
+//       like a bug: the world simply becomes subtly faster than the
+//       optical-flow ceiling this file spends its length proving.
+//
+//   H2. THE HOST MUST CALL `step(dt:)` EVERY FRAME WHILE THE WORLD IS ON
+//       SCREEN. This object has no clock of its own and no way to catch up;
+//       an unstepped camera does not drift, it FREEZES — mid-settle, halfway
+//       between two places, holding her there.
+//
+//   H3. ANY PAUSE PREDICATE MUST INCLUDE `camera.isAtRest`. v1.2 pauses
+//       rendering once the field is cleared and the effects have faded, and
+//       that habit is correct and worth keeping — but a paused TimelineView
+//       stops calling `step(dt:)`, so pausing on the SIM's quiescence alone
+//       silently freezes an in-flight settle. The predicate is:
+//
+//           TimelineView(.animation(paused: sim.isQuiescent && camera.isAtRest))
+//
+//       Never `paused: sim.isQuiescent` on its own. `isAtRest` is false
+//       during both a settle and a finger-down drag, so the world keeps
+//       drawing for exactly as long as something is moving.
+//
+//   H4. `viewHeight` and `reduceMotion` are written by the view (on layout,
+//       and from the live system setting via `onAppear` + `onChange`).
+//       `config` is written only through `apply(_:)`.
+//
+//   H5. EVERY `.panBegan` MUST EVENTUALLY BE FOLLOWED BY A TERMINATING
+//       OUTCOME — `.commit`, `.settleToNearest`, or `.cancelToRest`. The
+//       `.dragging` state is absorbing by design (invariant A: the camera
+//       must not decide on its own that her finger is gone), so a gesture
+//       dropped without one strands the camera mid-drag with nothing on the
+//       glass and nothing left that could end it. The input layer owns this:
+//       teardown and touch-loss recovery emit `arbiter.cancelled()` rather
+//       than resetting silently (Keiko's liveness finding, W03′).
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `@MainActor` IS PART OF THE CONTRACT, NOT DECORATION. This object is
+// written from UIKit touch callbacks (`consume(_:)`, on the main thread by
+// definition) and read from the SwiftUI render closure (also main). It has no
+// internal synchronization and wants none — the confinement is stated here so
+// that Swift 6's strict concurrency checking confirms what is already true
+// rather than forcing a rewrite of a file whose numbers have been audited.
+// The pure value types it consumes (`Place`, `WorldDirection`, `InputOutcome`)
+// stay non-isolated, so the arbiter and the tests' fixtures are unaffected.
 //
 // ─────────────────────────────────────────────────────────────────────────
 // SIGN CONVENTION — read this before touching anything below.
@@ -35,26 +107,34 @@ import Foundation
 // a rebound is a direction reversal — see the settle contract below).
 // ─────────────────────────────────────────────────────────────────────────
 //
-// AMARA OSEI'S VESTIBULAR BARRIER CONDITIONS (R-SPIKE items 10–13) are pass
+// AMARA OSEI'S VESTIBULAR BARRIER CONDITIONS (R-SPIKE items 10–14) are pass
 // conditions at R-ARCH, so each one is implemented here with the failure it
 // prevents named at the site:
 //
-//   10  travel distance is a named constant in screen heights, and peak
-//       optical flow has a hard ceiling — see `Config.maxOpticalFlow` and the
-//       arithmetic spelled out there.
+//   10  travel distance is a named constant in screen heights, peak optical
+//       flow has a hard ceiling, and no single commit may travel more than
+//       one place — see `Config.travelPerPlace`, `Config.maxOpticalFlow`,
+//       `Config.maxTransitPerCommit`, and the arithmetic spelled out there.
 //   11  Reduce Motion produces ZERO translation, while a drag still gives
 //       proportional non-translating feedback — see `reduceMotion` and
-//       `dragProgress`.
+//       `transition`.
 //   12  the settle is monotone and non-overshooting at every seeded velocity
 //       — see `Ease` and `beginSettle`.
-//   13  repeated spring-backs damp — see `dragGain`.
+//   13  repeated spring-backs damp — see `dragGain` and `lastReturnAt`.
+//   14  the light takes turns while the camera is moving — see `flow` and
+//       `Config.transitFlowThreshold`. The camera does not dim anything
+//       itself; it answers the question, once, so W05 and the renderer do not
+//       each invent their own idea of "moving fast".
 //
 // THE INVARIANTS, stated so a test can state them too:
 //
 //   A. The camera never moves unasked. `offset` and `place` change only inside
-//      `consume(_:)`, and inside `step(dt:)` while finishing a settle that a
-//      `consume(_:)` started. Stepping an untouched camera forever changes
-//      nothing. (testStepWithoutInputNeverMoves)
+//      `consume(_:)`, inside `step(dt:)` while finishing a settle that a
+//      `consume(_:)` started, and inside `apply(_:)` — which is the host
+//      deliberately changing the shape of the world and re-clamping the
+//      camera into it, never the camera choosing to move. Stepping an
+//      untouched camera forever changes nothing.
+//      (testStepWithoutInputNeverMoves)
 //   B. Every move is interruptible. `.panBegan` at any point during a settle
 //      stops it where it is and hands the camera to her finger.
 //      (testGrabMidSettleFreezesTheCameraExactly)
@@ -63,6 +143,13 @@ import Foundation
 //   D. An unlaid-out camera (`viewHeight <= 0`) refuses every outcome. Moving
 //      against a screen height we are guessing at is a move she did not ask
 //      for. (testUnlaidOutCameraNeverMoves)
+//   E. WHERE THE CAMERA IS, NOT WHERE IT MEANT TO GO, decides what a gesture
+//      means. Every destination is resolved from `axisPosition` (via
+//      `nearestPlace`); `place` is a record of intent and is never used as a
+//      position. (testCommitAfterATransitDragResolvesFromPosition)
+//   F. The place of record is always the destination of the settle in flight.
+//      `apply(_:)` depends on it, and every path that assigns `motion =
+//      .settling` also assigns `place`.
 
 // MARK: - Place
 
@@ -77,12 +164,13 @@ enum Place: Int, CaseIterable {
 
 // MARK: - Camera
 
+@MainActor
 final class WorldCamera {
 
     // MARK: Config
 
     struct Config {
-        // BARRIER CONDITION 10, first half. The distance between adjacent
+        // BARRIER CONDITION 10, first part. The distance between adjacent
         // places, in screen heights.
         //
         // Three quarters, not one, because the world is meant to be
@@ -93,11 +181,62 @@ final class WorldCamera {
         // rather than a screen.
         var travelPerPlace: CGFloat = 0.75
 
-        // BARRIER CONDITION 10, second half — THE OPTICAL FLOW CEILING, and
+        // BARRIER CONDITION 10, second part. THE PER-COMMIT TRAVEL CAP, in
+        // place-units: one commit may move the world at most this many
+        // `travelPerPlace` of axis distance.
+        //
+        // Why it is needed at all. Destinations resolve from where the camera
+        // IS (invariant E), and the camera can sit up to half a place away
+        // from the place nearest it, so the naive distance to a neighbouring
+        // place reaches 1.5 × travel — one and an eighth screen heights of
+        // world sliding past on a single flick. That is a bigger event than
+        // anything else in the app and nothing else bounds it: the ceiling
+        // below bounds the RATE, not the DISTANCE, so an over-long transit
+        // does not read as fast, it reads as long.
+        //
+        // What the cap does when it binds: the commit stops at the nearest
+        // place instead of the one beyond it — she still moves, in the
+        // direction she asked, one place, and the next flick continues the
+        // journey. It can only bind when the camera is more than half a place
+        // on the FAR side of the place nearest it from the direction of the
+        // flick, i.e. after a transit grab that reversed. From rest the
+        // distance is exactly `travelPerPlace`, so ordinary navigation never
+        // touches it.
+        var maxTransitPerCommit: CGFloat = 1.0
+
+        // BARRIER CONDITION 10, third part — THE OPTICAL FLOW CEILING, and
         // the single most important number in this file.
         //
-        // Screen heights per second. The world may never slide faster than
-        // this, at any instant, at any seeded velocity.
+        // Screen heights per second.
+        //
+        // WHAT THIS BOUNDS, EXACTLY (rewritten at R-ARCH; the previous
+        // wording claimed the world may never slide faster than this "at any
+        // instant", which is not true and must not be relied on). It bounds
+        // CAMERA-GENERATED MOTION: every settle, at every seeded velocity —
+        // the whole class of motion the camera produces on its own after her
+        // finger has left the glass. That is the entire set of moves she does
+        // not control, which is the set a vestibular review is about.
+        //
+        // FINGER-COUPLED MOTION IS DELIBERATELY EXEMPT. While a finger is
+        // down the world tracks it 1:1 and can therefore slide arbitrarily
+        // fast, because the finger can. This is a REVIEWED DECISION, not an
+        // oversight — Amara's condition 10, taken with 04 §5's "1:1 finger
+        // tracking", on three grounds:
+        //
+        //   * it is self-generated. Motion a person is producing with their
+        //     own hand, in real time, with full efference copy, is not the
+        //     provocation an imposed large-field flow event is;
+        //   * it stops when she stops. There is no follow-through to ride
+        //     out: releasing the glass ends it that frame, and whatever
+        //     happens next is a settle, which IS bounded;
+        //   * it is bounded in extent by the axis clamp. The world has ends,
+        //     so the most a drag can ever produce is 2 × `travelPerPlace` of
+        //     travel — after that the finger keeps moving and the world does
+        //     not.
+        //
+        // A rate limiter on the drag would buy nothing and cost the one thing
+        // 04 §5 insists on: the world would lag her thumb and then catch up,
+        // and "catch up" is camera-generated motion she did not ask for.
         //
         // TWO CLAMPS, AND WHICH ONE BINDS. The arbiter clamps release velocity
         // to `InputArbiter.Config.maxCommitVelocity` = 2400 pt/s (R-SPIKE fix
@@ -117,15 +256,30 @@ final class WorldCamera {
         //   travel between places   0.75 × 844  =  633 pt
         //   peak rate at the cap    2.0  × 844  = 1688 pt/s
         //
-        // So at MAX SEEDED VELOCITY the peak on-screen travel rate is two
-        // screen heights per second — one full screen of world passes her eye
-        // in no less than 500 ms — and only instantaneously, at the moment of
-        // release. The ease (below) has a peak-to-average ratio of exactly 2,
-        // so the AVERAGE rate across a transit is at most one screen height
-        // per second, and a full 633 pt transit therefore takes at least
-        // 750 ms. Turn this number DOWN to make the world calmer; there is no
-        // other number to turn.
+        // So at MAX SEEDED VELOCITY the peak on-screen travel rate of a
+        // settle is two screen heights per second — one full screen of world
+        // passes her eye in no less than 500 ms — and only instantaneously,
+        // at the moment of release. The ease (below) has a peak-to-average
+        // ratio of exactly 2, so the AVERAGE rate across a transit is at most
+        // one screen height per second, and a full 633 pt transit therefore
+        // takes at least 750 ms. Turn this number DOWN to make the world
+        // calmer; there is no other number to turn.
         var maxOpticalFlow: CGFloat = 2.0
+
+        // BARRIER CONDITION 14, the named threshold. Screen heights per
+        // second, measured by `flow`. Above it the light takes turns: W05 and
+        // the renderer attenuate pop and chain-flash peak luminance, exactly
+        // as they already do during a dense cascade.
+        //
+        // WHY 0.25. A settle's rate is `peak × (1 − s)`, so with the ceiling
+        // binding (peak = 2.0) a full transit sits above this threshold for
+        // its first ~87% and drops below it about 90 ms before it lands —
+        // the light comes back exactly as the world stops, not after a pause.
+        // Below a quarter of a screen height per second the world is drifting
+        // rather than travelling, and dimming a pop there would read as the
+        // app deciding her tap mattered less. On the 844 pt reference screen
+        // this is 211 pt/s.
+        var transitFlowThreshold: CGFloat = 0.25
 
         // 04 §5 commits the settle to 300–650 ms. That band applies to the
         // settle only — never to a move she cannot touch — and it is honoured
@@ -145,8 +299,9 @@ final class WorldCamera {
         var seedVelocityFloor: CGFloat = 0.05
 
         // BARRIER CONDITION 13. A drag that begins within this window of the
-        // last spring-back is treated as a re-attempt at the same move, and
-        // damped.
+        // last spring-back ARRIVING is treated as a re-attempt at the same
+        // move, and damped. Measured from arrival, not from release — see
+        // `lastReturnAt`.
         var oscillationWindow: TimeInterval = 1.0
 
         // Each successive rapid re-attempt keeps this fraction of the last
@@ -193,18 +348,26 @@ final class WorldCamera {
 
     // MARK: Settable by the host
 
-    var config: Config
+    // Read freely; written only through `apply(_:)`, which re-clamps the axis
+    // and rebuilds any settle in flight against the new geometry. A bare
+    // `var` here is a live hazard: changing `travelPerPlace` mid-settle with a
+    // plain assignment leaves the camera outside its own axis and the settle
+    // aiming at an offset that no longer exists.
+    private(set) var config: Config
 
     // Set by the view on layout, in points. Until it is known the camera
-    // refuses to move at all (invariant D).
+    // refuses to move at all (invariant D). Not routed through `apply(_:)`:
+    // the axis is normalized, so a rotation or a Split View resize changes
+    // what a screen height is worth without moving the camera through the
+    // world.
     var viewHeight: CGFloat
 
     // BARRIER CONDITION 11. Reduce Motion is a property the view WRITES from
     // the live system setting (`onAppear` + `onChange`); the camera never
     // reads system state itself, because reading it would make this file
     // impure and untestable. While it is true `offset` is identically zero —
-    // the places crossfade instead — and `dragProgress` still answers her
-    // finger, so the control never feels dead.
+    // the places crossfade instead, via `transition` — and the crossfade still
+    // answers her finger, so the control never feels dead.
     var reduceMotion: Bool
 
     // MARK: State the view reads
@@ -216,34 +379,154 @@ final class WorldCamera {
     // unseen (04 §5, W07's `simActive`), the whispers must re-label to name
     // where she can go from there, and `.cancelToRest` needs a home that means
     // "where the camera belongs" rather than "where it happened to start".
-    // Nothing visual keys off this: the crossfade keys off `dragProgress`,
-    // which is continuous.
+    //
+    // IT IS A RECORD OF INTENT AND NEVER A POSITION (invariant E). After a
+    // transit grab the axis can be anywhere — including past `place`, or on
+    // the far side of it — so anything that needs to know where the camera IS
+    // asks `axisPosition`/`nearestPlace`. Nothing visual keys off this either:
+    // the crossfade keys off `transition`, which is continuous.
     private(set) var place: Place = .field
 
     // The continuous normalized axis position the view applies as a
     // translation. Zero under Reduce Motion, always (barrier condition 11).
     var offset: CGFloat { reduceMotion ? 0 : axisPosition }
 
-    // Signed progress AWAY from `place`, in place-units, clamped to [-1, 1]:
-    // negative toward the sky, positive toward the journal.
+    // MARK: The crossfade
+
+    // The place the transition in flight departed from. Captured at
+    // `.panBegan` and at `beginSettle` — the two moments a transition can
+    // start — and used ONLY to orient `transition` (which of the two places
+    // bracketing the camera she is leaving). It is never a position.
+    private(set) var transitionFrom: Place = .field
+
+    // THE CROSSFADE, RESOLVED. The single accessor a view fades with, and the
+    // only correct answer to "which two places are on screen and how much of
+    // each".
     //
-    // This is the value a Reduce Motion view crossfades with, and it is the
-    // reason RM never feels dead: while she drags, it answers her finger
-    // proportionally even though nothing translates. It runs during settles
-    // too — after a commit it eases from ±1 to 0 — so under RM one number
-    // drives the whole transition: |dragProgress| is the outgoing place's
-    // opacity and 1 − |dragProgress| the arriving one's, and its sign says
-    // which neighbour is which.
+    //   from   the place being left
+    //   to     the place being arrived at
+    //   t      ALWAYS in [0, 1], and always the ARRIVING place's opacity.
+    //          The departing place's opacity is 1 − t.
+    //
+    // When `from == to` there is no transition in flight: the camera is
+    // centred on that place, `t` is 1, and the view draws that place alone.
+    // `opacity(of:)` below states all of this in the form a view actually
+    // wants, and is the recommended way to consume this.
+    //
+    // WHY THIS EXISTS, i.e. what was wrong before (R-ARCH, found independently
+    // by the chair and by Keiko). The crossfade used to ride on
+    // `dragProgress`, a SIGNED distance from `place` — and `place` flips at
+    // the commit instant. So the number's reference point moved underneath it
+    // mid-transition: a drag toward the sky reading −0.25 became +0.75 the
+    // moment she committed, inverting both the sign and the meaning while the
+    // world had not moved at all. Every RM view fading on it would have cut
+    // rather than crossfaded, once, at the exact instant she asked to go
+    // somewhere. Carrying the pair explicitly makes that unrepresentable:
+    // `t` is a position between two NAMED places, so it cannot invert, and it
+    // is monotone across the commit seam for a fixed pair.
+    //
+    // The pair changes only when the camera passes a place's centre, where
+    // per-place opacity is continuous by construction: the arriving place is
+    // at 1 and the departing one at 0 exactly there, so nothing jumps.
+    var transition: (from: Place, to: Place, t: CGFloat) {
+        guard config.travelPerPlace > 0 else { return (place, place, 1) }
+
+        // Where the camera sits in place-units, clamped to the axis.
+        let unit = min(1, max(-1, axisPosition / config.travelPerPlace))
+        let lowerRaw = max(-1, min(1, Int(unit.rounded(.down))))
+        let upperRaw = max(-1, min(1, Int(unit.rounded(.up))))
+        guard let lower = Place(rawValue: lowerRaw),
+              let upper = Place(rawValue: upperRaw) else {
+            return (place, place, 1)
+        }
+
+        // Centred on a place: nothing is crossfading.
+        guard lower != upper else { return (lower, lower, 1) }
+
+        // Orient the bracketing pair with the departure anchor. If the anchor
+        // is one of the two, it is `from`; if the gesture has carried the
+        // camera clean past a place, the anchor is outside the bracket and
+        // the near side of it is the place being left.
+        let from: Place
+        let to: Place
+        if transitionFrom == upper {
+            from = upper
+            to = lower
+        } else if transitionFrom == lower {
+            from = lower
+            to = upper
+        } else if transitionFrom.rawValue < lowerRaw {
+            from = lower
+            to = upper
+        } else {
+            from = upper
+            to = lower
+        }
+
+        // Non-zero by construction: `from` and `to` are distinct places and
+        // `travelPerPlace` is positive.
+        let span = restOffset(of: to) - restOffset(of: from)
+        let t = (axisPosition - restOffset(of: from)) / span
+        return (from, to, min(1, max(0, t)))
+    }
+
+    // How much of a given place is on screen, in [0, 1] — `transition` said
+    // the way a view wants to hear it. Under Reduce Motion this is the whole
+    // of the navigation: two places, cross-faded, nothing translating.
+    func opacity(of candidate: Place) -> CGFloat {
+        let resolved = transition
+        if resolved.from == resolved.to { return candidate == resolved.to ? 1 : 0 }
+        if candidate == resolved.to { return resolved.t }
+        if candidate == resolved.from { return 1 - resolved.t }
+        return 0
+    }
+
+    // RAW, SIGNED, AND NOT THE CROSSFADE. Signed progress away from `place`,
+    // in place-units, clamped to [-1, 1]: negative toward the sky, positive
+    // toward the journal.
+    //
+    // It is kept because it is the one value that answers "how far is the
+    // camera from the place of record, and on which side" in a single number,
+    // which is what a debug HUD and the tests want. It is NOT continuous
+    // across a commit — `place` flips there, so this flips with it — so
+    // ANYTHING VISUAL MUST USE `transition`/`opacity(of:)` INSTEAD. If a view
+    // ever needs the signed form, take it from `transition` and the sign of
+    // `to.rawValue - from.rawValue`.
     var dragProgress: CGFloat {
         let d = (axisPosition - restOffset(of: place)) / config.travelPerPlace
         return min(1, max(-1, d))
     }
 
+    // MARK: Motion the view reads
+
     // True when nothing is in flight: no settle running, no finger down.
+    // The host's pause predicate MUST include this (host contract H3).
     var isAtRest: Bool {
         if case .rest = motion { return true }
         return false
     }
+
+    // BARRIER CONDITION 14. How fast the world is sliding on screen, in
+    // screen heights per second, measured over the frame that just ended.
+    //
+    // Measured, not modelled, and therefore valid during BOTH kinds of
+    // motion: it is the change in `offset` since the previous `step(dt:)`,
+    // divided by that step. A settle contributes the eased rate; a finger
+    // contributes whatever the finger did between the two frames (see the
+    // finger-coupled exemption on `maxOpticalFlow`). It is zero at rest, and
+    // zero on the frame after arrival.
+    //
+    // Two consequences worth knowing before using it:
+    //   * it is one frame OLD. That is the honest answer for a value the
+    //     renderer uses to decide how bright the next frame may be.
+    //   * under Reduce Motion it is identically zero, because `offset` is —
+    //     nothing slides, so no light needs to take a turn. RM transitions
+    //     are still detectable via `isAtRest` and `transition`.
+    private(set) var flow: CGFloat = 0
+
+    // The question condition 14 actually asks, answered once, here, so that
+    // W05 and the renderer cannot each invent their own idea of "moving".
+    var exceedsTransitFlow: Bool { flow > config.transitFlowThreshold }
 
     // The camera's own clock, in seconds, advanced only by `step(dt:)` with dt
     // clamped. Not wall-clock: during a stall it deliberately runs slow,
@@ -255,17 +538,50 @@ final class WorldCamera {
 
     private var axisPosition: CGFloat = 0
 
+    // `offset` as of the end of the previous `step(dt:)`. `flow` is measured
+    // against this rather than against the position at the top of the current
+    // step, so motion written between frames — i.e. every `.panChanged` — is
+    // counted in the frame that carries it instead of vanishing.
+    private var flowReference: CGFloat = 0
+
     private enum Motion {
         case rest
         case dragging(anchor: CGFloat)
-        case settling(from: CGFloat, to: CGFloat, duration: TimeInterval, elapsed: TimeInterval)
+        // `isReturn` travels with the settle because barrier condition 13's
+        // clock is stamped on ARRIVAL, which happens in `step(dt:)`, long
+        // after the decision was made in `beginSettle`.
+        case settling(from: CGFloat,
+                      to: CGFloat,
+                      duration: TimeInterval,
+                      elapsed: TimeInterval,
+                      isReturn: Bool)
     }
 
     private var motion: Motion = .rest
 
+    // Why a settle is happening. Passed in explicitly rather than inferred,
+    // because the two look identical at the destination and mean opposite
+    // things (see `beginSettle`).
+    private enum SettleReason {
+        case commit       // she asked to go somewhere
+        case undecided    // `.cancelToRest` / `.settleToNearest`
+    }
+
     // BARRIER CONDITION 13, the whole of it. 1.0 is undamped, 1:1 with her
     // finger; each rapid re-attempt shrinks it toward the floor.
     private var dragGain: CGFloat = 1
+
+    // The camera clock at which the last spring-back ARRIVED.
+    //
+    // ON ARRIVAL, NOT AT RELEASE — this is the fix for R-ARCH major 4. Stamped
+    // at the start of the spring-back, the damping terminated itself: each
+    // damped return is deliberately made LONGER, so the following return began
+    // more than `oscillationWindow` after the previous one STARTED even when
+    // she was rocking the world as fast as she could, and the gain reset to 1
+    // on the third attempt. The window has to measure the idle gap between one
+    // return finishing and the next beginning, which is what "a return
+    // beginning within ~1 s of a previous return" means when the returns
+    // themselves take most of a second.
     private var lastReturnAt: TimeInterval?
 
     // Distances below this are already arrived.
@@ -281,6 +597,55 @@ final class WorldCamera {
         self.config = config
     }
 
+    // The only way to change tuning after init. Re-clamps the axis to the new
+    // geometry and rebuilds any settle in flight against it, because a bare
+    // assignment would leave the camera outside its own world and a settle
+    // aiming at an offset that no longer exists.
+    //
+    // The rebuild restarts the ease from the CURRENT position toward the new
+    // target, keeping whatever time the old settle had left (and re-applying
+    // the optical-flow ceiling to it). Position is therefore continuous — no
+    // jump — while the rate may step once, at the instant of a deliberate
+    // tuning change. It cannot overshoot or reverse: the new settle is a fresh
+    // single-signed ease from here to there.
+    func apply(_ newConfig: Config) {
+        config = newConfig
+        axisPosition = clampToAxis(axisPosition)
+
+        switch motion {
+        case .rest:
+            return
+
+        case .dragging(let anchor):
+            // Keep her finger's reference inside the new axis too.
+            motion = .dragging(anchor: clampToAxis(anchor))
+
+        case .settling(_, _, let duration, let settled, let isReturn):
+            // Invariant F: the place of record IS the destination in flight.
+            let target = restOffset(of: place)
+            let distance = abs(target - axisPosition)
+            let remaining = max(duration - settled, 0)
+
+            guard distance > epsilon, remaining > 1e-9 else {
+                axisPosition = target
+                motion = .rest
+                if isReturn { lastReturnAt = elapsed }
+                return
+            }
+
+            var rebuilt = remaining
+            if !reduceMotion {
+                rebuilt = max(rebuilt,
+                              TimeInterval(Self.easePeakFactor * distance / config.maxOpticalFlow))
+            }
+            motion = .settling(from: axisPosition,
+                               to: target,
+                               duration: rebuilt,
+                               elapsed: 0,
+                               isReturn: isReturn)
+        }
+    }
+
     // MARK: - Geometry
 
     // The axis position at which a place is centred. The ONLY place → position
@@ -291,6 +656,8 @@ final class WorldCamera {
 
     // The place nearest the camera right now. Ties go to `place` — a tie must
     // never be resolved into a move she did not ask for (invariant A).
+    //
+    // This, not `place`, is where the camera IS (invariant E).
     var nearestPlace: Place {
         var best = place
         var bestDistance = abs(axisPosition - restOffset(of: place))
@@ -326,6 +693,42 @@ final class WorldCamera {
         }
     }
 
+    // Where a commit in `direction` goes, resolved FROM THE AXIS (invariant E)
+    // and capped to one place of travel (barrier condition 10).
+    //
+    // R-ARCH blocker 1: this used to read `destination(from: place, …)`, which
+    // is the place she committed to earlier and not where the camera is. After
+    // a transit grab the two can be a whole place apart, and the failure is
+    // not subtle — parked in the sky, dragged all the way down past the field,
+    // released with a downward flick, the old resolution sent the camera back
+    // UP to the field: a direction reversal at the end of the largest flow
+    // event in the app, which is the exact provocation barrier condition 12
+    // exists to forbid. `.settleToNearest` already resolved from position; now
+    // every path does.
+    private func commitDestination(moving direction: WorldDirection) -> Place {
+        let origin = nearestPlace
+        let proposed = destination(from: origin, moving: direction)
+        let cap = config.maxTransitPerCommit * config.travelPerPlace
+        guard abs(restOffset(of: proposed) - axisPosition) > cap + epsilon else {
+            return proposed
+        }
+        // Too far for one commit: stop at the place she is nearest, which is
+        // never more than half a place away and always lies in the direction
+        // she asked for (it is between the camera and `proposed`).
+        return origin
+    }
+
+    // Which side of the destination the camera is on, named as the place it
+    // is leaving. This is the `from` of the crossfade pair for the settle
+    // about to begin; on the far side of the axis' ends there is no such
+    // neighbour, and the destination is its own departure.
+    private func departurePlace(for arrival: Place) -> Place {
+        let delta = axisPosition - restOffset(of: arrival)
+        guard abs(delta) > epsilon else { return arrival }
+        let neighbour = arrival.rawValue + (delta < 0 ? -1 : 1)
+        return Place(rawValue: neighbour) ?? arrival
+    }
+
     // MARK: - Consuming outcomes
 
     // Outcomes arrive batched, one batch per touch delivery (R-SPIKE fix 6),
@@ -351,6 +754,13 @@ final class WorldCamera {
         case .panBegan:
             // Invariant B: this is the whole of interruptibility. Whatever the
             // camera was doing, it is hers now, from exactly where it is.
+            //
+            // The crossfade is handed over the same way. Re-anchoring to the
+            // pair already resolved is what makes the grab invisible to the
+            // fade: `transition` depends only on the axis and this anchor, and
+            // the grab moves neither, so nothing on screen changes on the
+            // frame she touches it.
+            transitionFrom = transition.from
             dragGain = gainForDragBeginningNow()
             motion = .dragging(anchor: axisPosition)
 
@@ -373,40 +783,61 @@ final class WorldCamera {
             // commit (gate 3), and the destination is decided by the direction
             // it sent; a disagreeing sign here could only mean a bug upstream,
             // and honouring it would mean settling away from the destination.
-            beginSettle(to: destination(from: place, moving: direction),
-                        seededSpeed: abs(velocity) / viewHeight)
+            beginSettle(to: commitDestination(moving: direction),
+                        seededSpeed: abs(velocity) / viewHeight,
+                        reason: .commit)
 
         case .settleToNearest:
             // R-SPIKE fix 3: a transit grab released without a decisive
             // gesture. A near-complete move completes, an early catch springs
             // home. Unseeded — she let go without asking for speed.
-            beginSettle(to: nearestPlace, seededSpeed: 0)
+            beginSettle(to: nearestPlace, seededSpeed: 0, reason: .undecided)
 
         case .cancelToRest:
             // Back to where the camera belongs. From the field that is the
             // field; caught mid-transit (the system took the touch away) it is
             // the destination she had already committed to.
-            beginSettle(to: place, seededSpeed: 0)
+            beginSettle(to: place, seededSpeed: 0, reason: .undecided)
         }
     }
 
     // MARK: - Settle
 
-    private func beginSettle(to newPlace: Place, seededSpeed: CGFloat) {
-        // A settle that does not change place is a SPRING-BACK, and
-        // spring-backs are what oscillate.
-        let isReturn = (newPlace == place)
-        place = newPlace
-
-        if isReturn { lastReturnAt = elapsed }
-
+    private func beginSettle(to newPlace: Place,
+                             seededSpeed: CGFloat,
+                             reason: SettleReason) {
         let target = restOffset(of: newPlace)
         let distance = abs(target - axisPosition)
+        let previousPlace = place
+
+        place = newPlace
+        transitionFrom = departurePlace(for: newPlace)
+
         guard distance > epsilon else {
             axisPosition = target
             motion = .rest
             return
         }
+
+        // BARRIER CONDITION 13 names one thing: a RETURN, i.e. she started a
+        // move, did not ask for it, and the world went back where it was. That
+        // is three facts, all required, and R-ARCH major 5 is that this used
+        // to be inferred from one of them:
+        //
+        //   * the release was UNDECIDED. A commit is a decision, and a
+        //     decision is not a re-attempt at anything;
+        //   * the destination is the place the camera ALREADY BELONGED TO —
+        //     nothing was accomplished;
+        //   * there is REAL DISTANCE to cover. A release with the camera
+        //     already home is not a spring-back, it is a no-op (and is
+        //     returned above before reaching here).
+        //
+        // Inferring it from `newPlace == place` alone armed the damping on
+        // ordinary confident navigation — every completed commit satisfies it,
+        // because `place` is assigned the destination — which would have made
+        // the world progressively slower the more she used it. The reason is
+        // therefore passed in by the caller rather than reconstructed.
+        let isReturn = (reason == .undecided) && (newPlace == previousPlace)
 
         // Seeded speed is re-clamped to the ceiling here even though the
         // arbiter clamps it: the camera must not be able to be handed a number
@@ -429,7 +860,16 @@ final class WorldCamera {
         // the line that makes peak optical flow provably ≤ maxOpticalFlow for
         // every settle: peak = easePeakFactor · d / duration, and duration is
         // now at least easePeakFactor · d / maxOpticalFlow.
-        duration = max(duration, TimeInterval(Self.easePeakFactor * distance / config.maxOpticalFlow))
+        //
+        // SKIPPED UNDER REDUCE MOTION (R-ARCH minor 10). Nothing translates
+        // under RM, so there is no optical flow to bound — and stretching the
+        // duration anyway would push the crossfade past the 300–650 ms the
+        // navigation is committed to, making RM the slow, second-class path
+        // instead of the equal one condition 11 asks for.
+        if !reduceMotion {
+            duration = max(duration,
+                           TimeInterval(Self.easePeakFactor * distance / config.maxOpticalFlow))
+        }
 
         // BARRIER CONDITION 13, the "slower" half. A spring-back inherits the
         // damping of the drag it undoes, so a re-attempt returns more slowly;
@@ -442,12 +882,16 @@ final class WorldCamera {
         // would degrade the harder she tried to use it.
         if isReturn { duration *= TimeInterval(2 - dragGain) }
 
-        motion = .settling(from: axisPosition, to: target, duration: duration, elapsed: 0)
+        motion = .settling(from: axisPosition,
+                           to: target,
+                           duration: duration,
+                           elapsed: 0,
+                           isReturn: isReturn)
     }
 
     // The gain for a drag beginning right now (barrier condition 13, the
-    // "shorter" half). A drag that begins soon after a spring-back is a
-    // re-attempt at the same move, and each re-attempt travels less, so a
+    // "shorter" half). A drag that begins soon after a spring-back ARRIVED is
+    // a re-attempt at the same move, and each re-attempt travels less, so a
     // rocking sequence decays instead of building a low-frequency vertical
     // oscillation.
     //
@@ -456,6 +900,9 @@ final class WorldCamera {
     // same finger distance and speed. The world moves less; navigation is not
     // made harder. That asymmetry is the point — the damping must not be
     // something she has to fight.
+    //
+    // And it forgives: one genuinely idle `oscillationWindow` after the last
+    // return landed and the gain is 1 again.
     private func gainForDragBeginningNow() -> CGFloat {
         guard let last = lastReturnAt, elapsed - last < config.oscillationWindow else { return 1 }
         return max(config.dragDampingFloor, dragGain * config.dragDampingFactor)
@@ -469,25 +916,41 @@ final class WorldCamera {
 
     // MARK: - Step
 
+    // Host contract H1–H3: one owner, every frame, and never paused while
+    // `isAtRest` is false.
     func step(dt: TimeInterval) {
         guard dt > 0 else { return }
         let clamped = min(dt, config.maxStep)
         elapsed += clamped
 
-        guard case .settling(let from, let to, let duration, let settled) = motion else { return }
+        // Everything that has happened to `offset` since the previous frame,
+        // including whatever her finger did between the two.
+        let reference = flowReference
 
-        let now = settled + clamped
-        let s = min(1, CGFloat(now / duration))
-        axisPosition = from + (to - from) * Self.ease(s)
+        if case .settling(let from, let to, let duration, let settled, let isReturn) = motion {
+            let now = settled + clamped
+            let s = min(1, CGFloat(now / duration))
+            axisPosition = from + (to - from) * Self.ease(s)
 
-        if s >= 1 {
-            // Land exactly, not nearly: an arrival that leaves a residue makes
-            // `restOffset` a lie and gives the next spring-back a phantom
-            // distance to cover.
-            axisPosition = to
-            motion = .rest
-        } else {
-            motion = .settling(from: from, to: to, duration: duration, elapsed: now)
+            if s >= 1 {
+                // Land exactly, not nearly: an arrival that leaves a residue
+                // makes `restOffset` a lie and gives the next spring-back a
+                // phantom distance to cover.
+                axisPosition = to
+                motion = .rest
+                // BARRIER CONDITION 13's clock, stamped where the world
+                // actually stopped moving.
+                if isReturn { lastReturnAt = elapsed }
+            } else {
+                motion = .settling(from: from,
+                                   to: to,
+                                   duration: duration,
+                                   elapsed: now,
+                                   isReturn: isReturn)
+            }
         }
+
+        flow = abs(offset - reference) / CGFloat(clamped)
+        flowReference = offset
     }
 }

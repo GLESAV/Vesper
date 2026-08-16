@@ -536,4 +536,123 @@ final class WorldInputTests: XCTestCase {
         XCTAssertEqual(popCount(outcomes), 1)
         XCTAssertFalse(hasAnyCommit(outcomes))
     }
+
+    // MARK: - Liveness: every dropped touch terminates the camera's state
+
+    // The finding these pin down: `.dragging` is absorbing under an EMPTY
+    // input sequence — the camera leaves it only when a further outcome
+    // arrives. So the host paths that drop a touch without an `ended`
+    // (leaving the window; recovering in `touchesBegan` when the arbiter
+    // still believes it is steering but the UITouch is gone) must not be
+    // silent. Both now flush `cancelled()`, and these tests fix what
+    // `cancelled()` owes them in each state the arbiter can be dropped from.
+
+    // Dropped mid-drag from rest: exactly one terminating outcome, and the
+    // arbiter is left clean. Anything less strands the camera mid-drag with
+    // no finger on the glass and nothing left that could ever end it.
+    func testCancelWhileDraggingEmitsExactlyOneTerminatingOutcome() {
+        var arbiter = makeArbiter()
+        _ = arbiter.began(at: CGPoint(x: 195, y: 500), timestamp: 0)
+        _ = arbiter.moved(to: CGPoint(x: 195, y: 440), timestamp: 0.02)
+        _ = arbiter.moved(to: CGPoint(x: 195, y: 380), timestamp: 0.04)
+        XCTAssertTrue(arbiter.isTracking)
+
+        let cancelled = arbiter.cancelled()
+
+        XCTAssertEqual(cancelled, [.cancelToRest],
+                       "a drag dropped by the host must end, not hang")
+        XCTAssertEqual(cancelled.count, 1, "one terminating outcome, never two")
+        XCTAssertFalse(arbiter.isTracking, "the dropped touch must leave no residue")
+    }
+
+    // ...even when the drag had already travelled far enough and fast enough
+    // to satisfy both commit gates. A cancel is not a release: she never let
+    // go, so nothing is committed — but it still terminates.
+    func testCancelOfACommitWorthyDragTerminatesWithoutCommitting() {
+        var arbiter = makeArbiter()
+        let x: CGFloat = 195
+        _ = arbiter.began(at: CGPoint(x: x, y: 500), timestamp: 0)
+        _ = arbiter.moved(to: CGPoint(x: x, y: 440), timestamp: 0.02)
+        _ = arbiter.moved(to: CGPoint(x: x, y: 380), timestamp: 0.04)
+        _ = arbiter.moved(to: CGPoint(x: x, y: 320), timestamp: 0.06)
+
+        let cancelled = arbiter.cancelled()
+
+        XCTAssertFalse(hasAnyCommit(cancelled), "a cancel is not a release")
+        XCTAssertEqual(cancelled, [.cancelToRest])
+    }
+
+    // Dropped at rest with nothing armed: silence is correct here, and it is
+    // the ordinary case — the view leaves the window with no finger on it.
+    // An unconditional `.cancelToRest` would spring a camera that was never
+    // moved, and (worse) fire on every teardown.
+    func testCancelAtRestWithNothingArmedEmitsNothing() {
+        var arbiter = makeArbiter()
+
+        // No touch at all — plain view teardown.
+        XCTAssertEqual(arbiter.cancelled(), [])
+
+        // A touch-down that only ever popped.
+        let p = CGPoint(x: 195, y: 500)
+        XCTAssertEqual(arbiter.began(at: p, timestamp: 0), [.pop(p)])
+        XCTAssertEqual(arbiter.cancelled(), [],
+                       "a bare touch-down is a pop and nothing else")
+        XCTAssertFalse(arbiter.isTracking)
+
+        // A touch that jittered under the slop never armed a pan either.
+        _ = arbiter.began(at: p, timestamp: 0.20)
+        XCTAssertEqual(arbiter.moved(to: CGPoint(x: 196, y: 496), timestamp: 0.22), [])
+        XCTAssertEqual(arbiter.cancelled(), [],
+                       "sub-slop jitter armed nothing, so there is nothing to terminate")
+    }
+
+    // Dropped during a transit grab: `.settleToNearest`, never `.cancelToRest`
+    // (§7.3). A grab arms at touch-down and has no rest to spring back to, so
+    // this state is droppable with a pan armed even when her finger never
+    // moved — which is precisely the stranding case.
+    func testCancelDuringATransitGrabSettlesToNearest() {
+        var arbiter = makeTransitArbiter()
+        XCTAssertEqual(arbiter.began(at: CGPoint(x: 195, y: 500), timestamp: 0), [.panBegan])
+        _ = arbiter.moved(to: CGPoint(x: 195, y: 470), timestamp: 0.03)
+
+        let cancelled = arbiter.cancelled()
+
+        XCTAssertEqual(cancelled, [.settleToNearest])
+        XCTAssertFalse(cancelled.contains(.cancelToRest), "a grab has no rest to return to")
+        XCTAssertFalse(arbiter.isTracking)
+    }
+
+    // The host may drop the same touch twice — `willMove(toWindow:)` followed
+    // by the `touchesBegan` recovery, or a cancel that arrives after either.
+    // The first call terminates; the rest are silent. A second terminating
+    // outcome would settle the camera out from under whatever came next.
+    func testCancelIsIdempotent() {
+        var arbiter = makeArbiter()
+        _ = arbiter.began(at: CGPoint(x: 195, y: 500), timestamp: 0)
+        _ = arbiter.moved(to: CGPoint(x: 195, y: 430), timestamp: 0.02)
+
+        XCTAssertEqual(arbiter.cancelled(), [.cancelToRest])
+        XCTAssertEqual(arbiter.cancelled(), [], "only the first drop terminates")
+        XCTAssertEqual(arbiter.cancelled(), [])
+    }
+
+    // And a cancel leaves the arbiter genuinely clean, not merely quiet: the
+    // next gesture must behave exactly as if the dropped one never happened.
+    // This is the other half of the recovery branch's job — it clears the
+    // stale tracking state so navigation is not dead for the rest of the
+    // session.
+    func testGestureAfterACancelBehavesNormally() {
+        var arbiter = makeArbiter()
+        _ = arbiter.began(at: CGPoint(x: 195, y: 500), timestamp: 0)
+        _ = arbiter.moved(to: CGPoint(x: 195, y: 430), timestamp: 0.02)
+        XCTAssertEqual(arbiter.cancelled(), [.cancelToRest])
+
+        let outcomes = swipe(&arbiter, from: CGPoint(x: 195, y: 500),
+                             dy: -200, duration: 0.15, at: 1)
+
+        XCTAssertEqual(popCount(outcomes), 1)
+        XCTAssertEqual(commitCount(outcomes, .up), 1,
+                       "the arbiter must adopt the next touch as if nothing was dropped")
+        XCTAssertFalse(arbiter.isTracking)
+    }
 }
