@@ -21,13 +21,14 @@ import SwiftUI
 //     came up from, so her latest stone sits there and the walked path hangs
 //     above it. The sky reads as the path continuing upward.
 //   · Choosing a star plays it and takes her straight back down. Leaving
-//     without choosing is always possible — the `the field` whisper at the
-//     foot, the swipe down, and the VoiceOver escape all do it, and nothing
-//     in here is modal, timed, or confirmable.
+//     without choosing is always possible — the world's own `the field`
+//     whisper at the foot (composed in `WorldView`, not here), the swipe
+//     down, and the VoiceOver escape all do it, and nothing in here is
+//     modal, timed, or confirmable.
 // ─────────────────────────────────────────────────────────────────────────
 //
 // INTEGRATION NOTE FOR WHOEVER COMPOSES THE WORLD (W05/W10). This view is
-// interactive: its stars and its whisper are buttons. In the composition as
+// interactive: its stars are buttons. In the composition as
 // written for W04 the moving body carries `.allowsHitTesting(false)` and the
 // input layer sits above it, so a sky nested there receives no touches at
 // all. The sky's interactive layer must be reachable — either by lifting the
@@ -98,8 +99,8 @@ struct SkyLayout {
     static let maximumSeparation: CGFloat = 118
 
     /// Room at the top for the status bar and the sky's own darkness, and at
-    /// the foot for the `the field` whisper's 44 pt target inside the bottom
-    /// dead zone (04 §4).
+    /// the foot for the world's `the field` whisper — its 44 pt target sits
+    /// in the bottom dead zone (04 §4), and no star may be placed under it.
     static let topInset: CGFloat = 96
     static let bottomInset: CGFloat = 132
 
@@ -517,24 +518,13 @@ struct SkyView: View {
                 starTarget(star)
             }
 
-            // The way home, for anyone who does not swipe. It is not the only
-            // way out and it is not a dismissal: the swipe down and the
-            // VoiceOver escape do the same thing, and choosing nothing is a
-            // complete visit.
-            VStack {
-                Spacer(minLength: 0)
-                WhisperLabel(text: Strings.fieldWhisper,
-                             accessibilityLabel: Strings.fieldA11y,
-                             hint: Strings.fieldWhisperHint,
-                             isPlaying: false,
-                             onTap: returnToField)
-                    // Read last: she came up here to look at stars, and the
-                    // way home is the thing she already knows how to find.
-                    .accessibilitySortPriority(-1)
-                    // Clear of the home indicator: the world ignores the safe
-                    // area, so the whisper keeps its own distance.
-                    .padding(.bottom, 34)
-            }
+            // NO `the field` WHISPER HERE. The world composes the wayfinding
+            // pair as stable siblings above the input layer (`WorldView`
+            // §3), which is the only place one can actually be tapped. A
+            // second copy inside this moving body printed underneath it,
+            // travelled off screen with the sky, and answered no touch. The
+            // way home is still never missing — that sibling whisper, the
+            // swipe down, and the VoiceOver escape below all do it.
         }
         .frame(width: size.width, height: size.height)
     }

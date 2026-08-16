@@ -23,6 +23,13 @@ final class MapStore: ObservableObject {
         static let active = "vesper.map.active"
     }
 
+    // The keys this store owns. See ProgressionStore.ownedDefaultsKeys for why
+    // this is declared, and why it is not `#if DEBUG`.
+    static let ownedDefaultsKeys: [String] = [
+        Keys.stones,
+        Keys.active,
+    ]
+
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
         self.nowProvider = now
@@ -148,4 +155,20 @@ final class MapStore: ObservableObject {
         }
         defaults.set(activeStoneID?.uuidString ?? "", forKey: Keys.active)
     }
+
+    // MARK: - W24: fresh install (DEBUG only)
+
+    #if DEBUG
+    // Erases The Path entirely — no stones, nobody standing anywhere — in
+    // memory and on disk. The caller is responsible for laying the genesis
+    // stone again (`ensureGenesis`), because that is what a first launch does
+    // and doing it here would leave the sweep unable to say "nothing owned by
+    // the game is left in defaults".
+    func resetToFreshInstall() {
+        stones = []
+        activeStoneID = nil
+        for key in Self.ownedDefaultsKeys { defaults.removeObject(forKey: key) }
+    }
+    #endif
+
 }

@@ -42,6 +42,16 @@ enum Strings {
     static let journalWhisper = "your journal"
     static let fieldWhisper = "the field"
 
+    /// The hints on the two whispers that lead away from the field. Clear
+    /// register, like every hint here: a hint is read after the label, once
+    /// she has already chosen to listen, so it says plainly what a tap does —
+    /// and it names the direction, because the world's one axis is the thing
+    /// the wayfinding is teaching. `WhisperLabel.hint` is non-optional on
+    /// purpose (a whisper that ships without one is a review failure), so
+    /// these are required rather than decorative.
+    static let skyWhisperHint = "goes up to the sky"
+    static let journalWhisperHint = "goes down to your journal"
+
     // MARK: - The world speaking
 
     /// The done card's chrome. The field went quiet; nothing is claimed about her.
@@ -164,6 +174,8 @@ enum Strings {
         skyWhisper,
         journalWhisper,
         fieldWhisper,
+        skyWhisperHint,
+        journalWhisperHint,
         fieldIsQuiet,
         roadFaded,
         skyNoticed,

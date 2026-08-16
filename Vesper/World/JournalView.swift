@@ -101,14 +101,20 @@ struct JournalView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            homeWhisper
-
             ZStack {
                 pageBody
                     .padding(.horizontal, gutter + 4)
                 edges
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // THE WORLD IGNORES THE SAFE AREA (WorldView), so this page keeps
+            // its own head margin — generous enough to clear a Dynamic Island
+            // on every supported iPhone, and the same 60 pt the world's own
+            // `the field` whisper is inset by, so a scrolled page never runs
+            // up under it. The whisper itself belongs to `WorldView`, above
+            // the input layer where it can actually be tapped; the journal
+            // does not draw one of its own.
+            .padding(.top, 60)
 
             ribbon
         }
@@ -147,26 +153,6 @@ struct JournalView: View {
             armed = false
             lockedHint = nil
         }
-    }
-
-    // MARK: - The way home
-
-    // The journal's own wayfinding: the field is UP from here, so its whisper
-    // sits at the head of the page. Tapping it is the same act as the swipe
-    // (04 §4) — and unlike the swipe it cannot be swallowed by a scrolling
-    // page, which is why it is pinned outside the page body.
-    private var homeWhisper: some View {
-        WhisperLabel(text: Strings.fieldWhisper,
-                     accessibilityLabel: Strings.fieldA11y,
-                     hint: Strings.fieldWhisperHint,
-                     isPlaying: false,
-                     onTap: { returnToField() })
-            // THE WORLD IGNORES THE SAFE AREA (WorldView), so this page
-            // cannot ask for an inset that was already consumed — it keeps a
-            // margin generous enough to clear a Dynamic Island on every
-            // supported iPhone. Being a little low on an older phone reads as
-            // a journal's margin; being under the island reads as a bug.
-            .padding(.top, 60)
     }
 
     // MARK: - The pages

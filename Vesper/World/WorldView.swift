@@ -17,7 +17,10 @@ import SwiftUI
 //
 //   2. `WorldInputLayer` IS A STABLE ZSTACK SIBLING of that body — never
 //      inside it, never `.id()`'d, never given the offset or a transform,
-//      and its position in the tree never depends on `place`. When the view
+//      and its position in the tree never depends on `place`. It sits BELOW
+//      the body in the stack (the Director's hit-testing ruling, written out
+//      at `composition`) — a z-order is not an identity, and that is the
+//      whole of what the ruling moved. When the view
 //      hosting a touch is torn down and remade, UIKit cancels the touch;
 //      the camera moves every frame, so anything downstream of it is remade
 //      every frame of every swipe, and the pop dies mid-gesture.
@@ -130,7 +133,64 @@ private struct WorldScene: View {
         ZStack {
             background
 
-            // ── 1. THE MOVING WORLD ─────────────────────────────────────
+            // ── THE HIT-TESTING ORDER (the Director's ruling, W12) ──────
+            //
+            // THE MOVING BODY SITS ABOVE THE INPUT LAYER AND IS HIT-TESTABLE.
+            // The input layer sits underneath it. That ordering is the whole
+            // of how this world became operable: with the body below and
+            // carrying `.allowsHitTesting(false)`, `SkyView`'s stars and
+            // `JournalView`'s rows and toggles received no touches at all —
+            // the world rendered in three places and could be worked in one.
+            //
+            // IT COSTS THE FIELD NOTHING. SwiftUI hit-tests topmost-first and
+            // passes a point it has no interactive content at straight through
+            // to the sibling beneath. The field's own layer is
+            // `.allowsHitTesting(false)` — `Canvas` and HUD together — so at
+            // the field EVERY touch still falls through to the arbiter,
+            // untouched: pop-on-touch-down and the pan behave exactly as they
+            // did before this line moved. At the sky and the journal only the
+            // controls claim their ≥44 pt targets; every other point falls
+            // through, so the swipe still works from all three places.
+            //
+            // IT IS NOT A RULING 8 VIOLATION. Ruling 8 constrains the input
+            // layer's IDENTITY and STABILITY, not its z-order. It is still one
+            // view at a fixed position in the tree — never rebuilt, never
+            // given the offset or a transform, never `.id()`'d, never
+            // conditional on `place` or on any per-frame value. Swapping two
+            // siblings in a `ZStack` changes none of those things.
+            //
+            // WHAT WAS REJECTED: disabling the input layer off the field
+            // (`.allowsHitTesting(model.place == .field)`, or the same idea
+            // spelled as a conditional layer). It would delete the swipe
+            // everywhere except the field and leave navigation to the whispers
+            // alone — the opposite of one continuous world, and it would buy
+            // nothing this ordering does not already give.
+            //
+            // Where a place STOPS answering — she is not in it, or the world
+            // is in flight — is one line, in `placed`, and it is written there
+            // because it belongs to the place rather than to the stack.
+
+            // ── 1. THE STABLE INPUT SIBLING ─────────────────────────────
+            //
+            // A SIBLING OF THE MOVING BODY, NOT A CHILD OF IT (ruling 8).
+            // Nothing about this line may become conditional on `place`, and
+            // no camera value may reach it: SwiftUI would then rebuild the
+            // hosted UIView during a swipe and UIKit would cancel the touch
+            // in flight — the exact failure v1.2 blames for cancelled taps.
+            // Being first in the stack rather than second is the only thing
+            // about it that the ruling changed.
+            //
+            // `isFieldAtRest` is a LIVE CLOSURE, never a pushed Bool:
+            // SwiftUI's update pass is not ordered against UIKit touch
+            // delivery, so a snapshot is wrong for about a frame at each end
+            // of every settle, and being wrong there costs a pop. It is
+            // `camera.isAtRest && camera.place == .field`, not `isAtRest`
+            // alone — otherwise a touch-down while resting at the sky pops an
+            // orb on a field she cannot see.
+            WorldInputLayer(isFieldAtRest: { model.simActive },
+                            onOutcome: { model.handle($0) })
+
+            // ── 2. THE MOVING WORLD ─────────────────────────────────────
             //
             // THE PAUSE PREDICATE (H3, and a blocking acceptance condition):
             // the field's quiescence OR her absence from it, AND the
@@ -199,39 +259,11 @@ private struct WorldScene: View {
                                         && !model.worldMoving)) { timeline in
                 movingBody(at: timeline.date, size: size)
             }
-            // The world is scenery. Every touch belongs to the layer below.
-            //
-            // RAISED RATHER THAN QUIETLY CHANGED: with the real places
-            // composed in, this line also holds off SkyView's star targets
-            // and JournalView's rows. So does the stacking order underneath
-            // it — the input layer is a full-screen UIView that answers every
-            // touch reaching it, so anything below it is unreachable whatever
-            // this modifier says. Making the places interactive means moving
-            // where the pan surface lives in this ZStack, which is a change
-            // to input arbitration (W12, Rafael) and a Director call; it is
-            // not a thing to improvise inside a whisper-wiring item while
-            // both place files are still being written. Navigation does not
-            // wait on it — the whispers in §3 are siblings ABOVE the input
-            // layer and are the primary path (ruling 7).
-            .allowsHitTesting(false)
-
-            // ── 2. THE STABLE INPUT SIBLING ─────────────────────────────
-            //
-            // A SIBLING OF THE MOVING BODY, NOT A CHILD OF IT (ruling 8).
-            // Nothing about this line may become conditional on `place`, and
-            // no camera value may reach it: SwiftUI would then rebuild the
-            // hosted UIView during a swipe and UIKit would cancel the touch
-            // in flight — the exact failure v1.2 blames for cancelled taps.
-            //
-            // `isFieldAtRest` is a LIVE CLOSURE, never a pushed Bool:
-            // SwiftUI's update pass is not ordered against UIKit touch
-            // delivery, so a snapshot is wrong for about a frame at each end
-            // of every settle, and being wrong there costs a pop. It is
-            // `camera.isAtRest && camera.place == .field`, not `isAtRest`
-            // alone — otherwise a touch-down while resting at the sky pops an
-            // orb on a field she cannot see.
-            WorldInputLayer(isFieldAtRest: { model.simActive },
-                            onOutcome: { model.handle($0) })
+            // The places answer for themselves from here — the ruling
+            // above, and the one line in `placed` that decides which of them
+            // is answering. Nothing on this side of the stack may re-acquire
+            // a blanket veto: that is what made the sky and the journal
+            // pictures of themselves.
 
             // ── 3. THE WAYFINDING WHISPERS ──────────────────────────────
             //
@@ -321,6 +353,34 @@ private struct WorldScene: View {
             .frame(width: size.width, height: size.height)
             .offset(y: y)
             .opacity(alpha)
+            // THE PLACE SHE IS IN IS THE ONE THAT ANSWERS. The counterpart to
+            // the hit-testing ruling in `composition`: the body is touchable
+            // now, so a place must say when it is NOT.
+            //
+            // The world keeps all three mounted at all times, and under Reduce
+            // Motion all three sit at offset zero — the two she is not in are
+            // stacked over the field at zero opacity, where a SwiftUI control
+            // still takes a touch. An invisible star answering a tap meant for
+            // an orb is precisely the pop this ruling exists to protect.
+            // (`JournalView` already says this for itself; the sky does not,
+            // and this is one line rather than an edit in two other owners'
+            // files.)
+            //
+            // `!worldMoving` is the second term and it is what keeps a grab
+            // mid-transit reaching the arbiter: `place` flips at the COMMIT
+            // instant, so without it the destination's controls would be live
+            // while the world is still flying toward them, and a hand landing
+            // on the glass to catch the world could catch a star instead.
+            //
+            // BOTH TERMS ARE PUBLISHED and change at most once per commit —
+            // no camera value is named (ruling 7), so this is not a per-frame
+            // invalidation, and it cannot latch: `worldMoving == true` forces
+            // the timeline UNPAUSED by the predicate above, so the frame
+            // closure keeps running and `worldSettled` always clears it.
+            //
+            // Nothing here reaches the input layer. It is a sibling of this
+            // whole subtree and is never given a predicate of any kind.
+            .allowsHitTesting(model.place == place && !model.worldMoving)
             // Ruling 12: accessibility is co-authored, never retrofitted.
             // `.contain` keeps the counter reachable inside the field rather
             // than flattening it into one label.
@@ -361,10 +421,13 @@ private struct WorldScene: View {
             // most of what makes this a place rather than a screen.
             hud
         }
-        // Non-interactive, so it can never swallow a pop. The whole moving
-        // body is already hit-test transparent; this states it locally too,
-        // because the field is the layer someone would later be tempted to
-        // make tappable.
+        // NON-INTERACTIVE, AND SINCE THE REORDER THIS IS THE LINE THE FIELD
+        // DEPENDS ON. The moving body is above the input layer now, so this
+        // veto — `Canvas` and HUD together — is the reason every touch at the
+        // field falls straight through to the arbiter and pops on touch-down.
+        // The HUD is deliberately inside it: a counter that swallows a tap is
+        // a v1.2 lesson written into `ContentView`'s own comments, and it is
+        // now one modifier away from being relearned.
         .allowsHitTesting(false)
     }
 
@@ -448,11 +511,12 @@ private struct WorldScene: View {
     // stable sibling of the moving body rather than anything inside it. Two
     // reasons, both structural:
     //
-    //   * ABOVE THE INPUT LAYER. `WorldInputView` is a full-screen UIView
-    //     that answers every touch that reaches it, so a whisper composed
-    //     below it is a picture of a whisper. Only a sibling stacked after it
-    //     can be tapped at all — and the tap is what the five-second mute
-    //     target rides on.
+    //   * ABOVE EVERYTHING ELSE THAT TAKES A TOUCH. `WorldInputView` is a
+    //     full-screen UIView that answers every touch reaching it, so a
+    //     whisper composed below it is a picture of a whisper; and since the
+    //     hit-testing ruling the places take touches too. Stacked last of the
+    //     three, these win any point they share with either — which is what
+    //     the five-second mute target rides on.
     //   * OUTSIDE THE MOVING BODY. A whisper that travelled with a place
     //     would slide off the screen exactly when she needs it, and would be
     //     rebuilt every frame of every swipe — rule 2's cancelled-touch
@@ -476,13 +540,13 @@ private struct WorldScene: View {
     // without a way back: from the sky the foot reads `the field`, from the
     // journal the head does.
     //
-    // ONE HANDOFF, STATED HERE SO IT IS NOT DISCOVERED ON A DEVICE: `SkyView`
-    // and `JournalView` each carry a `the field` whisper of their own, from
-    // when this pair did not exist. Those two are inside the moving body — so
-    // they are below the input layer, cannot be tapped, and travel off screen
-    // with their place — and they now print underneath these. The fix is a
-    // deletion in each of those files by their owners, not a workaround here;
-    // this layer is the one that can actually be touched.
+    // THE HANDOFF IS DONE: `SkyView` and `JournalView` each carried a `the
+    // field` whisper of their own, from before this pair existed, and their
+    // owners have deleted both. These two are now the only way-home signage
+    // in the world, which is why they are composed out here rather than
+    // anywhere inside the moving body — and why nothing in either place may
+    // grow one back. A whisper inside a place travels off screen exactly when
+    // she needs it, and is rebuilt every frame of every swipe.
     private var whispers: some View {
         VStack(spacing: 0) {
             wayfindingWhisper(going: .up, edge: .top, inset: Self.headInset)
@@ -518,11 +582,11 @@ private struct WorldScene: View {
     private func whisperLabel(to place: Place, going direction: WorldDirection) -> WhisperLabel {
         switch place {
         case .sky:
-            return WhisperLabel.sky(hint: Self.skyHint,
+            return WhisperLabel.sky(hint: Strings.skyWhisperHint,
                                     isPlaying: fieldIsInPlay,
                                     onTap: { go(direction) })
         case .journal:
-            return WhisperLabel.journal(hint: Self.journalHint,
+            return WhisperLabel.journal(hint: Strings.journalWhisperHint,
                                         isPlaying: fieldIsInPlay,
                                         onTap: { go(direction) })
         case .field:
@@ -564,18 +628,6 @@ private struct WorldScene: View {
     // indicator at the foot, on every supported iPhone.
     private static let headInset: CGFloat = 60
     private static let footInset: CGFloat = 34
-
-    // A CATALOG GAP, RECORDED RATHER THAN PAPERED OVER. `Strings` carries
-    // `fieldWhisperHint` — the way home, which both places already use — but
-    // no hint for the sky or the journal, and `WhisperLabel.hint` is
-    // non-optional on purpose (a whisper that ships without one is a review
-    // failure, and a defaulted parameter is how that happens quietly). These
-    // two lines are the only user-facing literals in this file. They belong
-    // in the W13′ catalog beside `fieldWhisperHint`, in the same clear
-    // register a hint is written in, and should move there with the copy
-    // owner's reading rather than with mine.
-    private static let skyHint = "goes up to the sky"
-    private static let journalHint = "goes down to your journal"
 
     // MARK: - Cards
 
