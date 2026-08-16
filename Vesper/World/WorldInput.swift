@@ -2,16 +2,16 @@ import CoreGraphics
 import Foundation
 
 // The whole of gesture arbitration for One World, as a pure value type.
-// No UIKit, no SwiftUI, no wall-clock: touches arrive as (point, timestamp,
-// did-this-land-on-an-orb) and every decision leaves as an `InputOutcome`.
-// Same discipline as GameSimulation, for the same reason — this is the
-// riskiest code in the rebuild (DELIVERY_ROADMAP §3, W03) and it has to be
-// provable in CI rather than argued about on a device.
+// No UIKit, no SwiftUI, no wall-clock: touches arrive as (point, timestamp)
+// and every decision leaves as an `InputOutcome`. Same discipline as
+// GameSimulation, for the same reason — this is the riskiest code in the
+// rebuild (DELIVERY_ROADMAP §3, W03) and it has to be provable in CI rather
+// than argued about on a device.
 //
 // The rules encoded here are the Director of Engineering's binding rulings
-// (DELIVERY_ROADMAP §6) and the gesture map in 04_NAVIGATION_UX §4–5. Each
-// one is commented with the failure it prevents, because every one of them
-// looks like an over-complication until the bug it prevents shows up as
+// (DELIVERY_ROADMAP §6) as amended by the R-SPIKE gate log (§7, items 1–6).
+// Each one is commented with the failure it prevents, because every one of
+// them looks like an over-complication until the bug it prevents shows up as
 // "sometimes the swipe just doesn't work".
 //
 // SIGN CONVENTION (read this before touching anything below): all y values
@@ -19,6 +19,14 @@ import Foundation
 // screen produces a *negative* translation and a *negative* velocity, and
 // commits `.up` (toward the sky). Getting this backwards is the single most
 // likely mistake in this file, so the sign is asserted in the tests.
+//
+// WHAT THIS LAYER DELIBERATELY DOES NOT KNOW (R-SPIKE §7.1):
+//   * what an orb is — `GameSimulation.tap` is the single authority, and it
+//     already returns no events on a miss, so an empty-space touch costs
+//     nothing. A second copy of the hit test can only ever subtract pops.
+//   * where the camera is — the arbiter emits a DIRECTION, never a
+//     destination. Mapping direction (and `.settleToNearest`) onto a Place
+//     lives in exactly one place: WorldCamera.
 
 // MARK: - Outcomes
 
@@ -28,19 +36,48 @@ enum WorldDirection: Equatable {
     case down   // toward the journal (finger moved down the screen)
 }
 
-// Everything the arbiter can decide. There is deliberately no
-// `.retractPop` / `.cancelPop` case: ruling 4 says a pop emitted at
-// touch-down is never taken back, and the cheapest way to guarantee that is
-// to make it unrepresentable.
+// Everything the arbiter can decide — the shared outcome contract fixed by
+// the Director at R-SPIKE (§7) so W01 (camera) and W03′ (input) cannot drift.
+// There is deliberately no `.retractPop` / `.cancelPop` case: ruling 4 says a
+// pop emitted at touch-down is never taken back, and the cheapest way to
+// guarantee that is to make it unrepresentable.
 enum InputOutcome: Equatable {
     case pop(CGPoint)
     case panBegan
     case panChanged(translation: CGFloat)
     // Velocity travels with the commit so the camera can seed its 300–650 ms
     // settle easing (04 §5) without re-deriving velocity from a second,
-    // slightly different sample history.
+    // slightly different sample history. Always clamped to
+    // `Config.maxCommitVelocity`.
     case commit(WorldDirection, velocity: CGFloat)
+    // A transit grab released without a decisive gesture: the camera settles
+    // to whichever place is nearer *by its own offset*. The arbiter cannot
+    // decide that — it does not know the offset — so it says only "you
+    // decide" (§7.3).
+    case settleToNearest
     case cancelToRest
+}
+
+// MARK: - Batching
+
+extension Array where Element == InputOutcome {
+    // Appends a batch while collapsing consecutive `.panChanged` down to the
+    // most recent value (§7.6). Every coalesced sample still reaches the
+    // arbiter — velocity fidelity depends on it — but the camera offset is
+    // written at most once per event, because writing it five times inside
+    // one frame just costs four discarded writes.
+    //
+    // Only *consecutive* runs collapse: an interposed `.panBegan` or `.pop`
+    // is a real boundary and the order it establishes is preserved.
+    mutating func appendCollapsingPanChanges(_ outcomes: [InputOutcome]) {
+        for outcome in outcomes {
+            if case .panChanged = outcome, let previous = last, case .panChanged = previous {
+                self[count - 1] = outcome
+            } else {
+                append(outcome)
+            }
+        }
+    }
 }
 
 // MARK: - Arbiter
@@ -65,6 +102,20 @@ struct InputArbiter {
         // what happens when she is resting her hand while reading a fortune.
         var commitVelocity: CGFloat = 300
 
+        // Ceiling on the velocity handed to the camera, in points/second
+        // (§7.5, and Amara's condition 10: a hard peak optical-flow ceiling).
+        //
+        // WHY 2400. Inter-place travel is on the order of one screen height,
+        // and 04 §5 fixes the settle band at 300–650 ms. On the 844 pt
+        // reference screen, 2400 pt/s carries a full screen height in ~352 ms
+        // — the fast end of the band, not below it. So the arbiter physically
+        // cannot hand the camera a seed that would require a sub-300 ms
+        // whip-pan, which is both outside the committed band and the kind of
+        // large-field flow event Amara's review is about. It is 8× the commit
+        // gate, so every ordinary swipe (a brisk 200 pt in 150 ms is
+        // ~1300 pt/s) passes through untouched; only genuine flicks clamp.
+        var maxCommitVelocity: CGFloat = 2400
+
         // Movement before a pan is considered started, in points. Below this
         // the touch is just a touch — without it, the ~1 pt of jitter in a
         // real thumb press turns every pop into a 1 pt camera nudge.
@@ -75,6 +126,8 @@ struct InputArbiter {
         // instantly; we buy that by giving up the edges, NOT by calling
         // preferredScreenEdgesDeferringSystemGestures, which makes her phone
         // sticky in her own home. "Her evening, respected."
+        //
+        // The zones scope COMMITS, not catches (§7.4) — see `began`.
         var edgeDeadZoneFraction: CGFloat = 0.10
 
         // Window over which release velocity is measured, in seconds.
@@ -82,9 +135,14 @@ struct InputArbiter {
         // finger which stopped moving reads as stopped.
         var velocityWindow: TimeInterval = 0.08
 
-        // How many recent samples to retain. 12 covers ~100 ms at 120 Hz,
-        // i.e. always more than `velocityWindow` worth.
-        var velocitySampleCount: Int = 12
+        // Samples are retained by TIME, not by count (§7.6): anything older
+        // than `velocityWindow * velocityRetentionMultiple` relative to the
+        // newest sample is dropped. A count-based cap is a different amount
+        // of history at 60 Hz than at 120 Hz than under coalesced delivery,
+        // where one event can carry a dozen samples; a time-based one is the
+        // same gesture history on every device. 2× keeps a full window plus
+        // one window of slack for jitter in sample spacing.
+        var velocityRetentionMultiple: Double = 2
 
         static let `default` = Config()
     }
@@ -103,7 +161,14 @@ struct InputArbiter {
     // grabs the camera instead of playing. This is not an exception to ruling
     // 4 — ruling 4 governs the field at rest, where pop and pan both resolve.
     // Off-rest there is no field under her finger to pop.
-    var fieldAtRest: Bool = true
+    //
+    // A CLOSURE, NOT A STORED Bool (§7.2). SwiftUI's update pass is not
+    // ordered against UIKit touch delivery, so a copy pushed down through
+    // `updateUIView` is wrong for about a frame at each end of every settle —
+    // and being wrong there costs a pop. This is queried live, exactly once,
+    // inside `began` (i.e. inside `touchesBegan`). Whatever supplies it must
+    // read the camera's live state, never capture a Bool.
+    var isFieldAtRest: () -> Bool = { true }
 
     private var tracking: Touch?
 
@@ -115,6 +180,10 @@ struct InputArbiter {
         var anchor: CGPoint
         var panArmed: Bool
         var deadZoned: Bool
+        // True when this touch began while the camera was moving. It is what
+        // makes `.settleToNearest` distinguishable from `.cancelToRest` at
+        // release: a grab has no "rest" to go back to.
+        var isTransitGrab: Bool
         var samples: [Sample]
     }
 
@@ -123,9 +192,12 @@ struct InputArbiter {
         var t: TimeInterval
     }
 
-    init(bounds: CGSize = .zero, config: Config = .default) {
+    init(bounds: CGSize = .zero,
+         config: Config = .default,
+         isFieldAtRest: @escaping () -> Bool = { true }) {
         self.bounds = bounds
         self.config = config
+        self.isFieldAtRest = isFieldAtRest
     }
 
     // The host uses this to learn whether the arbiter adopted a touch as the
@@ -141,13 +213,25 @@ struct InputArbiter {
     // fail depending on where the orbs happened to drift — intermittent,
     // unreproducible, and indistinguishable from a bug.
     //
+    // R-SPIKE §7.1. There is no hit test here any more. Every touch-down on a
+    // resting field reports `.pop(p)`; `GameSimulation.tap` decides whether
+    // anything was there, and returns no events if not. A miss therefore
+    // costs one function call and nothing else, while a duplicated hit test
+    // could only ever subtract pops — and would drift against a field that
+    // keeps moving between the copy and the sim.
+    //
     // RULING 3. This is touch-DOWN. v1.2 popped on touch-up via
     // UITapGestureRecognizer; that is a deliberate, measurable change, not a
     // wash.
-    mutating func began(at p: CGPoint, timestamp: TimeInterval, onOrb: Bool) -> [InputOutcome] {
+    mutating func began(at p: CGPoint, timestamp: TimeInterval) -> [InputOutcome] {
         var out: [InputOutcome] = []
 
-        if onOrb && fieldAtRest { out.append(.pop(p)) }
+        // Queried live, once per touch-down, and reused for the whole of this
+        // decision so a settle finishing mid-call cannot make the branch
+        // disagree with itself.
+        let atRest = isFieldAtRest()
+
+        if atRest { out.append(.pop(p)) }
 
         // Extra fingers still pop (above) but never steer: the second thumb
         // must not yank the camera away from the first, and must not reset
@@ -158,12 +242,21 @@ struct InputArbiter {
                           anchor: p,
                           panArmed: false,
                           deadZoned: isInEdgeDeadZone(p),
+                          isTransitGrab: !atRest,
                           samples: [Sample(y: p.y, t: timestamp)])
 
         // Transit grab (04 §5): every move is interruptible, and a touch
         // during a settle catches the camera where it is — with no slop,
         // because she is already holding something that is moving.
-        if !fieldAtRest && !touch.deadZoned {
+        //
+        // §7.4: the dead zone does NOT apply here. A catch is not a commit.
+        // An edge touch during a settle used to produce total silence — the
+        // camera kept flying while her finger sat still on it — which breaks
+        // "every move is interruptible" (04 §5) in the one place she is most
+        // likely to reach: low, one-handed, thumb near the bottom of the
+        // screen. The zone still suppresses the *commit* at release, so the
+        // OS edge gestures keep everything they were given.
+        if !atRest {
             touch.panArmed = true
             out.append(.panBegan)
         }
@@ -173,34 +266,40 @@ struct InputArbiter {
     }
 
     mutating func moved(to p: CGPoint, timestamp: TimeInterval) -> [InputOutcome] {
-        guard var touch = tracking else { return [] }
-        append(Sample(y: p.y, t: timestamp), to: &touch)
-
-        // The dead zone is decided once, from where the touch BEGAN, and is
-        // never re-evaluated. A swipe that starts mid-screen and travels up
-        // through the top 10% must still commit — killing it on the way past
-        // the edge would make long swipes fail and short ones succeed.
-        guard !touch.deadZoned else {
-            tracking = touch
-            return []
-        }
+        guard tracking != nil else { return [] }
+        // Mutated in place through the optional, never via a local copy:
+        // `var touch = tracking` would leave two references to the sample
+        // array and pay a full copy-on-write for every coalesced sample of
+        // every swipe (§7.6).
+        record(Sample(y: p.y, t: timestamp))
 
         var out: [InputOutcome] = []
 
-        if !touch.panArmed {
-            let dy = p.y - touch.origin.y
-            let dx = p.x - touch.origin.x
+        if !tracking!.panArmed {
+            // A pan can only ARM from a resting field outside the dead zone.
+            // The zone is decided once, from where the touch BEGAN, and is
+            // never re-evaluated: a swipe that starts mid-screen and travels
+            // up through the top 10% must still commit — killing it on the
+            // way past the edge would make long swipes fail and short ones
+            // succeed.
+            guard !tracking!.deadZoned else { return [] }
+
+            let dy = p.y - tracking!.origin.y
+            let dx = p.x - tracking!.origin.x
             // One axis, one meaning (04 §4): vertical is movement through the
             // world, horizontal belongs to whatever the current place does
             // with it. Arming only on vertical-dominant motion keeps a
             // horizontal page turn from dragging the camera sideways-then-up.
-            guard abs(dy) > config.panSlop, abs(dy) > abs(dx) else {
-                tracking = touch
-                return out
-            }
-            touch.panArmed = true
-            touch.anchor = CGPoint(x: touch.origin.x,
-                                   y: touch.origin.y + (dy > 0 ? config.panSlop : -config.panSlop))
+            guard abs(dy) > config.panSlop, abs(dy) > abs(dx) else { return out }
+
+            // Read the origin out before writing the anchor: `tracking!.anchor
+            // = f(tracking!.origin)` would be a read of `self.tracking` inside
+            // a write to it, which is exactly the overlapping-access shape
+            // Swift's exclusivity checking exists to reject.
+            let origin = tracking!.origin
+            tracking!.panArmed = true
+            tracking!.anchor = CGPoint(x: origin.x,
+                                       y: origin.y + (dy > 0 ? config.panSlop : -config.panSlop))
             out.append(.panBegan)
         }
 
@@ -208,30 +307,33 @@ struct InputArbiter {
         // Cumulative is idempotent: a dropped or duplicated event costs one
         // frame of smoothness instead of permanently offsetting the camera
         // from her finger, which is what breaks 1:1 finger tracking (04 §5).
-        out.append(.panChanged(translation: p.y - touch.anchor.y))
-        tracking = touch
+        out.append(.panChanged(translation: p.y - tracking!.anchor.y))
         return out
     }
 
     mutating func ended(at p: CGPoint, timestamp: TimeInterval) -> [InputOutcome] {
-        guard var touch = tracking else { return [] }
-        append(Sample(y: p.y, t: timestamp), to: &touch)
+        guard tracking != nil else { return [] }
+        record(Sample(y: p.y, t: timestamp))
+
+        // One copy, once, at the end of the gesture — not per sample.
+        let touch = tracking!
         tracking = nil
 
         // A touch that never became a pan simply ends. Nothing to spring
         // home, nothing to report — and critically, nothing that could
         // retract the pop already delivered at touch-down.
-        guard touch.panArmed, !touch.deadZoned else { return [] }
+        guard touch.panArmed else { return [] }
 
         let translation = p.y - touch.anchor.y
         let velocity = releaseVelocity(of: touch)
 
-        guard let direction = commitDirection(translation: translation, velocity: velocity) else {
-            // 04 §4: below threshold the camera springs home and nothing
-            // happens — a hesitant half-swipe is free.
-            return [.cancelToRest]
+        // §7.4: the dead zone suppresses the commit and nothing else.
+        if !touch.deadZoned,
+           let direction = commitDirection(translation: translation, velocity: velocity) {
+            return [.commit(direction, velocity: clampedCommitVelocity(velocity))]
         }
-        return [.commit(direction, velocity: velocity)]
+
+        return [undecidedRelease(of: touch)]
     }
 
     // The system took the touch away (a call arrived, a system gesture won).
@@ -240,7 +342,8 @@ struct InputArbiter {
     mutating func cancelled() -> [InputOutcome] {
         guard let touch = tracking else { return [] }
         tracking = nil
-        return touch.panArmed ? [.cancelToRest] : []
+        guard touch.panArmed else { return [] }
+        return [undecidedRelease(of: touch)]
     }
 
     // Lifecycle escape hatch for the host (view disappearing, place changing).
@@ -250,6 +353,23 @@ struct InputArbiter {
     }
 
     // MARK: - Gates
+
+    // What an armed pan that did not commit resolves to.
+    //
+    // From rest: `.cancelToRest`. 04 §4 — below threshold the camera springs
+    // home and nothing happens; a hesitant half-swipe is free.
+    //
+    // From a transit grab: `.settleToNearest` (§7.3). She caught a camera
+    // that was already moving, so there is no "rest" to return to: springing
+    // back to the origin place would throw away a move that may be 90%
+    // complete, and would do it precisely when she reached out to steady it.
+    // The camera settles to whichever place is nearer by its own offset — a
+    // near-complete move completes, an early catch springs home. The arbiter
+    // does not know the offset and must not guess at it.
+    private func undecidedRelease(of touch: Touch) -> InputOutcome {
+        if touch.isTransitGrab { return .settleToNearest }
+        return .cancelToRest
+    }
 
     private func commitDirection(translation: CGFloat, velocity: CGFloat) -> WorldDirection? {
         guard bounds.height > 0 else { return nil }
@@ -267,6 +387,14 @@ struct InputArbiter {
         return translation < 0 ? .up : .down
     }
 
+    // §7.5. The arbiter must not be able to hand the camera a number the
+    // camera is not allowed to honour. Magnitude only — the sign is the
+    // direction of travel and is never altered.
+    private func clampedCommitVelocity(_ velocity: CGFloat) -> CGFloat {
+        let ceiling = abs(config.maxCommitVelocity)
+        return min(max(velocity, -ceiling), ceiling)
+    }
+
     private func isInEdgeDeadZone(_ p: CGPoint) -> Bool {
         // Unknown bounds means every touch is treated as dead: better to lose
         // a swipe on the first frame after layout than to move the camera
@@ -281,9 +409,10 @@ struct InputArbiter {
         guard samples.count >= 2, let last = samples.last else { return 0 }
 
         // Oldest sample still inside the window. If the window contains only
-        // the final sample — a stalled frame, or a very slow drag sampled
-        // sparsely — fall back to the previous sample so a stall reads as
-        // "slow" rather than as a divide-by-zero-shaped zero.
+        // the final sample — a stalled frame, or a thumb that stopped moving
+        // and rested before lifting — fall back to the previous sample, which
+        // spans the stall and therefore reads as ~0 rather than as the flick
+        // that happened before it.
         var first = samples[samples.count - 2]
         for s in samples.dropLast() where last.t - s.t <= config.velocityWindow {
             first = s
@@ -295,10 +424,18 @@ struct InputArbiter {
         return (last.y - first.y) / CGFloat(dt)
     }
 
-    private func append(_ sample: Sample, to touch: inout Touch) {
-        touch.samples.append(sample)
-        if touch.samples.count > config.velocitySampleCount {
-            touch.samples.removeFirst(touch.samples.count - config.velocitySampleCount)
+    // Appends to the tracked touch's sample buffer in place and drops
+    // anything older than the retention window (§7.6). At least two samples
+    // always survive, because `releaseVelocity` needs a pair to divide.
+    private mutating func record(_ sample: Sample) {
+        guard tracking != nil else { return }
+        tracking!.samples.append(sample)
+
+        let cutoff = sample.t - config.velocityWindow * config.velocityRetentionMultiple
+        var stale = 0
+        while stale < tracking!.samples.count - 2, tracking!.samples[stale].t < cutoff {
+            stale += 1
         }
+        if stale > 0 { tracking!.samples.removeFirst(stale) }
     }
 }

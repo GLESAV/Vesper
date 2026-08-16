@@ -38,18 +38,28 @@ final class WorldInputView: UIView {
 
     // MARK: Wiring
 
-    // Asked at touch-down only: does this point land on a live orb?
-    // Mirrors GameSimulation.tap's hit test (radius + GameConfig.tapTolerance)
-    // so the arbiter and the sim can never disagree about what an orb is.
-    var isOrb: (CGPoint) -> Bool = { _ in false }
-
-    // Outcomes are delivered synchronously on the main thread, in order.
-    var onOutcome: ([InputOutcome]) -> Void = { _ in }
-
-    var fieldAtRest: Bool {
-        get { arbiter.fieldAtRest }
-        set { arbiter.fieldAtRest = newValue }
+    // Is the camera at rest right now? (R-SPIKE §7.2.)
+    //
+    // A CLOSURE, AND IT IS CALLED DURING touchesBegan — never a Bool pushed
+    // down through updateUIView. SwiftUI's update pass is not ordered against
+    // UIKit touch delivery: a pushed copy is stale for about a frame at each
+    // end of every settle, and a stale `false` in that window silently eats a
+    // pop. Whatever supplies this must read live camera state.
+    //
+    // There is deliberately NO `isOrb` closure (§7.1): this layer does not
+    // know what an orb is, and `GameSimulation.tap` remains the single
+    // authority. When W12 adds the long-press "begin again" — which does need
+    // the orb/empty distinction, since a press on an orb must always pop —
+    // it gets its own live closure queried at touch-down, in that branch
+    // only. It must never become a gate on `.pop`.
+    var isFieldAtRest: () -> Bool {
+        get { arbiter.isFieldAtRest }
+        set { arbiter.isFieldAtRest = newValue }
     }
+
+    // Outcomes are delivered synchronously on the main thread, in order,
+    // once per UIEvent (see `flush`).
+    var onOutcome: ([InputOutcome]) -> Void = { _ in }
 
     private var arbiter = InputArbiter()
 
@@ -110,32 +120,45 @@ final class WorldInputView: UIView {
         // for a layer whose whole job is to never lose a touch.
         if arbiter.isTracking && steeringTouch == nil { arbiter.reset() }
 
-        for touch in touches {
+        var batch: [InputOutcome] = []
+        // `touches` is a Set, so its iteration order is a hash order that can
+        // differ between runs and between OS versions. Two fingers landing in
+        // one event would then pop in an arbitrary order, and an arbitrary
+        // one of them would become the steering touch. Timestamp order is the
+        // order they physically happened (§7.6).
+        for touch in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
             let p = touch.location(in: self)
             let hadSteering = arbiter.isTracking
-            let outcomes = arbiter.began(at: p, timestamp: touch.timestamp, onOrb: isOrb(p))
+            batch.appendCollapsingPanChanges(arbiter.began(at: p, timestamp: touch.timestamp))
             // Whichever touch the arbiter adopted is the one we follow.
             if !hadSteering && arbiter.isTracking { steeringTouch = touch }
-            emit(outcomes)
         }
+        flush(batch)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = steeringTouch, touches.contains(touch) else { return }
         // Coalesced touches carry the intermediate samples a 120 Hz digitizer
-        // captured between display frames. Feeding all of them keeps the
-        // camera genuinely 1:1 with her finger and gives the velocity gate a
-        // history that reflects the flick rather than the frame rate.
+        // captured between display frames. EVERY one of them is fed to the
+        // arbiter — that is what keeps the release-velocity history a record
+        // of the flick rather than of the frame rate — but the outcomes are
+        // batched, and consecutive `.panChanged` values collapse to the last
+        // (§7.6). The camera is written once per event: the intermediate
+        // offsets would be overwritten before a single frame was drawn.
         let moves = event?.coalescedTouches(for: touch) ?? [touch]
+        var batch: [InputOutcome] = []
         for move in moves {
-            emit(arbiter.moved(to: move.location(in: self), timestamp: move.timestamp))
+            batch.appendCollapsingPanChanges(
+                arbiter.moved(to: move.location(in: self), timestamp: move.timestamp)
+            )
         }
+        flush(batch)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = steeringTouch, touches.contains(touch) else { return }
         steeringTouch = nil
-        emit(arbiter.ended(at: touch.location(in: self), timestamp: touch.timestamp))
+        flush(arbiter.ended(at: touch.location(in: self), timestamp: touch.timestamp))
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -143,10 +166,10 @@ final class WorldInputView: UIView {
         steeringTouch = nil
         // Whatever was popped stays popped — there is no outcome that can
         // undo it (ruling 4).
-        emit(arbiter.cancelled())
+        flush(arbiter.cancelled())
     }
 
-    private func emit(_ outcomes: [InputOutcome]) {
+    private func flush(_ outcomes: [InputOutcome]) {
         guard !outcomes.isEmpty else { return }
         onOutcome(outcomes)
     }
@@ -157,22 +180,24 @@ final class WorldInputView: UIView {
 // Same shape as TapCatcherView: makeUIView builds once, updateUIView only
 // refreshes the closures, so SwiftUI re-renders never change the UIView's
 // identity or cancel an in-flight touch.
+//
+// `isFieldAtRest` is a closure and not a Bool on purpose (§7.2). Give it a
+// live read — `{ camera.isAtRest }` — never a captured value; a Bool computed
+// in the view body is a snapshot of whenever SwiftUI last chose to run that
+// body, which is not ordered against the touch that is about to arrive.
 struct WorldInputLayer: UIViewRepresentable {
-    var isOrb: (CGPoint) -> Bool
-    var fieldAtRest: Bool
+    var isFieldAtRest: () -> Bool
     var onOutcome: ([InputOutcome]) -> Void
 
     func makeUIView(context: Context) -> WorldInputView {
         let view = WorldInputView(frame: .zero)
-        view.isOrb = isOrb
-        view.fieldAtRest = fieldAtRest
+        view.isFieldAtRest = isFieldAtRest
         view.onOutcome = onOutcome
         return view
     }
 
     func updateUIView(_ uiView: WorldInputView, context: Context) {
-        uiView.isOrb = isOrb
-        uiView.fieldAtRest = fieldAtRest
+        uiView.isFieldAtRest = isFieldAtRest
         uiView.onOutcome = onOutcome
     }
 }
