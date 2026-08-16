@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-// The whole of gesture arbitration for One World, as a pure value type.
+// The whole of gesture arbitration for One World, as a value type.
 // No UIKit, no SwiftUI, no wall-clock: touches arrive as (point, timestamp)
 // and every decision leaves as an `InputOutcome`. Same discipline as
 // GameSimulation, for the same reason — this is the riskiest code in the
@@ -27,6 +27,17 @@ import Foundation
 //   * where the camera is — the arbiter emits a DIRECTION, never a
 //     destination. Mapping direction (and `.settleToNearest`) onto a Place
 //     lives in exactly one place: WorldCamera.
+//
+// ISOLATION. `InputArbiter` is `@MainActor`, matching WorldCamera. It is a
+// value type and its decisions are pure, but it is not isolation-free: it
+// stores `isFieldAtRest`, a non-Sendable closure that reads live camera state
+// and is called from UIKit touch callbacks. Those callbacks are main-thread by
+// definition and the only owner of an arbiter is a UIView (itself
+// `@MainActor`), so the annotation states what is already true and lets Swift
+// 6's strict concurrency checking confirm it across the camera/arbiter
+// boundary rather than leaving the closure as an unchecked crossing. The
+// outcome types (`InputOutcome`, `WorldDirection`) stay non-isolated — they
+// are plain data and travel freely.
 
 // MARK: - Outcomes
 
@@ -82,6 +93,7 @@ extension Array where Element == InputOutcome {
 
 // MARK: - Arbiter
 
+@MainActor
 struct InputArbiter {
 
     // MARK: Config
@@ -233,9 +245,22 @@ struct InputArbiter {
 
         if atRest { out.append(.pop(p)) }
 
-        // Extra fingers still pop (above) but never steer: the second thumb
-        // must not yank the camera away from the first, and must not reset
-        // the first touch's velocity history.
+        // Extra fingers never steer: the second thumb must not yank the
+        // camera away from the first, and must not reset the first touch's
+        // velocity history.
+        //
+        // Whether an extra finger POPS is decided above, by `atRest`, and
+        // nothing here changes that — so the honest statement of the policy
+        // is: extra fingers pop only while the field is at rest, exactly like
+        // first fingers. In the real composition `isFieldAtRest` reads the
+        // camera, and the camera is not at rest once a pan is armed, so a
+        // second thumb landing mid-drag emits nothing at all. That is
+        // deliberate and it is the same rule as everywhere else in this file
+        // (04 §5): off-rest there is no field under her finger to pop. It is
+        // not an exception to ruling 4 — ruling 4 governs the field at rest,
+        // where a first or second finger both pop and neither cancels a pan.
+        // Only a fixture whose `isFieldAtRest` is a constant `true` makes it
+        // look like extra fingers pop unconditionally.
         guard tracking == nil else { return out }
 
         var touch = Touch(origin: p,

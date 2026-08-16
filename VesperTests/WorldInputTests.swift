@@ -10,6 +10,11 @@ import CoreGraphics
 //
 // No timing, no rendering, no randomness: timestamps are synthetic and
 // monotonic, exactly like GameSimulationTests drives `step(dt:)`.
+//
+// `@MainActor` mirrors the arbiter's own isolation (it stores a live
+// `isFieldAtRest` closure and is only ever driven from UIKit touch callbacks),
+// exactly as WorldCameraTests mirrors the camera's.
+@MainActor
 final class WorldInputTests: XCTestCase {
 
     private let screen = CGSize(width: 390, height: 844)
@@ -20,6 +25,35 @@ final class WorldInputTests: XCTestCase {
     // The camera is mid-settle: touch-down grabs it instead of playing.
     private func makeTransitArbiter() -> InputArbiter {
         InputArbiter(bounds: screen, isFieldAtRest: { false })
+    }
+
+    // A stand-in for the live camera, for the tests where a CONSTANT
+    // `isFieldAtRest` would let an assertion pass for a reason the shipped
+    // composition does not supply. The real closure reads WorldCamera, and the
+    // camera is not at rest from `.panBegan` until its settle finishes — so a
+    // fixture that answers `true` forever exercises a world in which the
+    // camera never moves, which is the one world this layer does not live in.
+    //
+    // Fed from the arbiter's own outcomes, so it reflects the arbiter's armed
+    // state rather than a script the test wrote in advance.
+    private final class FieldRestModel {
+        private(set) var isAtRest = true
+
+        // `.panBegan` — her finger has the camera. Every terminating outcome
+        // hands it to a settle or a spring home, and both are motion, so the
+        // field stays off-rest afterwards: these tests never need it to come
+        // back, and a model that could would be inventing a settle duration
+        // this layer has no business knowing.
+        func observe(_ outcomes: [InputOutcome]) {
+            for outcome in outcomes {
+                switch outcome {
+                case .panBegan, .commit, .settleToNearest, .cancelToRest:
+                    isAtRest = false
+                case .pop, .panChanged:
+                    break
+                }
+            }
+        }
     }
 
     // MARK: - Gesture helpers
@@ -407,15 +441,50 @@ final class WorldInputTests: XCTestCase {
 
     // MARK: - Extra fingers
 
-    // A second thumb still pops (ruling 4) but must not take the camera away
-    // from the finger already steering it.
-    func testSecondTouchPopsButDoesNotStealTheCamera() {
-        var arbiter = makeArbiter()
-        _ = arbiter.began(at: CGPoint(x: 100, y: 500), timestamp: 0)
-        _ = arbiter.moved(to: CGPoint(x: 100, y: 440), timestamp: 0.02)
+    // While the field is at rest, a second thumb pops (ruling 4) and must not
+    // take the camera away from the finger already down. Driven through the
+    // live model rather than a constant, so "at rest" here is the arbiter's
+    // own state: the first finger is still under the slop, nothing is armed,
+    // and the camera has not moved.
+    func testSecondTouchAtRestPopsAndDoesNotStealTheCamera() {
+        let field = FieldRestModel()
+        var arbiter = InputArbiter(bounds: screen, isFieldAtRest: { field.isAtRest })
+
+        field.observe(arbiter.began(at: CGPoint(x: 100, y: 500), timestamp: 0))
+        XCTAssertTrue(field.isAtRest, "a bare touch-down moves nothing")
 
         let second = CGPoint(x: 300, y: 500)
-        XCTAssertEqual(arbiter.began(at: second, timestamp: 0.03), [.pop(second)])
+        let secondOutcomes = arbiter.began(at: second, timestamp: 0.01)
+        field.observe(secondOutcomes)
+        XCTAssertEqual(secondOutcomes, [.pop(second)],
+                       "the second thumb pops and asks for nothing else")
+
+        // The first finger, not the second, is the one that arms and steers —
+        // and it measures from its OWN origin (500), not from the second
+        // touch's. 60 pt travelled, 10 pt spent on slop.
+        XCTAssertEqual(arbiter.moved(to: CGPoint(x: 100, y: 440), timestamp: 0.02),
+                       [.panBegan, .panChanged(translation: -50)])
+    }
+
+    // ...and once the drag is armed, the camera is moving, so the field is no
+    // longer at rest and a second thumb is silent: it does not pop (there is
+    // no resting field under it — 04 §5, the same rule as every other
+    // off-rest touch) and it still does not steer. The steering finger keeps
+    // its own anchor and its own velocity history either way.
+    //
+    // This is the composition the app ships. A fixture that answered `true`
+    // forever would assert a pop here that the real camera never produces.
+    func testSecondTouchDuringAnArmedDragNeitherPopsNorSteals() {
+        let field = FieldRestModel()
+        var arbiter = InputArbiter(bounds: screen, isFieldAtRest: { field.isAtRest })
+
+        field.observe(arbiter.began(at: CGPoint(x: 100, y: 500), timestamp: 0))
+        field.observe(arbiter.moved(to: CGPoint(x: 100, y: 440), timestamp: 0.02))
+        XCTAssertFalse(field.isAtRest, "the pan armed, so the camera is moving")
+
+        let second = CGPoint(x: 300, y: 500)
+        XCTAssertEqual(arbiter.began(at: second, timestamp: 0.03), [],
+                       "off-rest there is no field under the second thumb to pop")
 
         // The original finger keeps steering, measured from its own anchor.
         XCTAssertEqual(arbiter.moved(to: CGPoint(x: 100, y: 420), timestamp: 0.04),

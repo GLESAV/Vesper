@@ -64,7 +64,8 @@ final class WorldInputView: UIView {
     private var arbiter = InputArbiter()
 
     // The one touch that steers the camera. Extra fingers still reach the
-    // arbiter (and still pop) but are not tracked for panning.
+    // arbiter — and pop while the field is at rest — but are never tracked
+    // for panning.
     private weak var steeringTouch: UITouch?
 
     // MARK: Init
@@ -83,7 +84,9 @@ final class WorldInputView: UIView {
         backgroundColor = .clear
         isUserInteractionEnabled = true
         // Extra fingers must be delivered, not coalesced away, or a second
-        // thumb landing on an orb pops nothing (ruling 4: the pop always wins).
+        // thumb landing on an orb while the field is at rest pops nothing
+        // (ruling 4: at rest, the pop always wins). Off-rest they are silent
+        // by policy, not by coalescing — see `InputArbiter.began`.
         isMultipleTouchEnabled = true
         // Never claim exclusivity — the buttons and whispers that live in
         // sibling layers must stay reachable.

@@ -7,17 +7,25 @@ import CoreGraphics
 // named pass condition at R-ARCH, so every one of them is pinned here as a
 // deterministic test rather than as a claim in a comment:
 //
-//   10  travel constant, peak optical-flow ceiling, one place per commit
+//   10  travel constant, peak optical-flow ceiling, a bounded commit
 //       → testSettlePeakOpticalFlowNeverExceedsTheCeiling
-//       → testNoSingleCommitTravelsMoreThanOnePlace
+//       → testNoSingleCommitTravelsMoreThanTheStatedBound
+//       → testGatedCommitTravelIsContinuousAcrossAPlaceCentre
 //   11  Reduce Motion = zero translation, drag still gives feedback
 //       → testReduceMotionProducesZeroTranslation*
 //   12  monotone, non-overshooting settle at EVERY seeded velocity
 //       → testSettleNeverOvershootsAcrossTheVelocitySweep
-//   13  repeated spring-backs damp, and keep damping
+//   13  repeated spring-backs damp, keep damping, and a commit ends the
+//       sequence
 //       → testRepeatedSpringBacksDampAndDoNotReset
-//   14  a named speed threshold the light can take turns with
+//       → testReturnThenCommitThenADragIsOneToOneWithHerFinger
+//       → testDampingDoesNotCompoundAcrossAnInterveningCommit
+//       → testLateTransitGrabReleasedUndecidedIsNotASpringBack
+//       → testACommitCaughtAtOnceAndReleasedUndecidedIsASpringBack
+//   14  a named speed threshold the light can take turns with, in BOTH
+//       motion modes
 //       → testFlowMatchesTheAuditedPerFrameDelta, testExceedsTransitFlow*
+//       → testIsTransitioningAnswersInBothMotionModes
 //
 // And the invariants the architecture rests on:
 //
@@ -285,11 +293,13 @@ final class WorldCameraTests: XCTestCase {
         XCTAssertEqual(camera.offset, camera.config.travelPerPlace, accuracy: 1e-12)
     }
 
-    // BARRIER CONDITION 10, the per-commit travel cap. Because destinations
-    // resolve from position, the naive distance to a neighbouring place can
-    // reach 1.5 places — more than one screen height of world on one flick.
-    // The cap stops the commit at the place she is nearest instead.
-    func testNoSingleCommitTravelsMoreThanOnePlace() {
+    // BARRIER CONDITION 10, the per-commit travel BOUND. Because destinations
+    // resolve from position, one commit can put up to 1.5 places of world on
+    // screen: half a place of transit grab, plus the place she asked for. That
+    // is the stated bound (`Config.maxTransitPerCommit`), and what makes it
+    // safe is the ceiling on the RATE — the long transit takes longer, it does
+    // not go faster.
+    func testNoSingleCommitTravelsMoreThanTheStatedBound() {
         let camera = makeCamera()
         drag(camera, by: -200)
         camera.consume(.commit(.up, velocity: -1688))
@@ -300,16 +310,58 @@ final class WorldCameraTests: XCTestCase {
         camera.consume(.panChanged(translation: 120))
         let released = camera.offset
         XCTAssertEqual(camera.nearestPlace, .field)
-        let uncapped = abs(camera.restOffset(of: .journal) - released)
-        XCTAssertGreaterThan(uncapped, camera.config.travelPerPlace,
-                             "the uncapped answer really would have been over-long")
+        XCTAssertGreaterThan(abs(camera.restOffset(of: .journal) - released),
+                             camera.config.travelPerPlace,
+                             "this really is a longer-than-one-place transit")
 
         camera.consume(.commit(.down, velocity: 1400))
-        XCTAssertEqual(camera.place, .field, "one place per commit; the next flick continues")
+        XCTAssertEqual(camera.place, .journal,
+                       "she asked to go down from the field she is nearest, and she goes")
         let audit = runSettle(camera)
         XCTAssertLessThanOrEqual(audit.distance,
                                  camera.config.maxTransitPerCommit * camera.config.travelPerPlace + 1e-9)
-        XCTAssertEqual(camera.offset, 0, accuracy: 1e-12)
+        XCTAssertLessThanOrEqual(audit.peakFlow, camera.config.maxOpticalFlow + 1e-9,
+                                 "the bound on distance is only safe because the rate is bounded")
+        XCTAssertEqual(camera.offset, camera.config.travelPerPlace, accuracy: 1e-12)
+    }
+
+    // R-ARCH#2 blocker 2. The bound used to be a GATE measured from the live
+    // axis position, so it flipped as the camera crossed a place centre: one
+    // pixel above the field an upward flick travelled a whole place, one pixel
+    // below it the same flick measured over the cap, fell back to the place she
+    // was already standing on, and travelled almost nothing. A commit that has
+    // passed every gate the arbiter has must always visibly move the world, and
+    // which side of a centre the camera happened to stop on must not decide
+    // anything.
+    func testGatedCommitTravelIsContinuousAcrossAPlaceCentre() {
+        let reference = makeCamera()
+        let travel = reference.config.travelPerPlace
+        let bound = reference.config.maxTransitPerCommit * travel
+        var smallest = CGFloat.greatestFiniteMagnitude
+
+        for tick in -30...30 {
+            let start = CGFloat(tick) * 0.005          // ±0.15 either side of the field
+            for direction in [WorldDirection.up, .down] {
+                let camera = makeCamera()
+                drag(camera, by: start * screenHeight)
+                XCTAssertEqual(camera.nearestPlace, .field)
+
+                let expected: Place = direction == .up ? .sky : .journal
+                let velocity: CGFloat = direction == .up ? -1688 : 1688
+                camera.consume(.commit(direction, velocity: velocity))
+                XCTAssertEqual(camera.place, expected,
+                               "the destination flipped at the place centre — start \(start)")
+
+                let audit = runSettle(camera)
+                smallest = min(smallest, audit.distance)
+                XCTAssertGreaterThan(audit.distance, travel * 0.5,
+                                     "a fully gated commit travelled almost nothing — start \(start) \(direction)")
+                XCTAssertLessThanOrEqual(audit.distance, bound + 1e-9,
+                                         "over the stated bound — start \(start) \(direction)")
+            }
+        }
+        XCTAssertGreaterThan(smallest, travel * 0.5,
+                             "the sweep should have crossed the centre without a collapse")
     }
 
     // MARK: - Barrier condition 12: the settle never overshoots
@@ -517,6 +569,40 @@ final class WorldCameraTests: XCTestCase {
         var flips = 0
         for index in 1..<states.count where states[index] != states[index - 1] { flips += 1 }
         XCTAssertEqual(flips, 1, "the attenuation must not flicker")
+    }
+
+    // R-ARCH#2 minor 6. Condition 14 must have an answer in BOTH motion modes.
+    // Under Reduce Motion nothing translates, so `flow` is identically zero and
+    // `exceedsTransitFlow` can never be true — yet two whole places are
+    // crossfading through each other, and the light should take its turn there
+    // exactly as it does during a translating transit. `isTransitioning` is the
+    // one question W05 and the renderer ask.
+    func testIsTransitioningAnswersInBothMotionModes() {
+        for reduced in [false, true] {
+            let camera = makeCamera(reduceMotion: reduced)
+            XCTAssertFalse(camera.isTransitioning, "RM \(reduced): a resting camera is not in transit")
+
+            drag(camera, by: -200)
+            camera.step(dt: frame)
+            camera.consume(.commit(.up, velocity: -1688))
+
+            var states: [Bool] = []
+            var frames = 0
+            while !camera.isAtRest && frames < 10_000 {
+                camera.step(dt: frame)
+                frames += 1
+                states.append(camera.isTransitioning)
+            }
+            XCTAssertTrue(states.first ?? false,
+                          "RM \(reduced): the light should take turns while she travels")
+            XCTAssertFalse(states.last ?? true,
+                           "RM \(reduced): …and be back before she lands")
+            var flips = 0
+            for index in 1..<states.count where states[index] != states[index - 1] { flips += 1 }
+            XCTAssertEqual(flips, 1, "RM \(reduced): the attenuation must not flicker")
+            XCTAssertFalse(camera.isTransitioning,
+                           "RM \(reduced): an arrived camera is not in transit")
+        }
     }
 
     // MARK: - Interruptibility
@@ -814,6 +900,49 @@ final class WorldCameraTests: XCTestCase {
         XCTAssertLessThan(largestStep, 0.05, "crossing a place must not cut")
     }
 
+    // R-ARCH#2 major 5. A settle can begin MORE THAN ONE PLACE from its
+    // destination: parked in the sky, her finger carries the camera all the way
+    // down to the journal, and then the system takes the touch away — so the
+    // camera returns to the sky from two places below it.
+    //
+    // The pair used to be anchored to a NEIGHBOUR OF THE DESTINATION, which is
+    // the right place only while the camera is less than one place away. From
+    // the journal it named the journal as the ARRIVING place for the whole
+    // first half of the move: the crossfade brightened the place she was
+    // leaving, then re-resolved at the field centre. Anchoring to the bracket
+    // the camera is actually in — the same re-anchoring `.panBegan` does —
+    // makes `to` the arriving place throughout.
+    func testTransitionNamesTheArrivingPlaceFromMoreThanOnePlaceAway() {
+        let camera = makeCamera(reduceMotion: true)
+        drag(camera, by: -5000)
+        camera.consume(.commit(.up, velocity: -2400))
+        runSettle(camera)
+        XCTAssertEqual(camera.place, .sky)
+
+        camera.consume(.panBegan)
+        camera.consume(.panChanged(translation: 5000))    // all the way to the journal
+        camera.consume(.cancelToRest)                     // …and the touch is taken away
+        XCTAssertEqual(camera.place, .sky, "the camera returns to the place it belongs to")
+
+        var previousSky = camera.opacity(of: .sky)
+        var largestStep: CGFloat = 0
+        var frames = 0
+        while !camera.isAtRest && frames < 10_000 {
+            camera.step(dt: frame)
+            frames += 1
+            XCTAssertNotEqual(camera.transition.to, .journal,
+                              "the pair named the place she is leaving as the arriving one — frame \(frames)")
+            let sky = camera.opacity(of: .sky)
+            XCTAssertGreaterThanOrEqual(sky, previousSky - 1e-12,
+                                        "the sky must arrive monotonically — frame \(frames)")
+            largestStep = max(largestStep, abs(sky - previousSky))
+            previousSky = sky
+        }
+        XCTAssertEqual(camera.opacity(of: .sky), 1, accuracy: 1e-12)
+        XCTAssertEqual(camera.opacity(of: .journal), 0, accuracy: 1e-12)
+        XCTAssertLessThan(largestStep, 0.05, "crossing two places must not cut")
+    }
+
     // MARK: - Barrier condition 13: repeated spring-backs damp
 
     // FOUR identical rocking attempts as fast as she can make them. Each must
@@ -909,6 +1038,114 @@ final class WorldCameraTests: XCTestCase {
                        "a decided move armed the anti-oscillation damping")
     }
 
+    // R-ARCH#2 blocker 1, and the Director's ruling: A COMMIT ENDS A ROCKING
+    // SEQUENCE. The damping's two halves used to be cleared only by a
+    // genuinely idle `oscillationWindow`, so a hesitant half-swipe that sprang
+    // back — which legitimately arms it — poisoned the drag AFTER the next
+    // completed move. She swipes, changes her mind, then goes somewhere on
+    // purpose, and the world no longer follows her thumb, for no reason she
+    // can see or undo.
+    func testReturnThenCommitThenADragIsOneToOneWithHerFinger() {
+        let camera = makeCamera()
+
+        drag(camera, by: -260)
+        camera.consume(.cancelToRest)
+        runSettle(camera)                                // a real spring-back
+
+        camera.consume(.commit(.up, velocity: -1688))    // …and then she decides
+        runSettle(camera)
+        XCTAssertEqual(camera.place, .sky)
+
+        drag(camera, by: 200)
+        XCTAssertEqual(camera.offset,
+                       -camera.config.travelPerPlace + 200 / screenHeight,
+                       accuracy: 1e-12,
+                       "damping leaked across a completed commit")
+    }
+
+    // …and it does not merely fail to arm: an intervening decisive commit
+    // RESETS the gain, so a rock after it starts from 1:1 again rather than
+    // resuming a decayed sequence she has already left.
+    func testDampingDoesNotCompoundAcrossAnInterveningCommit() {
+        let camera = makeCamera()
+
+        func rock() -> CGFloat {
+            let home = camera.restOffset(of: camera.place)
+            drag(camera, by: -260)
+            let excursion = abs(camera.offset - home)
+            camera.consume(.cancelToRest)
+            runSettle(camera)
+            return excursion
+        }
+
+        let first = rock()
+        let second = rock()
+        XCTAssertLessThan(second, first * 0.9, "two rapid returns must damp")
+
+        camera.consume(.commit(.up, velocity: -1688))
+        runSettle(camera)
+        XCTAssertEqual(camera.place, .sky)
+
+        drag(camera, by: 260)
+        let afterTheCommit = abs(camera.offset - camera.restOffset(of: .sky))
+        XCTAssertEqual(afterTheCommit, 260 / screenHeight, accuracy: 1e-12,
+                       "the gain compounded across a decisive commit instead of being reset by it")
+        XCTAssertEqual(afterTheCommit, first, accuracy: 1e-12,
+                       "…and it is exactly the undamped excursion, not merely a larger one")
+    }
+
+    // R-ARCH#2 major 4, THE FALSE POSITIVE. A late transit grab released
+    // undecided COMPLETES the move — the world ends a whole place from where
+    // her finger landed. Nothing sprang back, so nothing may damp. Classifying
+    // by comparing the destination with the place of record called this a
+    // return (they are equal here) and slowed her next drag for finishing a
+    // move.
+    func testLateTransitGrabReleasedUndecidedIsNotASpringBack() {
+        let camera = makeCamera()
+        drag(camera, by: -100)
+        camera.consume(.commit(.up, velocity: -1400))
+        for _ in 0..<48 { camera.step(dt: frame) }
+
+        camera.consume(.panBegan)
+        XCTAssertGreaterThan(camera.offset, -camera.config.travelPerPlace,
+                             "the grab should have caught it before it landed")
+        camera.consume(.settleToNearest)
+        XCTAssertEqual(camera.place, .sky, "a late catch completes the move")
+        runSettle(camera)
+
+        drag(camera, by: 200)
+        XCTAssertEqual(camera.offset,
+                       -camera.config.travelPerPlace + 200 / screenHeight,
+                       accuracy: 1e-12,
+                       "completing a move armed the anti-oscillation damping")
+    }
+
+    // …and THE FALSE NEGATIVE, which is the one that lets a real oscillation
+    // through. She flicks up, catches it at once, and lets go without asking
+    // for anything: the world goes back to exactly where her finger landed.
+    // That is a spring-back, and repeating it is the low-frequency rocking
+    // condition 13 exists to decay — but its destination (`.field`) differs
+    // from the place of record (`.sky`), so the old classifier called it a
+    // fresh move and damped nothing at all.
+    func testACommitCaughtAtOnceAndReleasedUndecidedIsASpringBack() {
+        let camera = makeCamera()
+        camera.consume(.commit(.up, velocity: -2400))
+        XCTAssertEqual(camera.place, .sky)
+
+        camera.consume(.panBegan)                        // caught before a frame ran
+        camera.consume(.panChanged(translation: -40))
+        camera.consume(.settleToNearest)
+        XCTAssertEqual(camera.place, .field, "the world is going back where it started")
+        runSettle(camera)
+        XCTAssertEqual(camera.offset, 0, accuracy: 1e-12)
+
+        drag(camera, by: -260)
+        XCTAssertEqual(abs(camera.offset),
+                       (260 / screenHeight) * camera.config.dragDampingFactor,
+                       accuracy: 1e-12,
+                       "a real spring-back did not arm the damping")
+    }
+
     // MARK: - Config changes
 
     // R-ARCH minor 10. `config` is settable only through `apply(_:)`, which
@@ -948,6 +1185,56 @@ final class WorldCameraTests: XCTestCase {
         XCTAssertTrue(camera.isAtRest)
         XCTAssertEqual(camera.place, .sky)
         XCTAssertEqual(camera.opacity(of: .sky), 1, accuracy: 1e-12)
+    }
+
+    // R-ARCH#2 minor 7. `offset` steps by the entire axis position the instant
+    // Reduce Motion is written, and `flow` is measured against the previous
+    // frame's `offset` — so without re-seeding that reference the next frame
+    // reports a phantom transit of tens of screen heights per second over a
+    // world that did not move, and every consumer of condition 14 dims for a
+    // frame because the host flipped a setting.
+    func testTogglingReduceMotionDoesNotReportAPhantomTransit() {
+        let camera = makeCamera()
+        drag(camera, by: -200)
+        camera.step(dt: frame)
+        XCTAssertTrue(camera.exceedsTransitFlow, "her finger really did move the world")
+
+        camera.reduceMotion = true
+        camera.step(dt: frame)
+        XCTAssertEqual(camera.flow, 0, accuracy: 1e-12,
+                       "the world did not slide; the translation stopped existing")
+        XCTAssertFalse(camera.exceedsTransitFlow)
+
+        camera.reduceMotion = false
+        camera.step(dt: frame)
+        XCTAssertEqual(camera.flow, 0, accuracy: 1e-12, "…and the same on the way back")
+    }
+
+    // The same one-frame discontinuity on the other host write: `apply(_:)`
+    // re-clamps the axis, which can move `offset` a fifth of a screen without
+    // a frame passing. A tuning change is not a transit.
+    func testApplyDoesNotReportAPhantomTransit() {
+        let camera = makeCamera()
+        drag(camera, by: -600)
+        camera.step(dt: frame)
+
+        var tighter = WorldCamera.Config.default
+        tighter.travelPerPlace = 0.5
+        camera.apply(tighter)
+        camera.step(dt: frame)
+        XCTAssertEqual(camera.flow, 0, accuracy: 1e-12,
+                       "a tuning change must not dim the light")
+    }
+
+    // `dragProgress` is guarded exactly as `transition` is: a degenerate world
+    // answers calmly instead of handing out an infinity or a NaN.
+    func testDragProgressIsFiniteInADegenerateWorld() {
+        let camera = makeCamera()
+        var degenerate = WorldCamera.Config.default
+        degenerate.travelPerPlace = 0
+        camera.apply(degenerate)
+        XCTAssertEqual(camera.dragProgress, 0)
+        XCTAssertEqual(camera.opacity(of: .field), 1)
     }
 
     // MARK: - Resolution independence
