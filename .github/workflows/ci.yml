@@ -10,15 +10,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Both navigation configurations build on every PR. An unbuilt configuration
+  # rots within days, and the flag's whole value is that the shipped navigation
+  # stays releasable on any day of the One World rebuild.
+  #
+  #   world   — default: VesperApp launches the One World scene
+  #   classic — VESPER_CLASSIC_NAV defined: VesperApp launches the v1.2 ContentView
+  #
+  # The flag is read in exactly one place (VesperApp); see
+  # docs/gdd/DELIVERY_ROADMAP.md §6 rulings 10 and 11.
   build-and-test:
-    name: Build & test (iOS Simulator)
+    name: Build & test (${{ matrix.config }})
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: world
+            conditions: "$(inherited)"
+          - config: classic
+            conditions: "$(inherited) VESPER_CLASSIC_NAV"
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+
+      # Find a simulator rather than assuming one. Runner images change the
+      # devices they ship, and a hardcoded name turns an image update into a
+      # red build that looks like a code failure. Prefer an existing booted or
+      # available iPhone; create one if the image ships a runtime but no
+      # device; download the platform only as a last resort, because it is slow.
+      - name: Choose an iOS simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
+                          c=[x for v in d.values() for x in v if 'iPhone' in x['name']]; \
+                          print(c[0]['udid'] if c else '')")
+          if [ -z "$udid" ]; then
+            echo "No iPhone simulator present; trying to create one."
+            runtime=$(xcrun simctl list runtimes -j \
+              | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[-1] if r else '')")
+            if [ -z "$runtime" ]; then
+              echo "No iOS runtime installed; downloading (slow)."
+              xcodebuild -downloadPlatform iOS
+              runtime=$(xcrun simctl list runtimes -j \
+                | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[-1] if r else '')")
+            fi
+            devtype=$(xcrun simctl list devicetypes -j \
+              | python3 -c "import json,sys; t=[x['identifier'] for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x['name']]; print(t[-1] if t else '')")
+            udid=$(xcrun simctl create "vesper-ci" "$devtype" "$runtime")
+          fi
+          echo "Using simulator $udid"
+          xcrun simctl list devices | grep -i "$udid" || true
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
       - name: Build and run unit tests
         run: |
@@ -26,7 +74,8 @@ jobs:
           xcodebuild test \
             -project Vesper.xcodeproj \
             -scheme Vesper \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='${{ matrix.conditions }}' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY= \
             DEVELOPMENT_TEAM=

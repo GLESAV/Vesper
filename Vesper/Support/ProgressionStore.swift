@@ -33,6 +33,27 @@ final class ProgressionStore: ObservableObject {
         static let featured = "vesper.progress.featured"
     }
 
+    // MARK: - The keys this store owns
+
+    // Declared once, next to the `Keys` enum it mirrors, because the W24
+    // fresh-install reset has to wipe all of them and a reset that misses one
+    // is worse than no reset at all: the playtester sees a first-run field
+    // with a stale number under it and reports the number as a bug.
+    //
+    // NOT wrapped in `#if DEBUG`. The list is inert data; keeping it in every
+    // configuration is what lets `DevResetTests` compare it against the keys
+    // this store actually writes, which is the only check that survives
+    // someone adding an eighth key.
+    static let ownedDefaultsKeys: [String] = [
+        Keys.points,
+        Keys.lifetimePops,
+        Keys.fieldsCleared,
+        Keys.fortunes,
+        Keys.bestChain,
+        Keys.popCounts,
+        Keys.featured,
+    ]
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         popPoints = defaults.integer(forKey: Keys.points)
@@ -105,4 +126,29 @@ final class ProgressionStore: ObservableObject {
         let unlocked = unlockedNumbers()
         return unlocked.isEmpty ? [PopCatalog.classic.number] : Array(unlocked).sorted()
     }
+
+    // MARK: - W24: fresh install (DEBUG only)
+
+    #if DEBUG
+    // Puts this store back to the state a first launch would find, in memory
+    // AND on disk. Both halves are required: these are shared singletons that
+    // cache their values, so wiping only the defaults leaves a store holding
+    // 400 points that persists them again on the next pop — a reset that
+    // reverses itself, which is the worst of the three possible outcomes.
+    //
+    // In-memory FIRST, then the keys. `featuredPop` has a `didSet` that
+    // writes through, so clearing it after the sweep would re-create
+    // `Keys.featured` behind the sweep's back.
+    func resetToFreshInstall() {
+        featuredPop = nil
+        popPoints = 0
+        lifetimePops = 0
+        fieldsCleared = 0
+        fortunesFound = 0
+        bestChain = 0
+        popCounts = [:]
+        for key in Self.ownedDefaultsKeys { defaults.removeObject(forKey: key) }
+    }
+    #endif
+
 }

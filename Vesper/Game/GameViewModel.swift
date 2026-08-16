@@ -16,6 +16,25 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var sessionPoints = 0
     @Published private(set) var renderingPaused = false
 
+    // W07 / DELIVERY_ROADMAP §6 ruling 9. Whether the simulation may advance
+    // this frame, checked at the very top of `frame(date:size:)`.
+    //
+    // AN EXPLICIT FLAG, NEVER AN INFERENCE FROM SWIFTUI. Pausing by "the
+    // Canvas probably will not be drawn while she is at the sky" is undefined
+    // rendering behaviour dressed up as a feature; this is one line, it is
+    // deterministic, and a unit test can state it. The world writes it from
+    // `camera.isAtRest && camera.place == .field`, so the field stops the
+    // instant she has decided to leave it and no chain resolves where she
+    // cannot see it (04 §5).
+    //
+    // NOT `@Published`: it is written once per frame from inside the render
+    // pass, and publishing there is SwiftUI's publishing-during-view-update
+    // hazard. Nothing observes it — `frame(date:size:)` reads it directly.
+    //
+    // Defaults to `true` so v1.2's ContentView, which never writes it,
+    // behaves exactly as it always has.
+    var simActive = true
+
     let sim = GameSimulation()
     let settings = SettingsStore.shared
     let progression = ProgressionStore.shared
@@ -66,6 +85,17 @@ final class GameViewModel: ObservableObject {
     // is a SwiftUI hazard, so any events produced here (chain pops) are
     // applied on the next main-queue hop; direct taps apply synchronously.
     func frame(date: Date, size: CGSize) {
+        // W07. `lastFrameDate` is advanced even while paused, and that is the
+        // whole reason this is not a bare `return`: coming back to the field
+        // after a minute in the journal would otherwise hand the sim one
+        // enormous dt. It is clamped downstream, so the field would not
+        // explode — it would simply lurch a frame forward the moment she
+        // arrived, which is worse, because it looks deliberate.
+        guard simActive else {
+            lastFrameDate = date
+            return
+        }
+
         sim.layout(size: size)
 
         var dt: TimeInterval = 0
