@@ -10,10 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Both navigation configurations build on every PR. An unbuilt configuration
+  # rots within days, and the flag's whole value is that the shipped navigation
+  # stays releasable on any day of the One World rebuild.
+  #
+  #   world   — default: VesperApp launches the One World scene
+  #   classic — VESPER_CLASSIC_NAV defined: VesperApp launches the v1.2 ContentView
+  #
+  # The flag is read in exactly one place (VesperApp); see
+  # docs/gdd/DELIVERY_ROADMAP.md §6 rulings 10 and 11.
   build-and-test:
-    name: Build & test (iOS Simulator)
+    name: Build & test (${{ matrix.config }})
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: world
+            conditions: ""
+          - config: classic
+            conditions: "VESPER_CLASSIC_NAV"
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +44,7 @@ jobs:
             -project Vesper.xcodeproj \
             -scheme Vesper \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS="$(echo '$(inherited) ${{ matrix.conditions }}' | xargs)" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY= \
             DEVELOPMENT_TEAM=
