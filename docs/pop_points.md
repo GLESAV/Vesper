@@ -35,9 +35,16 @@ Chain length uses the same rolling 0.9 s window as the "chain of N" whisper, so 
 the player sees and what they earn are one number. The cap at ×2 keeps chains a
 pleasure, not a strategy to optimize.
 
-Typical session math: a 13-orb field ≈ 200–350 points + 100 clear bonus. A relaxed
-hour ≈ 8–10k points — which is what the unlock ladder in `pop_progression.md` paces
-against.
+Typical session math: a 13-orb field ≈ 200–350 points + 100 clear bonus, so an
+ordinary wind-down evening (a handful of fields) earns roughly 1.5–2.5k points.
+That **per-evening** figure — not points per hour — is what the unlock ladder in
+`pop_progression.md` paces against: the binding target is the median evening
+player reaching Morningside in 90–120 evenings, with even a heavy player never
+finishing in under 30 days (GDD 03 §2). The formula's constants and the ladder's
+thresholds are validated together by the Phase 2 deterministic sim harness
+(persona profiles replayed through `ProgressionStore` against the target bands,
+per `pop_progression.md` §2); the harness, not the inherited curve, owns the
+final numbers.
 
 ## 3. Showing points *in game* (best practice: layered, quietest first)
 
