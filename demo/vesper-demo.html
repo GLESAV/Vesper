@@ -14,7 +14,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Vesper — demo</title>
+<title>Vesper Pop</title>
 <style>
   :root {
     --serif: Georgia, "Iowan Old Style", "Liberation Serif", serif;
@@ -107,11 +107,11 @@
     <div class="sub" id="donesub"></div>
     <div class="pts" id="donepts"></div>
     <div class="life" id="donelife"></div>
-    <div class="go">GO AGAIN</div>
+    <div class="go" id="goagain" style="pointer-events:auto; cursor:pointer;">GO AGAIN</div>
   </div>
 </div>
 <div class="tapdot" id="tapdot"></div>
-<div class="soundhint" id="soundhint">TAP ANYWHERE FOR SOUND</div>
+<div class="soundhint" id="soundhint">WATCHING THE DEMO · TAP AN ORB TO PLAY</div>
 
 <script>
 // ---------- setup ----------
@@ -161,9 +161,29 @@ let audio = null;
 function enableSound() {
   if (audio) return;
   audio = new (window.AudioContext || window.webkitAudioContext)();
-  document.getElementById("soundhint").style.opacity = 0;
 }
-addEventListener("pointerdown", enableSound, { once: false });
+
+// tap an orb to take over from the demo director (exactly the game's hit
+// test: radius + 12pt tolerance, topmost orb first)
+addEventListener("pointerdown", e => {
+  enableSound();
+  if (doneShown) return;
+  for (let i = orbs.length - 1; i >= 0; i--) {
+    const o = orbs[i];
+    if (!o.alive) continue;
+    const dx = e.clientX - o.x, dy = e.clientY - o.y, rr = o.r + 12;
+    if (dx * dx + dy * dy <= rr * rr) {
+      if (!manual) {
+        manual = true;
+        document.getElementById("soundhint").textContent = "YOURS NOW · CLEAR THE FIELD";
+        setTimeout(() => document.getElementById("soundhint").style.opacity = 0, 2500);
+      }
+      tapMarker(o.x, o.y);
+      detonate(o, false);
+      return;
+    }
+  }
+});
 
 function playPop(pop, pitch) {
   if (!audio || audio.state !== "running") return;
@@ -206,7 +226,7 @@ function playChime() {
 // ---------- simulation (ports GameSimulation, f = one 60fps frame) ----------
 let orbs = [], particles = [], rings = [], motes = [], notes = [];
 let count = 0, sessionPts = 0, lifetime = 12431, chainStreak = 0, lastPopAt = -9;
-let now = 0;
+let now = 0, manual = false, doneShown = false;
 
 function seedMotes() {
   motes = [];
@@ -258,6 +278,11 @@ function detonate(o, chained) {
   const el = document.getElementById("count");
   el.classList.add("pulse"); setTimeout(() => el.classList.remove("pulse"), 130);
   if (o.fortune) showFortune();
+
+  if (!doneShown && orbs.every(x => !x.alive)) {
+    doneShown = true;
+    setTimeout(doneSequence, 650);
+  }
 }
 
 function step(f) {
@@ -424,43 +449,60 @@ async function tapOrb(i) {
   detonate(o, false);
 }
 
-async function run() {
-  while (true) {
+function doneSequence() {
+  sessionPts += 100;
+  setText("pts", sessionPts + " pop points");
+  playChime();
+  setText("donesub", "You cleared all " + count + " orbs.");
+  document.getElementById("donesub").insertAdjacentHTML(
+    "beforeend", "<br>Nothing left to worry about — for now.");
+  setText("donepts", "+" + sessionPts + " pop points");
+  setText("donelife", lifetime.toLocaleString() + " set free, all time.");
+  document.getElementById("scrim").classList.add("show");
+  document.getElementById("donewrap").classList.add("show");
+  if (!manual) setTimeout(nextField, 4200);   // the director moves on by itself
+}
+
+function nextField() {
+  if (!doneShown) return;
+  document.getElementById("scrim").classList.remove("show");
+  document.getElementById("donewrap").classList.remove("show");
+  setTimeout(() => {
     seedMotes();
     seedField(LAYOUT);
-    await sleep(2200);                        // let the field breathe
-    await tapOrb(0); await sleep(1300);       // first pop, alone
-    await tapOrb(1); await sleep(1100);
-    await tapOrb(4); await sleep(1500);       // the big deep one
-    await tapOrb(3); await sleep(600);        // the fortune orb
-    await sleep(3400);                        // read the fortune
-    await tapOrb(5); await sleep(500);        // into the cluster — chains take it
-    await sleep(2600);
-    flash("unlock", "new pop · Gloaming", 3200);
-    await sleep(1400);
-    await tapOrb(2); await sleep(900);
-    await tapOrb(8); await sleep(800);
-    await tapOrb(9); await sleep(800);
-    await tapOrb(10); await sleep(700);
-    // anything the chains missed
-    for (let i = 0; i < orbs.length; i++) {
-      if (orbs[i].alive) { await tapOrb(i); await sleep(650); }
+    doneShown = false;
+  }, 500);
+}
+document.getElementById("goagain").addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  nextField();
+});
+
+// the director plays until you take over
+async function run() {
+  seedMotes();
+  seedField(LAYOUT);
+  const beats = [
+    [2200, 0], [1300, 1], [1100, 4], [1500, 3], [600, -1],
+    [3400, 5], [500, -1], [2600, -2], [1400, 2], [900, 8],
+    [800, 9], [800, 10], [700, -1],
+  ];
+  while (true) {
+    if (manual) return;
+    if (!doneShown) {
+      for (const [wait, orb] of beats) {
+        await sleep(wait);
+        if (manual || doneShown) break;
+        if (orb === -2) flash("unlock", "new pop · Gloaming", 3200);
+        else if (orb >= 0) await tapOrb(orb);
+      }
+      // anything the chains missed
+      while (!manual && !doneShown && orbs.some(o => o.alive)) {
+        const i = orbs.findIndex(o => o.alive);
+        await tapOrb(i); await sleep(650);
+      }
     }
-    sessionPts += 100;
-    setText("pts", sessionPts + " pop points");
-    await sleep(650);
-    playChime();
-    setText("donesub", "You cleared all " + count + " orbs.");
-    document.getElementById("donesub").insertAdjacentHTML(
-      "beforeend", "<br>Nothing left to worry about — for now.");
-    setText("donepts", "+" + sessionPts + " pop points");
-    setText("donelife", lifetime.toLocaleString() + " set free, all time.");
-    document.getElementById("scrim").classList.add("show");
-    document.getElementById("donewrap").classList.add("show");
-    await sleep(4200);
-    document.getElementById("scrim").classList.remove("show");
-    document.getElementById("donewrap").classList.remove("show");
-    await sleep(800);
+    await sleep(400);
   }
 }
 run();
