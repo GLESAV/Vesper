@@ -23,3 +23,6 @@ fastlane/test_output
 
 # Personal review contact info — keep out of public repo
 fastlane/metadata/review_information/
+
+# demo recordings are generated (demo/run-demo.js)
+demo/out/
