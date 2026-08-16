@@ -27,6 +27,12 @@ import Foundation
 //   * where the camera is — the arbiter emits a DIRECTION, never a
 //     destination. Mapping direction (and `.settleToNearest`) onto a Place
 //     lives in exactly one place: WorldCamera.
+//   * how fast the world is allowed to move (W05a). This layer measures a
+//     finger, in points, because that is what a finger is measured in. How
+//     much of the WORLD may slide past her eye in a second is a property of
+//     the camera, is measured in screen heights, and is bounded in exactly
+//     one place: `WorldCamera.Config.maxOpticalFlow`. See the note where
+//     `maxCommitVelocity` used to be, in `Config`.
 //
 // ISOLATION. `InputArbiter` is `@MainActor`, matching WorldCamera. It is a
 // value type and its decisions are pure, but it is not isolation-free: it
@@ -58,8 +64,19 @@ enum InputOutcome: Equatable {
     case panChanged(translation: CGFloat)
     // Velocity travels with the commit so the camera can seed its 300–650 ms
     // settle easing (04 §5) without re-deriving velocity from a second,
-    // slightly different sample history. Always clamped to
-    // `Config.maxCommitVelocity`.
+    // slightly different sample history.
+    //
+    // THE CONTRACT (amended by W05a; it previously read "always clamped to
+    // `Config.maxCommitVelocity`"). This is the FINGER'S OWN release
+    // velocity, in points per second, signed by the sign convention above,
+    // and it is NOT BOUNDED ABOVE. A whip flick really does read 6000 pt/s
+    // and the arbiter no longer rounds that down to something that looks
+    // safe. The one ceiling on how fast the world may slide is
+    // `WorldCamera.Config.maxOpticalFlow`, in screen heights per second,
+    // applied by the camera — the only layer that can convert points into
+    // screen heights, because it is the only one that knows the view height.
+    // Any future consumer of this value must clamp it itself, in its own
+    // units, rather than assume a bound that is not stated here.
     case commit(WorldDirection, velocity: CGFloat)
     // A transit grab released without a decisive gesture: the camera settles
     // to whichever place is nearer *by its own offset*. The arbiter cannot
@@ -114,19 +131,35 @@ struct InputArbiter {
         // what happens when she is resting her hand while reading a fortune.
         var commitVelocity: CGFloat = 300
 
-        // Ceiling on the velocity handed to the camera, in points/second
-        // (§7.5, and Amara's condition 10: a hard peak optical-flow ceiling).
+        // THERE IS DELIBERATELY NO CEILING ON RELEASE VELOCITY HERE (W05a,
+        // the carry-forward item from R-ARCH §7). There used to be:
+        // `maxCommitVelocity = 2400` pt/s, added by R-SPIKE fix 5 so that
+        // "the arbiter must not be able to hand the camera a number the
+        // camera is not allowed to honour". It is gone, and fix 5's intent is
+        // better served without it. Do not put it back; put the number in
+        // `WorldCamera.Config.maxOpticalFlow` instead.
         //
-        // WHY 2400. Inter-place travel is on the order of one screen height,
-        // and 04 §5 fixes the settle band at 300–650 ms. On the 844 pt
-        // reference screen, 2400 pt/s carries a full screen height in ~352 ms
-        // — the fast end of the band, not below it. So the arbiter physically
-        // cannot hand the camera a seed that would require a sub-300 ms
-        // whip-pan, which is both outside the committed band and the kind of
-        // large-field flow event Amara's review is about. It is 8× the commit
-        // gate, so every ordinary swipe (a brisk 200 pt in 150 ms is
-        // ~1300 pt/s) passes through untouched; only genuine flicks clamp.
-        var maxCommitVelocity: CGFloat = 2400
+        // WHY IT WENT. The quantity being bounded is peak OPTICAL FLOW — how
+        // much of the world slides past her eye per second — and that is a
+        // screen-height quantity, because a vestibular system does not count
+        // points. 2400 pt/s is 2.84 screen heights per second on an 844 pt
+        // phone and 1.76 on a 1366 pt iPad: one constant meaning a different
+        // thing on every device, sitting beside a camera ceiling of 2.0
+        // screen heights per second that means the same thing everywhere.
+        // Two ceilings on one physical quantity, in units that cannot be
+        // compared without knowing the view height, is not two safety
+        // properties. It is one safety property and one number that merely
+        // looked like one — and the one that merely looked like one was this
+        // one, because the camera re-clamps every seed anyway ("a ceiling
+        // that depends on another file staying correct is not a ceiling").
+        // Deleting it removes a number rather than synchronising two.
+        //
+        // WHAT IS LEFT HERE IS MEASUREMENT, NOT POLICY. `deadZone`, `panSlop`
+        // and the distance gate stay in points because they are physical
+        // finger distances and points is what a finger is measured in. The
+        // release velocity this layer reports is the same kind of thing: a
+        // record of what her hand did. What the world is allowed to do about
+        // it belongs to the camera.
 
         // Movement before a pan is considered started, in points. Below this
         // the touch is just a touch — without it, the ~1 pt of jitter in a
@@ -353,9 +386,13 @@ struct InputArbiter {
         let velocity = releaseVelocity(of: touch)
 
         // §7.4: the dead zone suppresses the commit and nothing else.
+        //
+        // The measured velocity is handed over as measured (W05a) — no
+        // clamp, sign intact. The camera bounds the rate of the world in
+        // screen heights; this layer reports the finger in points.
         if !touch.deadZoned,
            let direction = commitDirection(translation: translation, velocity: velocity) {
-            return [.commit(direction, velocity: clampedCommitVelocity(velocity))]
+            return [.commit(direction, velocity: velocity)]
         }
 
         return [undecidedRelease(of: touch)]
@@ -422,14 +459,6 @@ struct InputArbiter {
         guard (translation < 0 ? velocity <= 0 : velocity >= 0) else { return nil }
 
         return translation < 0 ? .up : .down
-    }
-
-    // §7.5. The arbiter must not be able to hand the camera a number the
-    // camera is not allowed to honour. Magnitude only — the sign is the
-    // direction of travel and is never altered.
-    private func clampedCommitVelocity(_ velocity: CGFloat) -> CGFloat {
-        let ceiling = abs(config.maxCommitVelocity)
-        return min(max(velocity, -ceiling), ceiling)
     }
 
     private func isInEdgeDeadZone(_ p: CGPoint) -> Bool {

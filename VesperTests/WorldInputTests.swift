@@ -284,11 +284,19 @@ final class WorldInputTests: XCTestCase {
                        "sample rate must not change the measured release velocity")
     }
 
-    // MARK: - §7.5: the velocity ceiling
+    // MARK: - §7.5 as amended by W05a: the arbiter reports, it does not bound
 
-    // The arbiter must never hand the camera a number the camera is not
-    // allowed to honour: a 6000 pt/s whip arrives clamped, sign intact.
-    func testReleaseVelocityIsClampedToTheCeiling() {
+    // §7.5 used to live here as `maxCommitVelocity` = 2400 pt/s, and the test
+    // that used to sit in this spot asserted a 6000 pt/s whip arrived clamped
+    // to it. W05a deleted that ceiling: a ceiling on how fast the WORLD may
+    // slide is a screen-height quantity and belongs to the camera, which is
+    // the only layer that can convert points into screen heights. What the
+    // arbiter owes the camera is an honest measurement of the finger.
+    //
+    // So this is the same gesture, asserting the opposite thing — deliberately
+    // kept in place, so that anyone re-adding the clamp has to delete a test
+    // that says why it is gone.
+    func testWhipFlickReportsTheFingersActualVelocityUnclamped() {
         var arbiter = makeArbiter()
         let outcomes = swipe(&arbiter, from: CGPoint(x: 195, y: 500),
                              dy: -300, duration: 0.05, at: 0)
@@ -298,15 +306,19 @@ final class WorldInputTests: XCTestCase {
             XCTFail("expected a commit")
             return
         }
-        // 300 pt in 50 ms is 6000 pt/s at the finger; the camera is handed
-        // 2400, sign intact (negative is upward, toward the sky).
-        XCTAssertEqual(v, -InputArbiter.Config.default.maxCommitVelocity,
-                       "a whip-fast flick commits at the ceiling, still negative (upward)")
+        // 300 pt in 50 ms is 6000 pt/s at the finger, and 6000 pt/s is what
+        // the camera is told — sign intact (negative is upward, toward the
+        // sky). `WorldCamera.Config.maxOpticalFlow` is what makes the
+        // resulting settle safe, and `WorldCameraTests` proves it for seeds
+        // far past this one.
+        XCTAssertEqual(v, -6000, accuracy: 1e-6,
+                       "the arbiter reports what the finger did; it does not round it down")
     }
 
-    // An ordinary swipe is nowhere near the ceiling and passes through
-    // untouched — the clamp must not flatten normal feel.
-    func testOrdinaryFlickIsNotClamped() {
+    // An ordinary swipe reads exactly as it always did — the removal of the
+    // clamp is invisible everywhere below where it used to bite, which is
+    // every gesture a hand actually makes.
+    func testOrdinaryFlickIsUnchanged() {
         var arbiter = makeArbiter()
         let outcomes = swipe(&arbiter, from: CGPoint(x: 195, y: 500),
                              dy: -200, duration: 0.15, at: 0)
@@ -316,7 +328,17 @@ final class WorldInputTests: XCTestCase {
             return
         }
         XCTAssertEqual(v, -1333.33, accuracy: 1)
-        XCTAssertLessThan(abs(v), InputArbiter.Config.default.maxCommitVelocity)
+    }
+
+    // The sign convention survives the removal in BOTH directions: an equally
+    // hard flick toward the journal reports +6000, not a magnitude.
+    func testWhipFlickDownwardReportsAPositiveVelocity() {
+        var arbiter = makeArbiter()
+        let outcomes = swipe(&arbiter, from: CGPoint(x: 195, y: 300),
+                             dy: 300, duration: 0.05, at: 0)
+
+        XCTAssertEqual(commitCount(outcomes, .down), 1)
+        XCTAssertEqual(commitVelocity(outcomes) ?? 0, 6000, accuracy: 1e-6)
     }
 
     // MARK: - Edge dead zones (04 §4, scoped by §7.4)

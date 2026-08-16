@@ -303,18 +303,37 @@ final class WorldCamera {
         // 04 §5 insists on: the world would lag her thumb and then catch up,
         // and "catch up" is camera-generated motion she did not ask for.
         //
-        // TWO CLAMPS, AND WHICH ONE BINDS. The arbiter clamps release velocity
-        // to `InputArbiter.Config.maxCommitVelocity` = 2400 pt/s (R-SPIKE fix
-        // 5), which on the 844 pt reference screen is 2.84 screen heights per
-        // second. That is the coarse upstream guard, and it is expressed in
-        // POINTS, so it means different things on different devices. This
-        // ceiling is expressed in screen heights, is stricter, and is
-        // therefore the one that binds: seeds above ~1688 pt/s on a 844 pt
-        // screen all settle identically. The camera re-clamps rather than
-        // trusting the arbiter because a ceiling that depends on another file
-        // staying correct is not a ceiling. (For the Director: these two
-        // numbers should eventually be one number, expressed as a fraction of
-        // screen height. Until then the strict one is here.)
+        // ONE CLAMP, AND IT IS THIS ONE (W05a — the R-ARCH §7 carry-forward,
+        // now closed). There used to be two: the arbiter also clamped release
+        // velocity, to `InputArbiter.Config.maxCommitVelocity` = 2400 pt/s
+        // (R-SPIKE fix 5). Two ceilings on one physical quantity, expressed in
+        // units that cannot be compared without knowing the view height, is
+        // one safety property and one number that merely looks like one — and
+        // the one that merely looked like one was the arbiter's, because this
+        // camera re-clamped every seed anyway (a ceiling that depends on
+        // another file staying correct is not a ceiling). So the arbiter's is
+        // deleted rather than converted, and this is now the only ceiling on
+        // camera-generated motion in the codebase.
+        //
+        // The arbiter therefore hands over the finger's measured release
+        // velocity in points per second, UNBOUNDED ABOVE — see
+        // `InputOutcome.commit`. That widens the range of numbers arriving
+        // here, and the answer is that the clamp in `beginSettle` is total: it
+        // maps every finite seed into [0, maxOpticalFlow] and reads a
+        // non-finite one as unseeded. The proof below has never depended on
+        // anything upstream, which is exactly why it can absorb this.
+        //
+        // WHERE THIS IS A BEHAVIOUR CHANGE, stated so nobody has to rediscover
+        // it: the old points ceiling bound BELOW this one only on a view
+        // taller than 1200 pt (= 2400 / 2.0). On a 1366 pt iPad in portrait a
+        // whip flick used to settle at 1.76 screen heights per second and now
+        // settles at up to 2.0 — the reviewed ceiling doing what it says, on
+        // the one device class where the old number was stricter by accident
+        // of unit rather than by decision. Every iPhone, and every iPad in
+        // landscape, is unchanged: 2400 pt/s was already looser than 2.0 sh/s
+        // there, so this ceiling was the binding one and still is. If 2.0 is
+        // the wrong number for a 13-inch iPad, the fix is to turn it down —
+        // and it is now the only number there is to turn.
         //
         // THE ARITHMETIC, stated as Amara asked. On a 390 × 844 pt iPhone:
         //
@@ -935,6 +954,15 @@ final class WorldCamera {
             // commit (gate 3), and the destination is decided by the direction
             // it sent; a disagreeing sign here could only mean a bug upstream,
             // and honouring it would mean settling away from the destination.
+            //
+            // AND THIS DIVISION IS THE UNIT BOUNDARY (W05a). `velocity` is the
+            // finger, in points per second, unbounded; `seededSpeed` is the
+            // world, in screen heights per second, in the same unit as
+            // `maxOpticalFlow` — which is what makes the single ceiling
+            // applied in `beginSettle` comparable to the thing it bounds. It
+            // happens here, and only here, because `viewHeight` lives here.
+            // `viewHeight > 0` is guaranteed by the guard at the top of this
+            // function (invariant D), so the division is safe.
             beginSettle(to: commitDestination(moving: direction),
                         seededSpeed: abs(velocity) / viewHeight,
                         reason: .commit)
@@ -1030,10 +1058,25 @@ final class WorldCamera {
             isReturn = abs(target - departure) <= epsilon
         }
 
-        // Seeded speed is re-clamped to the ceiling here even though the
-        // arbiter clamps it: the camera must not be able to be handed a number
-        // it is not allowed to honour (R-SPIKE fix 5).
-        let speed = min(seededSpeed, config.maxOpticalFlow)
+        // THE CEILING ON THE SEED, and after W05a the only one anywhere: the
+        // arbiter no longer clamps, so a whip flick arrives here as whatever
+        // the finger actually did. R-SPIKE fix 5's requirement — that nothing
+        // can hand this camera a number it is not allowed to honour — is met
+        // by making the clamp TOTAL rather than by asking an upstream file to
+        // pre-round it.
+        //
+        // Total means: every finite seed maps into [0, maxOpticalFlow], and a
+        // non-finite one is read as unseeded — NOT as the ceiling. A seed that
+        // is not a number is not evidence that she asked for speed, and the
+        // unseeded settle is the long, calm end of the band; on nonsense
+        // input this world slows down. NaN already fell into the
+        // unseeded branch below, but only by way of a comparison that happens
+        // to be false against NaN; saying it here means a later reordering of
+        // that branch cannot turn a NaN seed into a NaN duration, which
+        // `step(dt:)` would read as `s = 1` — a settle that is already
+        // complete, i.e. the world teleporting on the one input the camera
+        // does not control.
+        let speed = seededSpeed.isFinite ? min(seededSpeed, config.maxOpticalFlow) : 0
 
         // Duration from the release, so the settle continues her gesture at
         // the pace she chose: peak rate = easePeakFactor · distance / duration,

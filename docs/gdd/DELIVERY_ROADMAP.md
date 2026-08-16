@@ -177,6 +177,9 @@ findings, all adopted:
    silence, breaking "every move is interruptible."*
 5. **Clamp release velocity** (`Config.maxCommitVelocity`). *The arbiter must
    not be able to hand the camera a number the camera is not allowed to honour.*
+   — **Superseded at W05a.** The requirement stands; the location was wrong.
+   `maxCommitVelocity` is deleted and the camera's clamp made total, so the
+   guarantee no longer depends on an upstream file staying correct. See below.
 6. **Housekeeping:** batch outcomes across the coalesced-touch loop and collapse
    consecutive `.panChanged` to one write per frame; mutate the sample buffer in
    place; iterate `touches` in deterministic (timestamp) order; retain velocity
@@ -272,10 +275,31 @@ failure these prevent):
   scalar inside the `TimelineView` closure, never mirroring one into `@State`.
 
 **Carried onto W05:** consume `isTransitioning` (not `flow`) as the single
-question for luminance attenuation; unify the two velocity ceilings (arbiter
-2400 pt/s vs camera 2.0 screen-heights/s) into one screen-height-relative
-number; decide the end-of-axis acknowledgement, since a gated flick at the sky
-currently produces nothing visible.
+question for luminance attenuation; decide the end-of-axis acknowledgement,
+since a gated flick at the sky currently produces nothing visible.
+
+**Closed at W05a — the two velocity ceilings are one.** The arbiter's
+`maxCommitVelocity` (2400 pt/s) is deleted rather than converted, and
+`WorldCamera.Config.maxOpticalFlow` (2.0 screen heights/s) is the only ceiling
+on camera-generated motion in the codebase. The arbiter now reports the
+finger's measured release velocity unbounded; the camera converts at the one
+boundary that knows the view height, and its clamp is total over every finite
+seed and reads a non-finite one as unseeded — nonsense makes this world slower,
+never faster. Verified over 10 seeds x 14 start/direction pairs: peak optical
+flow never exceeds the ceiling, every settle monotone and non-overshooting.
+
+**Opened by W05a, for Amara at the next gate — the iPad ceiling.** The deleted
+points ceiling bound *below* the screen-height one on any view taller than
+1200 pt. On a 1366 pt iPad in portrait a whip flick used to peak at 1.76 screen
+heights/s and now peaks at up to 2.0; every iPhone and every iPad in landscape
+is bit-identical. The Director accepted 2.0 for the playtest build (see the
+ruling below), but the open question is real and is not settled by that
+acceptance: vestibular discomfort tracks *angular* flow, and a 13-inch iPad at
+reading distance subtends far more visual angle than a phone, so the same
+screen-height rate is genuinely more provocative there. The accident of unit
+was, by luck, pointing the right way. Whether the ceiling should be a function
+of device class rather than one constant is Amara's call, on iPad hardware, and
+it does not block a build that two people will play on iPhones.
 
 **Device-only, for the owner's pass:** ruling 6's twenty swipes begun on an orb;
 tap latency median/p99 against the W20a baseline on A12-class hardware; whether

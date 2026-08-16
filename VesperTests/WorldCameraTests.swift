@@ -9,6 +9,7 @@ import CoreGraphics
 //
 //   10  travel constant, peak optical-flow ceiling, a bounded commit
 //       → testSettlePeakOpticalFlowNeverExceedsTheCeiling
+//       → testTheCameraIsTheOnlyVelocityCeiling (W05a)
 //       → testNoSingleCommitTravelsMoreThanTheStatedBound
 //       → testGatedCommitTravelIsContinuousAcrossAPlaceCentre
 //   11  Reduce Motion = zero translation, drag still gives feedback
@@ -434,10 +435,13 @@ final class WorldCameraTests: XCTestCase {
 
     // The world may never slide faster than `maxOpticalFlow` screen heights
     // per second — on the 844 pt reference screen, 2.0 sh/s = 1688 pt/s — at
-    // any instant of any SETTLE, at any seeded velocity, including seeds well
-    // past the arbiter's clamp. (Finger-coupled motion is deliberately exempt
-    // and documented as such on `Config.maxOpticalFlow`; this is the bound on
-    // motion the camera generates on its own.)
+    // any instant of any SETTLE, at any seeded velocity. Since W05a the
+    // arbiter no longer clamps release velocity, so the seeds well past
+    // 2400 pt/s in this sweep are not hypothetical any more: 6000 pt/s is an
+    // ordinary whip flick and the arbiter now reports it as measured.
+    // (Finger-coupled motion is deliberately exempt and documented as such on
+    // `Config.maxOpticalFlow`; this is the bound on motion the camera
+    // generates on its own.)
     func testSettlePeakOpticalFlowNeverExceedsTheCeiling() {
         let camera0 = makeCamera()
         let ceiling = camera0.config.maxOpticalFlow
@@ -461,18 +465,129 @@ final class WorldCameraTests: XCTestCase {
                              "the sweep never approached the ceiling, so it is not testing it")
     }
 
+    // W05a — THE UNIFICATION ITSELF, as a property rather than as a comment.
+    //
+    // There used to be two ceilings on one physical quantity: the arbiter
+    // clamped release velocity to 2400 pt/s and this camera clamped seeded
+    // speed to 2.0 screen heights per second. Two numbers in units that cannot
+    // be compared without knowing the view height. The arbiter's is gone, so
+    // this camera is now the sole authority, and "sole authority" means it
+    // must be TOTAL over the seeds it can be handed — not merely correct over
+    // the ones a well-behaved arbiter used to send.
+    //
+    // Four things are asserted, at every start position and both directions:
+    //
+    //   * every seed from a dead-stop release to ten times the ceiling
+    //     produces a settle that is bounded, monotone, non-overshooting and
+    //     lands exactly;
+    //   * every seed AT OR ABOVE the ceiling produces the IDENTICAL
+    //     trajectory, frame for frame. That is what makes the removal of the
+    //     upstream clamp a no-op wherever it used to bite: 1688, 2400 and
+    //     16880 pt/s are one behaviour, not three;
+    //   * a non-finite seed is read as no seed at all, so nonsense arriving
+    //     from an untrusted layer makes the world slower, never faster;
+    //   * a zero seed still settles, calmly, and still lands.
+    func testTheCameraIsTheOnlyVelocityCeiling() {
+        let reference = makeCamera()
+        // The ceiling expressed back in the arbiter's own units, on the
+        // reference screen: 2.0 sh/s × 844 pt = 1688 pt/s.
+        let ceilingInPoints = reference.config.maxOpticalFlow * screenHeight
+
+        // Frame-by-frame offsets of a whole settle, so two seeds can be
+        // compared as trajectories and not merely as endpoints.
+        func trajectory(start: CGFloat, _ direction: WorldDirection, _ velocity: CGFloat) -> [CGFloat] {
+            let camera = makeCamera()
+            drag(camera, by: start * screenHeight)
+            camera.consume(.commit(direction, velocity: direction == .up ? -velocity : velocity))
+            var offsets: [CGFloat] = [camera.offset]
+            var steps = 0
+            while !camera.isAtRest && steps < 10_000 {
+                camera.step(dt: frame)
+                steps += 1
+                offsets.append(camera.offset)
+            }
+            XCTAssertTrue(camera.isAtRest, "settle did not converge")
+            return offsets
+        }
+
+        for start in [CGFloat(-0.75), -0.4, -0.11, 0, 0.11, 0.4, 0.75] {
+            for direction in [WorldDirection.up, .down] {
+                // 0 is a release with no flick behind it; the others bracket
+                // the ceiling from below, at it, and ten times past it.
+                for velocity in [CGFloat(0), 300, ceilingInPoints, 2400, ceilingInPoints * 10] {
+                    let camera = makeCamera()
+                    drag(camera, by: start * screenHeight)
+                    camera.consume(.commit(direction, velocity: direction == .up ? -velocity : velocity))
+                    guard !camera.isAtRest else { continue }
+                    let audit = runSettle(camera)
+                    let label = "start \(start) \(direction) v\(velocity)"
+                    XCTAssertLessThanOrEqual(audit.peakFlow, reference.config.maxOpticalFlow + 1e-9,
+                                             "peak flow \(audit.peakFlow) sh/s — \(label)")
+                    XCTAssertFalse(audit.reversed, "settle reversed — \(label)")
+                    XCTAssertFalse(audit.overshot, "settle overshot — \(label)")
+                    XCTAssertEqual(audit.finalOffset, audit.target, accuracy: 1e-12,
+                                   "settle did not land exactly — \(label)")
+                }
+
+                // Saturation. Above the ceiling the seed stops meaning
+                // anything, which is precisely why the arbiter no longer needs
+                // to pre-round it.
+                let atCeiling = trajectory(start: start, direction, ceilingInPoints)
+                for velocity in [ceilingInPoints, 2400, CGFloat(6000), ceilingInPoints * 10] {
+                    let faster = trajectory(start: start, direction, velocity)
+                    XCTAssertEqual(faster.count, atCeiling.count,
+                                   "v\(velocity) took a different number of frames than the ceiling")
+                    for (i, offset) in faster.enumerated() where i < atCeiling.count {
+                        XCTAssertEqual(offset, atCeiling[i], accuracy: 1e-12,
+                                       "v\(velocity) diverged from the ceiling on frame \(i)")
+                    }
+                }
+            }
+        }
+
+        // A seed that is not a number is not a request for speed. It settles
+        // as an unseeded release does — the long, calm end of the band — and
+        // it emphatically does not produce a duration the ease would read as
+        // "already complete", i.e. a teleport.
+        for nonsense in [CGFloat.infinity, .nan] {
+            let camera = makeCamera()
+            drag(camera, by: -0.4 * screenHeight)
+            camera.consume(.commit(.up, velocity: -nonsense))
+            XCTAssertFalse(camera.isAtRest, "a nonsense seed must not complete the settle instantly")
+            let audit = runSettle(camera)
+            XCTAssertLessThanOrEqual(audit.peakFlow, reference.config.maxOpticalFlow + 1e-9)
+            XCTAssertFalse(audit.overshot)
+            XCTAssertFalse(audit.reversed)
+            XCTAssertEqual(audit.finalOffset, audit.target, accuracy: 1e-12)
+
+            let unseeded = makeCamera()
+            drag(unseeded, by: -0.4 * screenHeight)
+            unseeded.consume(.commit(.up, velocity: 0))
+            let calm = runSettle(unseeded)
+            XCTAssertEqual(audit.duration, calm.duration, accuracy: 1e-12,
+                           "a non-finite seed must settle exactly as an unseeded release does")
+        }
+    }
+
     // 04 §5 fixes the settle at 300–650 ms. The band is asserted only for
-    // commits the arbiter can actually produce (past its ~11% distance gate,
-    // within its velocity clamp) and that have somewhere left to travel —
-    // beyond that range the optical-flow ceiling deliberately outranks the
-    // band and the settle is allowed to be slower.
+    // commits the arbiter can actually produce (past its ~11% distance gate)
+    // and that have somewhere left to travel — beyond that range the
+    // optical-flow ceiling deliberately outranks the band and the settle is
+    // allowed to be slower.
+    //
+    // The velocity list runs past 2400 since W05a: the arbiter no longer
+    // clamps, so "what the arbiter can produce" is now whatever a hand can do.
+    // It changes nothing, and that is the point — every seed at or above the
+    // ceiling settles identically (testTheCameraIsTheOnlyVelocityCeiling), so
+    // the band the navigation is committed to did not move when the upstream
+    // clamp was deleted.
     func testReachableCommitSettlesStayInsideTheCommittedBand() {
         let camera0 = makeCamera()
         for start in [CGFloat(-0.7), -0.4, -0.11, 0.11, 0.4, 0.7] {
             for direction in [WorldDirection.up, .down] {
                 let signed: CGFloat = direction == .up ? -1 : 1
                 guard signed * start >= 0.11 else { continue }   // the distance gate
-                for speed in [CGFloat(300), 900, 1688, 2400] {   // the arbiter's range
+                for speed in [CGFloat(300), 900, 1688, 2400, 6000] {
                     let camera = makeCamera()
                     drag(camera, by: start * screenHeight)
                     camera.consume(.commit(direction, velocity: signed * speed))
