@@ -111,6 +111,19 @@ final class WorldRegressionTests: XCTestCase {
         // rapid alternation; ~8–18 lands the next touch in the middle of a
         // settle; ~90 lets the world come fully to rest.
         var gapFrames: Int
+        // Whether she then STOPS until the world has landed, rather than
+        // touching again on a fixed count of frames.
+        //
+        // This is not a detail. Every touch that lands off-rest is a transit
+        // grab, and releasing it undecided settles the world again — so a storm
+        // of nothing but short gaps re-grabs the world before it can ever land
+        // and never comes back to rest at all. The first version of this script
+        // did exactly that: 383 of 420 touch-downs off-rest, and ruling 6's
+        // case (a swipe begun on an orb, at rest) exercised three times in the
+        // whole run. A session is the other way round — the world is still
+        // while she pops, and only navigation moves it — so most gestures rest
+        // afterwards and the storm keeps both halves of the collision live.
+        var restsAfterward: Bool
 
         var origin: CGPoint { points[0] }
         var release: CGPoint { points[points.count - 1] }
@@ -295,13 +308,25 @@ final class WorldRegressionTests: XCTestCase {
             let gapChoices = [0, 1, 2, 8, 18, 90]
             let gap = gapChoices[Int.random(in: 0..<gapChoices.count, using: &rng)]
 
+            // Two gestures in three let the world land before she touches
+            // again; the third deliberately lands mid-motion. That keeps the
+            // interrupted-settle half of the storm well over its coverage
+            // floor while leaving the field genuinely poppable.
+            let rests = Int.random(in: 0..<3, using: &rng) != 0
+
             gestures.append(ScriptedGesture(kind: kind,
                                             points: points,
                                             times: times,
                                             extraFinger: extra,
                                             cancelledRatherThanLifted: kind == .cancelledSwipe,
-                                            gapFrames: gap))
-            clock += duration + 0.25 + TimeInterval(gap) * frame
+                                            gapFrames: gap,
+                                            restsAfterward: rests))
+            // The rest itself takes an unknown number of frames — the camera
+            // decides, not the script — so the finger clock gets a nominal
+            // allowance for it. Only monotonicity matters here: both gates are
+            // measured WITHIN a gesture, and the two clocks are independent by
+            // design (see the note above).
+            clock += duration + 0.25 + TimeInterval(gap) * frame + (rests ? 0.5 : 0)
         }
         return gestures
     }
@@ -568,6 +593,22 @@ final class WorldRegressionTests: XCTestCase {
             if camera.place != placeAtTouchDown && !committed { movesInterruptedByATouch += 1 }
 
             stepWorld(g.gapFrames)
+
+            // She stops until the world has landed. Capped, and the cap is
+            // asserted rather than absorbed: a camera that cannot reach rest in
+            // ten seconds of frames is the liveness failure this test exists to
+            // catch, and silently continuing the storm would hide it behind a
+            // coverage number at the end.
+            if g.restsAfterward {
+                var restFrames = 0
+                while !camera.isAtRest && restFrames < 600 {
+                    stepWorld(1)
+                    restFrames += 1
+                }
+                XCTAssertTrue(camera.isAtRest,
+                              "gesture #\(index) (\(g.kind.rawValue)): the world could not come to "
+                              + "rest in \(restFrames) frames")
+            }
 
             // Keep a field under the storm so there is always something to hit.
             if sim.orbs.allSatisfy({ !$0.alive }) { sim.restart() }
