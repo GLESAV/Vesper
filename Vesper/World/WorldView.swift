@@ -313,6 +313,32 @@ private struct WorldScene: View {
         let rm = camera.reduceMotion
         let offset = camera.offset
 
+        // W05b, THE TWO TRAVEL-ONLY RENDER CUES, read here with everything
+        // else and for the same reason: they are per-frame scalars, so they
+        // are taken from the camera at the moment they are needed and handed
+        // straight to the views that draw with them. Neither is mirrored into
+        // `@State`, neither is given to `withAnimation`, and neither is
+        // published — they are functions of a camera position that is already
+        // animating, and a SwiftUI curve laid over them would be the second
+        // curve in a fight over one number.
+        //
+        // Both are pure functions of camera state and both are the identity
+        // at rest — zero displacement, unity luminance — so a paused world
+        // draws precisely the picture it drew before any of this existed. See
+        // `WorldRender` for the arithmetic and for why 0.30 and 0.05.
+        let parallax = WorldRender.moteParallax(offset: offset,
+                                                travelPerPlace: camera.config.travelPerPlace,
+                                                viewHeight: h)
+
+        // BARRIER CONDITION 14. `isTransitioning` is the single question —
+        // never `flow`, never `exceedsTransitFlow` (the R-ARCH carry-forward
+        // onto W05): those are derived from translation, and under Reduce
+        // Motion there is none, so they would leave the accessible path — two
+        // whole places crossfading through each other — as the one transit
+        // where the light never takes its turn.
+        let luminance = WorldRender.transitLuminance(isTransitioning: camera.isTransitioning,
+                                                     crossfade: camera.transition.t)
+
         // BARRIER CONDITION 11. Under Reduce Motion the world produces ZERO
         // translation and the places crossfade through each other instead.
         // `camera.offset` is already identically zero there; the `rm` branch
@@ -330,13 +356,24 @@ private struct WorldScene: View {
         // they are positioned from out here. Neither is told where the camera
         // is, which is what keeps this file the only one that has to be
         // right about the axis.
+        //
+        // THE DIM IS APPLIED TO THE PLACES AND ONLY TO THE PLACES. All three
+        // take it, uniformly, so nothing changes its relationship to anything
+        // else while the world moves — only the level does, which is the calm
+        // way to spend condition 14 and covers the pop and chain flash it
+        // names along with everything around them. The whispers and the cards
+        // are siblings out in `composition` and keep their full light on
+        // purpose: the signage may never dim (W06), and a fortune revealed on
+        // the way to the sky must stay readable while she travels (§7 ruling
+        // 9). The background is a sibling too, so the places dim toward the
+        // ground rather than the ground dimming with them.
         return ZStack {
             placed(SkyView(model: model), as: .sky,
-                   y: y(.sky), alpha: alpha(.sky), size: size)
-            placed(field(at: date, size: size), as: .field,
-                   y: y(.field), alpha: alpha(.field), size: size)
+                   y: y(.sky), alpha: alpha(.sky), luminance: luminance, size: size)
+            placed(field(at: date, size: size, moteParallax: parallax), as: .field,
+                   y: y(.field), alpha: alpha(.field), luminance: luminance, size: size)
             placed(JournalView(model: model), as: .journal,
-                   y: y(.journal), alpha: alpha(.journal), size: size)
+                   y: y(.journal), alpha: alpha(.journal), luminance: luminance, size: size)
         }
         .frame(width: size.width, height: size.height)
     }
@@ -348,11 +385,20 @@ private struct WorldScene: View {
                                        as place: Place,
                                        y: CGFloat,
                                        alpha: Double,
+                                       luminance: Double,
                                        size: CGSize) -> some View {
         content
             .frame(width: size.width, height: size.height)
             .offset(y: y)
-            .opacity(alpha)
+            // TWO FACTORS, ONE MODIFIER, AND THEY MEAN DIFFERENT THINGS.
+            // `alpha` is how much of this place is on screen — the Reduce
+            // Motion crossfade, and the whole of the navigation on that path.
+            // `luminance` is barrier condition 14's attenuation while the
+            // world travels: exactly 1 at rest, so at rest this line is
+            // exactly the line it was before W05b. Multiplied rather than
+            // stacked as a second `.opacity` so there is one composite per
+            // place per frame instead of two.
+            .opacity(alpha * luminance)
             // THE PLACE SHE IS IN IS THE ONE THAT ANSWERS. The counterpart to
             // the hit-testing ruling in `composition`: the body is touchable
             // now, so a place must say when it is NOT.
@@ -390,6 +436,10 @@ private struct WorldScene: View {
             // ever true under Reduce Motion, where the crossfade is the whole
             // of the navigation; with translation on, the neighbouring places
             // really are partly visible and belong in the rotor.
+            //
+            // `alpha` ALONE, not the dimmed product: what is on screen is a
+            // fact about the world, and how brightly the world is lit while it
+            // travels may not be allowed to change what VoiceOver can reach.
             .accessibilityHidden(alpha < 0.01)
     }
 
@@ -403,7 +453,12 @@ private struct WorldScene: View {
 
     // MARK: - The field (the real game)
 
-    private func field(at date: Date, size: CGSize) -> some View {
+    // `moteParallax` is the dust layer's drawing-time translation for this
+    // frame (W05b), computed out in `movingBody` from the camera's offset and
+    // passed down rather than read here: this function is inside a `Canvas`
+    // draw closure, and a draw closure is the one place in the app that may
+    // not go looking for state.
+    private func field(at date: Date, size: CGSize, moteParallax: CGFloat) -> some View {
         ZStack {
             Canvas { ctx, _ in
                 // RULE 3, THE LINE IT LIVES ON. The pinned `size` from the
@@ -413,7 +468,8 @@ private struct WorldScene: View {
                 // this argument changes, so it must be constant at every
                 // camera position or the field is scrambled mid-play.
                 game.frame(date: date, size: size)
-                renderer.draw(game.sim, into: &ctx, size: size)
+                renderer.draw(game.sim, into: &ctx, size: size,
+                              moteParallax: moteParallax)
             }
 
             // The counter belongs to the FIELD, not to the app: it travels
