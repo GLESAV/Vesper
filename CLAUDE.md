@@ -140,6 +140,13 @@ simulation free of UI imports, and rely on the CI workflow to verify the build.
 
 ## Planning docs
 
+**The adopted end-to-end v2 plan lives in `docs/gdd/` — start at
+`00_MASTER_PLAN.md`.** It supersedes the roadmap's M2+ and adds two pillars
+(One Beautiful Place; Her Evening, Respected) that bind all new UI work:
+navigation is movement through one world (sky / field / journal), never icons
+or modal sheets. Phase 0 of that plan (the navigation rebuild) blocks all other
+feature work.
+
 - `docs/STRATEGY.md` — what "AAA" means for Vesper, engineering/UX standards, budgets
 - `docs/ROADMAP.md` — milestones M0–M3 with acceptance criteria
 - `docs/BUILD_PLAN.md` — file-level build plan, test plan, release checklist

@@ -1,5 +1,9 @@
 # Vesper Roadmap
 
+> **Note (v2 planning):** everything below M1.6 is superseded by the adopted
+> end-to-end plan in `docs/gdd/00_MASTER_PLAN.md` ("One World"). M2/M3 items
+> below survive only where the GDD suite re-adopts them.
+
 Milestones are sequential; each one is shippable on its own. M0 + M1 together are the
 MVP ("The Feel Update", v1.1). Later milestones are proposals, always subject to the
 pillar veto tests in `docs/STRATEGY.md` §2.
