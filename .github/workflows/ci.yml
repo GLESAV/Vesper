@@ -28,9 +28,9 @@ jobs:
       matrix:
         include:
           - config: world
-            conditions: ""
+            conditions: "$(inherited)"
           - config: classic
-            conditions: "VESPER_CLASSIC_NAV"
+            conditions: "$(inherited) VESPER_CLASSIC_NAV"
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
             -project Vesper.xcodeproj \
             -scheme Vesper \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS="$(echo '$(inherited) ${{ matrix.conditions }}' | xargs)" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='${{ matrix.conditions }}' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY= \
             DEVELOPMENT_TEAM=
