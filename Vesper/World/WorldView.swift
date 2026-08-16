@@ -29,13 +29,18 @@ import SwiftUI
 //      field under her hands mid-play.
 // ─────────────────────────────────────────────────────────────────────────
 //
-// W04 SCOPE. The FIELD here is the real game, rendered exactly as
-// `ContentView` renders it. The sky and the journal are honest placeholders:
-// W09 (`SkyView`, Tomás) and W11 (`JournalView`, Lena) replace them
-// wholesale. They exist so the world has three real places to travel between
-// while those items are in flight — and so nothing here pretends the sky is
-// finished. The wayfinding whispers are W06 (Lena) and land as siblings of
-// the moving body, beside the input layer.
+// WHAT IS COMPOSED HERE. All three places are real now. The FIELD is the
+// game, rendered exactly as `ContentView` renders it; the sky is `SkyView`
+// (W09, Tomás) and the journal is `JournalView` (W11, Lena). This file
+// positions them and knows nothing else about them — each fills one screen,
+// each reads what it needs from `WorldModel.game` and the shared stores, and
+// neither of them knows the camera exists. The honest placeholders that stood
+// in for them are gone; nothing here pretends on their behalf any more.
+//
+// The wayfinding whispers (W06, Lena's `WhisperLabel`) are wired HERE, as
+// siblings of the moving body — see §3 of `composition`. They are the PRIMARY
+// way through the world (R-SPIKE ruling 7) and the swipe is the enhancement,
+// which is why their position in this stack is structural too.
 
 // MARK: - Root
 
@@ -128,26 +133,86 @@ private struct WorldScene: View {
             // ── 1. THE MOVING WORLD ─────────────────────────────────────
             //
             // THE PAUSE PREDICATE (H3, and a blocking acceptance condition):
-            // the sim's quiescence AND the published `worldMoving`.
+            // the field's quiescence OR her absence from it, AND the
+            // published `worldMoving`.
             //
-            // IT MAY NEVER READ THE CAMERA. The camera is deliberately not
-            // observable, so once a predicate naming it evaluated true the
-            // body would never be re-evaluated: the TimelineView would stay
-            // paused, `step(dt:)` would stop being called, and the next
-            // commit would begin a settle that is never stepped. The world
-            // would not freeze from being paused too eagerly — it would
-            // freeze because the one thing that could un-pause it is
-            // invisible to SwiftUI.
+            // RULED, NOT IMPROVISED. The off-field half of this line is a
+            // Director ruling on a defect raised from this file, and it is
+            // written down because a later reader will see a longer predicate
+            // than H3's example and be tempted to shorten it back.
             //
-            // `renderingPaused` IS `sim.isQuiescent`, published:
-            // `GameSimulation` is not observable either, so naming the raw
-            // flag here would have the identical defect. This is the same
-            // mirror v1.2 pauses on.
+            // THE DEFECT. `renderingPaused` is `sim.isQuiescent`, published —
+            // and `GameViewModel.frame(date:size:)` takes an early return
+            // whenever `simActive` is false. The instant she leaves the field
+            // the sim stops being stepped, so that mirror FREEZES at whatever
+            // it last was: `false`, for any field with an orb still on it.
+            // The old predicate would then have rendered the world at the
+            // full frame rate for as long as she sat reading the journal,
+            // with nothing moving on the glass — heat and battery spent in
+            // the one place the product promises quiet.
+            //
+            // WHAT WAS REFUSED, AND WHY:
+            //
+            //   * NOT `camera.isAtRest` / `camera.place`, alone or added
+            //     here. Ruling 7 keeps the camera non-observable, so a
+            //     predicate naming it never re-evaluates: once true, the
+            //     TimelineView stays paused, `step(dt:)` stops being called
+            //     (H2), and the next commit begins a settle that is never
+            //     stepped. The world would not freeze from being paused too
+            //     eagerly — it would freeze because the one thing that could
+            //     un-pause it is invisible to SwiftUI. Naming
+            //     `sim.isQuiescent` raw instead of its published mirror has
+            //     the identical defect, for the identical reason.
+            //   * NOT A THIRD PUBLISHED VALUE — an `offField`, a
+            //     `worldPaused`, a published `simActive`. `WorldModel`
+            //     publishes `place` and `worldMoving` AND NOTHING ELSE, which
+            //     is a blocking acceptance; and a third value derived from
+            //     those two is a value that can be stale against them, for
+            //     about a frame at each end of every settle, which is exactly
+            //     the window that costs a pop.
+            //   * NOT `place != .field` ON ITS OWN. `place` flips at the
+            //     COMMIT instant — the start of the travel, not the end — so
+            //     on its own it would pause the world in the middle of the
+            //     settle she just asked for. `!worldMoving` is the term that
+            //     keeps a settle alive; it is cleared only once the camera
+            //     has actually arrived (`worldSettled`, deferred).
+            //
+            // Both terms are PUBLISHED, so both can wake it, and every route
+            // back into motion — swipe or whisper tap — goes through
+            // `WorldModel.handle`, which sets them in the same touch
+            // callback. At the field the added term is false, so this is
+            // exactly the predicate v1.2 pauses on and nothing about the
+            // field's own behaviour changes.
+            //
+            // The resume is lurch-free by construction: the first frame after
+            // an un-pause is always a frame with the camera in flight, so
+            // `simActive` is false and `frame(date:size:)` takes its early
+            // return — which advances `lastFrameDate` without stepping the
+            // sim. The minute she spent in the journal never arrives at the
+            // field as one enormous dt.
+            //
+            // Pausing stops the timeline's ticks, not the places: a journal
+            // page still redraws when its own state changes, because that is
+            // an ordinary SwiftUI invalidation and does not need a clock.
             TimelineView(.animation(minimumInterval: nil,
-                                    paused: game.renderingPaused && !model.worldMoving)) { timeline in
+                                    paused: (model.place != .field || game.renderingPaused)
+                                        && !model.worldMoving)) { timeline in
                 movingBody(at: timeline.date, size: size)
             }
             // The world is scenery. Every touch belongs to the layer below.
+            //
+            // RAISED RATHER THAN QUIETLY CHANGED: with the real places
+            // composed in, this line also holds off SkyView's star targets
+            // and JournalView's rows. So does the stacking order underneath
+            // it — the input layer is a full-screen UIView that answers every
+            // touch reaching it, so anything below it is unreachable whatever
+            // this modifier says. Making the places interactive means moving
+            // where the pan surface lives in this ZStack, which is a change
+            // to input arbitration (W12, Rafael) and a Director call; it is
+            // not a thing to improvise inside a whisper-wiring item while
+            // both place files are still being written. Navigation does not
+            // wait on it — the whispers in §3 are siblings ABOVE the input
+            // layer and are the primary path (ruling 7).
             .allowsHitTesting(false)
 
             // ── 2. THE STABLE INPUT SIBLING ─────────────────────────────
@@ -168,7 +233,15 @@ private struct WorldScene: View {
             WorldInputLayer(isFieldAtRest: { model.simActive },
                             onOutcome: { model.handle($0) })
 
-            // ── 3. WORLD-LEVEL OVERLAYS THAT SURVIVE TRANSIT ────────────
+            // ── 3. THE WAYFINDING WHISPERS ──────────────────────────────
+            //
+            // Stable siblings, stacked ABOVE the input layer so they can be
+            // tapped at all, and below the cards so a fortune is never
+            // fighting one for a touch. The whole of the reasoning is on
+            // `whispers`.
+            whispers
+
+            // ── 4. WORLD-LEVEL OVERLAYS THAT SURVIVE TRANSIT ────────────
             //
             // §7 ruling 9. Cards are siblings of the moving body, so a
             // fortune revealed on the way to the sky is still readable when
@@ -220,11 +293,17 @@ private struct WorldScene: View {
             rm ? Double(camera.opacity(of: place)) : 1
         }
 
+        // The two places are composed by value and nothing else is handed to
+        // them: they take the model, they fill the screen they are given, and
+        // they are positioned from out here. Neither is told where the camera
+        // is, which is what keeps this file the only one that has to be
+        // right about the axis.
         return ZStack {
-            placed(SkyPlace(), as: .sky, y: y(.sky), alpha: alpha(.sky), size: size)
+            placed(SkyView(model: model), as: .sky,
+                   y: y(.sky), alpha: alpha(.sky), size: size)
             placed(field(at: date, size: size), as: .field,
                    y: y(.field), alpha: alpha(.field), size: size)
-            placed(JournalPlace(), as: .journal,
+            placed(JournalView(model: model), as: .journal,
                    y: y(.journal), alpha: alpha(.journal), size: size)
         }
         .frame(width: size.width, height: size.height)
@@ -363,6 +442,141 @@ private struct WorldScene: View {
             .padding(.top, 5)
     }
 
+    // MARK: - Wayfinding
+
+    // THE PRIMARY WAY THROUGH THE WORLD (R-SPIKE ruling 7), and therefore a
+    // stable sibling of the moving body rather than anything inside it. Two
+    // reasons, both structural:
+    //
+    //   * ABOVE THE INPUT LAYER. `WorldInputView` is a full-screen UIView
+    //     that answers every touch that reaches it, so a whisper composed
+    //     below it is a picture of a whisper. Only a sibling stacked after it
+    //     can be tapped at all — and the tap is what the five-second mute
+    //     target rides on.
+    //   * OUTSIDE THE MOVING BODY. A whisper that travelled with a place
+    //     would slide off the screen exactly when she needs it, and would be
+    //     rebuilt every frame of every swipe — rule 2's cancelled-touch
+    //     failure, applied to the one control that may never miss.
+    //
+    // The cost is stated plainly rather than hidden: these two ≥44 pt regions
+    // are the only parts of the screen where a touch does not reach the field
+    // or the pan. That is ruling 7's own trade — the whispers are the primary
+    // path — and it is why they are small and at the extreme edges.
+    //
+    // Where they point is asked of the camera's own table
+    // (`destination(from:moving:)`), never re-derived here; its header names
+    // re-deriving as the bug. The table is pure in its arguments and the
+    // argument is the PUBLISHED `place`, so nothing on this path reads
+    // mutable camera state and nothing here needs the camera to be
+    // observable.
+    //
+    // At the ends of the axis that table clamps — `.up` from the sky is the
+    // sky — and a whisper naming the place she is already standing in would
+    // be a lie, so that end simply carries no whisper. She is still never
+    // without a way back: from the sky the foot reads `the field`, from the
+    // journal the head does.
+    //
+    // ONE HANDOFF, STATED HERE SO IT IS NOT DISCOVERED ON A DEVICE: `SkyView`
+    // and `JournalView` each carry a `the field` whisper of their own, from
+    // when this pair did not exist. Those two are inside the moving body — so
+    // they are below the input layer, cannot be tapped, and travel off screen
+    // with their place — and they now print underneath these. The fix is a
+    // deletion in each of those files by their owners, not a workaround here;
+    // this layer is the one that can actually be touched.
+    private var whispers: some View {
+        VStack(spacing: 0) {
+            wayfindingWhisper(going: .up, edge: .top, inset: Self.headInset)
+            Spacer(minLength: 0)
+            wayfindingWhisper(going: .down, edge: .bottom, inset: Self.footInset)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // `place` is published and changes at most once per commit, so this
+        // is not the per-frame value ruling 7 bars from `.animation` — the
+        // camera is nowhere in it. The signage crosses over while the world
+        // travels instead of snapping at the instant she lets go.
+        .animation(.easeInOut(duration: 0.35), value: model.place)
+    }
+
+    // The inset is applied INSIDE the condition, so the end of the axis that
+    // carries no whisper contributes no layout either.
+    @ViewBuilder
+    private func wayfindingWhisper(going direction: WorldDirection,
+                                   edge: Edge.Set,
+                                   inset: CGFloat) -> some View {
+        let here = model.place
+        let there = model.camera.destination(from: here, moving: direction)
+        if there != here {
+            whisperLabel(to: there, going: direction)
+                .padding(edge, inset)
+                // Read after the place she is in: the way out is the thing
+                // she already knows how to find.
+                .accessibilitySortPriority(-1)
+                .transition(.opacity)
+        }
+    }
+
+    private func whisperLabel(to place: Place, going direction: WorldDirection) -> WhisperLabel {
+        switch place {
+        case .sky:
+            return WhisperLabel.sky(hint: Self.skyHint,
+                                    isPlaying: fieldIsInPlay,
+                                    onTap: { go(direction) })
+        case .journal:
+            return WhisperLabel.journal(hint: Self.journalHint,
+                                        isPlaying: fieldIsInPlay,
+                                        onTap: { go(direction) })
+        case .field:
+            // The way home, which is only ever shown from somewhere that is
+            // not the field — so it is never dimmed: her hands are not busy
+            // here, and the one thing she may be looking for is this.
+            return WhisperLabel(text: Strings.fieldWhisper,
+                                accessibilityLabel: Strings.fieldA11y,
+                                hint: Strings.fieldWhisperHint,
+                                isPlaying: false,
+                                onTap: { go(direction) })
+        }
+    }
+
+    // Navigation, and the whole of it. The same call the swipe makes, with no
+    // flick behind it: velocity 0 means the camera times the settle from the
+    // distance alone. `handle` is a touch callback — outside the render pass
+    // — and it is what writes `place` and `worldMoving`, so this tap also
+    // un-pauses the world it is about to move.
+    private func go(_ direction: WorldDirection) {
+        model.handle([.commit(direction, velocity: 0)])
+    }
+
+    // The only input to the whispers' dim (`WhisperPresentation`): orbs on
+    // screen, hands busy.
+    //
+    // EVERY TERM IS PUBLISHED — `place`, `started`, `renderingPaused` — so
+    // the dim is not a snapshot of whenever SwiftUI last happened to run this
+    // body. `simActive` is the more precise question and is deliberately not
+    // asked: it reads the camera, and nothing about the camera can invalidate
+    // a view (ruling 7), so the whisper would sit at the wrong brightness
+    // until something unrelated redrew it.
+    private var fieldIsInPlay: Bool {
+        model.place == .field && game.started && !game.renderingPaused
+    }
+
+    // The world ignores the safe area, so the whispers keep their own
+    // distance: clear of a Dynamic Island at the head, clear of the home
+    // indicator at the foot, on every supported iPhone.
+    private static let headInset: CGFloat = 60
+    private static let footInset: CGFloat = 34
+
+    // A CATALOG GAP, RECORDED RATHER THAN PAPERED OVER. `Strings` carries
+    // `fieldWhisperHint` — the way home, which both places already use — but
+    // no hint for the sky or the journal, and `WhisperLabel.hint` is
+    // non-optional on purpose (a whisper that ships without one is a review
+    // failure, and a defaulted parameter is how that happens quietly). These
+    // two lines are the only user-facing literals in this file. They belong
+    // in the W13′ catalog beside `fieldWhisperHint`, in the same clear
+    // register a hint is written in, and should move there with the copy
+    // owner's reading rather than with mine.
+    private static let skyHint = "goes up to the sky"
+    private static let journalHint = "goes down to your journal"
+
     // MARK: - Cards
 
     @ViewBuilder private var cards: some View {
@@ -395,9 +609,9 @@ private struct WorldScene: View {
 
 // MARK: - Palette
 
-// The muted tones the rest of the app already uses, named once so the world's
-// three places cannot drift apart while W09 and W11 are written in parallel.
-// Never saturated, never pure white.
+// The muted tones the rest of the app already uses. Scoped to this file, and
+// now only the FIELD's: the sky and the journal carry their own. Never
+// saturated, never pure white.
 private enum Palette {
     static let bright = Color(red: 244/255, green: 242/255, blue: 250/255)
     static let soft   = Color(red: 214/255, green: 204/255, blue: 230/255)
@@ -406,50 +620,7 @@ private enum Palette {
     static let card   = Color(red: 24/255, green: 22/255, blue: 34/255)
 }
 
-// MARK: - Placeholder places
-
-// HONEST PLACEHOLDERS, and they say so on the glass. W09 replaces the sky
-// with the Path as a constellation over the existing `MapStore`; W11 replaces
-// the journal with its pages. Neither is faked here — a placeholder dressed
-// up as finished work is how a playtest returns a confident answer to the
-// wrong question.
-//
-// The titles come from the catalog; only the one temporary line underneath is
-// local, and it leaves when the placeholder does.
-private struct SkyPlace: View {
-    var body: some View {
-        PlaceCard(title: Strings.skyWhisper,
-                  subtitle: "the path of stones will be here.")
-    }
-}
-
-private struct JournalPlace: View {
-    var body: some View {
-        PlaceCard(title: Strings.journalWhisper,
-                  subtitle: "your evening, your collection, and \(Strings.quietThings).")
-    }
-}
-
-private struct PlaceCard: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("✦")
-                .font(.system(size: 15))
-                .foregroundColor(Palette.soft.opacity(0.7))
-            Text(title)
-                .font(.system(size: 26, weight: .light, design: .serif))
-                .foregroundColor(Palette.bright.opacity(0.9))
-            Text(subtitle)
-                .font(.system(size: 12, design: .serif))
-                .italic()
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .foregroundColor(Palette.dim)
-                .padding(.horizontal, 40)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
+// The placeholder sky and journal that stood here through W04 are gone: the
+// real `SkyView` (W09) and `JournalView` (W11) are composed in `movingBody`,
+// and a placeholder kept beside finished work is how a playtest returns a
+// confident answer to the wrong question.

@@ -53,6 +53,23 @@ enum Strings {
     /// The fortune card's dismissal hint — clear register, so it says plainly what a tap does.
     static let fortuneDismissHint = "tap to let it go"
 
+    // MARK: - The sky
+
+    /// A star's state when it is the stone she is standing on.
+    static let starHere = "you are here"
+    /// A star whose field she has already cleared. Kept, never spent — the
+    /// sky's whole claim is that history only accrues (docs/pop_map.md).
+    static let starWalked = "walked"
+    /// A star that exists and is playable, and that she simply has not
+    /// cleared yet. Stated as fact, with nothing owed.
+    static let starUnwalked = "not yet walked"
+    /// What activating a star does, said plainly rather than invitingly: a
+    /// hint is read after the label, when she has already chosen to listen.
+    static let starHint = "steps onto this stone"
+    /// The hint on the `the field` whisper — the way home from a place that
+    /// is not the field. Same act as the swipe.
+    static let fieldWhisperHint = "returns to the field"
+
     // MARK: - The journal's quiet things
 
     static let quietThings = "the quiet things"
@@ -66,11 +83,71 @@ enum Strings {
     /// Destructive-adjacent, so it is unambiguous about scope and carries no loss language.
     static let beginAgainConfirm = "begin this field again?"
 
+    // MARK: - The journal's pages
+
+    /// Page one. Names the hour, never the date — the journal has no calendar.
+    static let theEvening = "the evening"
+    /// Page two.
+    static let theCollection = "the collection"
+    /// VoiceOver custom actions for turning a page, in the book's own voice.
+    static let nextPage = "the next page"
+    static let previousPage = "the page before"
+    /// The hint on a page name in the journal's foot ribbon.
+    static let pageHint = "turns to this page"
+
+    // MARK: - The evening page
+
+    static let popPoints = "pop points"
+    /// Record labels. `set free` is `setFreeLabel`, reused rather than retyped.
+    static let fieldsRecord = "fields"
+    static let fortunesRecord = "fortunes"
+    static let bestChainRecord = "best chain"
+
+    // MARK: - The collection page
+
+    /// Joins the two halves of "23 of 100". Its own entry so the count line is
+    /// assembled from catalog words rather than an inline literal.
+    static let collectionOf = "of"
+    static let drift = "drift"
+    static let driftDetail = "every field mixes all the pops you've found"
+    static let driftHint = "paints every field from your whole collection"
+    static let featureHint = "paints every field with this pop"
+    /// Read as the VoiceOver value of the pop a field is currently painted from.
+    static let featuredNow = "featured now"
+    /// A pop not met yet, in place of its name. Not a lock, not a wall.
+    static let lockedPopName = "· · ·"
+    /// A secret keeps its shape until she finds it.
+    static let secretPopMark = "?"
+    static let lockedPopA11y = "a pop you haven't met yet"
+    /// Follows a count: "41 pops so far".
+    static let popsSoFar = "pops so far"
+
+    // MARK: - The quiet things, in full
+
+    static let hushDetail = "sound and haptics, together"
+    static let hushHint = "turns sound and haptics off"
+    /// What `hush` becomes once it has been used — so the row never lies about
+    /// what a tap will do.
+    static let itIsQuiet = "it is quiet"
+    static let unhushHint = "brings sound and haptics back"
+    static let soundDetail = "soft pops and a chime"
+    static let hapticsDetail = "a gentle tap with every pop"
+    static let pointWhispersDetail = "little points that drift up from a pop"
+    static let beginAgainDetail = "a new field, whenever you like"
+    static let beginAgainHint = "seeds this field again"
+    /// The way out of the armed state, as a plain row of its own. A timed
+    /// disarm would exclude Switch Control users exactly the way a timed hold
+    /// does (04 §6), so leaving is a tap, like arriving was.
+    static let notNow = "not now"
+    /// The whole of what the journal says about the app. A proper noun starts
+    /// it, so it is registered in `properNounInitials` below.
+    static let about = "Vesper · made by Kate Wu · collects nothing"
+
     // MARK: - Accessibility
 
     static let skyA11y = "the sky, the path of stones"
-    static let journalA11y = "your journal"
-    static let fieldA11y = "the field"
+    static let journalA11y = "your journal, the pages you keep"
+    static let fieldA11y = "the field, where the orbs drift"
     /// VoiceOver reading of the counter, which is otherwise a bare number.
     static let setFreeA11y = "orbs set free"
 
@@ -91,6 +168,11 @@ enum Strings {
         roadFaded,
         skyNoticed,
         fortuneDismissHint,
+        starHere,
+        starWalked,
+        starUnwalked,
+        starHint,
+        fieldWhisperHint,
         quietThings,
         sound,
         haptics,
@@ -98,6 +180,36 @@ enum Strings {
         hush,
         beginAgain,
         beginAgainConfirm,
+        theEvening,
+        theCollection,
+        nextPage,
+        previousPage,
+        pageHint,
+        popPoints,
+        fieldsRecord,
+        fortunesRecord,
+        bestChainRecord,
+        collectionOf,
+        drift,
+        driftDetail,
+        driftHint,
+        featureHint,
+        featuredNow,
+        lockedPopName,
+        secretPopMark,
+        lockedPopA11y,
+        popsSoFar,
+        hushDetail,
+        hushHint,
+        itIsQuiet,
+        unhushHint,
+        soundDetail,
+        hapticsDetail,
+        pointWhispersDetail,
+        beginAgainDetail,
+        beginAgainHint,
+        notNow,
+        about,
         skyA11y,
         journalA11y,
         fieldA11y,
@@ -109,5 +221,5 @@ enum Strings {
     /// fortunes — the sentence-case exception — live in `Fortunes`, not here).
     /// Empty today; kept so the casing test states the exception explicitly
     /// instead of someone weakening the assertion later.
-    static let properNounInitials: Set<String> = []
+    static let properNounInitials: Set<String> = [about]
 }

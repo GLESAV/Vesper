@@ -189,8 +189,30 @@ struct WhisperLabel: View {
     /// that happens quietly.
     let hint: String
     /// True while the field is in play — the only input to the dim.
-    var isPlaying: Bool = false
+    let isPlaying: Bool
     let onTap: () -> Void
+
+    /// The whisper's only initializer, written out by hand rather than
+    /// synthesized.
+    ///
+    /// The private state below (the assistive-technology monitor, the breath,
+    /// the scaled hit edge) would make the memberwise initializer private, and
+    /// a private initializer means no other file in the module can build a
+    /// whisper — which is how the world shipped with no tappable wayfinding at
+    /// all. This initializer is `internal` on purpose and takes exactly the
+    /// four values a call site is allowed to decide, so the state that proves
+    /// the accessibility findings stays private and unreachable from outside.
+    init(text: String,
+         accessibilityLabel: String,
+         hint: String,
+         isPlaying: Bool = false,
+         onTap: @escaping () -> Void) {
+        self.text = text
+        self.accessibilityLabel = accessibilityLabel
+        self.hint = hint
+        self.isPlaying = isPlaying
+        self.onTap = onTap
+    }
 
     @ObservedObject private var assistive = AssistiveTechMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

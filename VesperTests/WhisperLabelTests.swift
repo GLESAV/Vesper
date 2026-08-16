@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import SwiftUI
 @testable import Vesper
 
 // Proof for the wayfinding whispers (DELIVERY_ROADMAP W06). The view itself
@@ -204,5 +205,48 @@ final class WhisperLabelTests: XCTestCase {
     func testSettleIsShortEnoughToFeelLikeFeedback() {
         XCTAssertGreaterThan(WhisperPresentation.settleDuration, 0)
         XCTAssertLessThanOrEqual(WhisperPresentation.settleDuration, 0.65)
+    }
+
+    // MARK: - Constructibility
+
+    // The whisper's private state once made its synthesized memberwise
+    // initializer private, so no other file could build one and the world
+    // shipped with no tappable wayfinding at all. `@testable` raises internal
+    // to public but leaves private private, so these cases fail to COMPILE if
+    // that regresses — which is the only way to catch it without a device.
+
+    func testAWhisperCanBeBuiltFromAnotherFile() {
+        var tapped = 0
+        let whisper = WhisperLabel(text: Strings.journalWhisper,
+                                   accessibilityLabel: Strings.journalA11y,
+                                   hint: "hint",
+                                   isPlaying: true,
+                                   onTap: { tapped += 1 })
+        XCTAssertEqual(whisper.text, Strings.journalWhisper)
+        XCTAssertEqual(whisper.accessibilityLabel, Strings.journalA11y)
+        XCTAssertEqual(whisper.hint, "hint")
+        XCTAssertTrue(whisper.isPlaying)
+        whisper.onTap()
+        XCTAssertEqual(tapped, 1, "the tap must reach the call site's closure")
+    }
+
+    func testIsPlayingDefaultsToIdle() {
+        let whisper = WhisperLabel(text: Strings.skyWhisper,
+                                   accessibilityLabel: Strings.skyA11y,
+                                   hint: "hint",
+                                   onTap: {})
+        XCTAssertFalse(whisper.isPlaying)
+    }
+
+    func testTheTwoDestinationsCarryTheCatalogStrings() {
+        let sky = WhisperLabel.sky(hint: "hint", onTap: {})
+        XCTAssertEqual(sky.text, Strings.skyWhisper)
+        XCTAssertEqual(sky.accessibilityLabel, Strings.skyA11y)
+        XCTAssertFalse(sky.isPlaying)
+
+        let journal = WhisperLabel.journal(hint: "hint", isPlaying: true, onTap: {})
+        XCTAssertEqual(journal.text, Strings.journalWhisper)
+        XCTAssertEqual(journal.accessibilityLabel, Strings.journalA11y)
+        XCTAssertTrue(journal.isPlaying)
     }
 }
