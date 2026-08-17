@@ -73,15 +73,26 @@ final class WhisperLabelTests: XCTestCase {
         // there while the field is IN PLAY, on the primary way through the
         // world. The constant's own doc comment said it moves up, never down,
         // if measurement disagreed. It disagreed.
-        XCTAssertEqual(WhisperPresentation.playFloor, 0.74, accuracy: 0.0001)
+        XCTAssertEqual(WhisperPresentation.playFloor, 0.62, accuracy: 0.0001)
 
-        // The behaviour the constant exists for has to survive the change:
-        // the whisper must still visibly recede while she is playing, and
-        // must still never reach zero.
+        // THE BAND'S ORDERING IS THE INVARIANT, and it is what caught the
+        // reviewer's own figure. Imani's 0.74 came from the contrast target
+        // alone and sits ABOVE `idleLow` (0.70), which would make the whisper
+        // brighter during play than at the bottom of its idle breath —
+        // inverting the one behaviour this constant exists to produce.
+        // Pinning the number without pinning the ordering is how that ships.
         XCTAssertLessThan(WhisperPresentation.playFloor, WhisperPresentation.idleLow,
                           "the play floor must stay below the idle breath, or it does not recede")
+        XCTAssertLessThan(WhisperPresentation.idleLow, WhisperPresentation.idleHigh,
+                          "the breath must have somewhere to breathe")
         XCTAssertGreaterThan(WhisperPresentation.playFloor, 0,
                              "never zero — the signage does not leave")
+
+        // And the direction of the C1 fix, so a later tune cannot quietly
+        // undo it: whatever this becomes, it is not the 0.40 that measured
+        // Lc 22 on the primary way through the world.
+        XCTAssertGreaterThan(WhisperPresentation.playFloor, 0.40,
+                             "R-A11Y C1: the floor moves up, never back down")
     }
 
     func testIdleWhisperIsNeverFullyOpaque() {

@@ -378,7 +378,17 @@ moves nothing — stays quiet.
 Also fixed: the whisper's play-time floor (C1), which its own doc comment said
 "moves up, never down" if measurement disagreed — measurement disagreed, at
 Lc 22 against a claimed ≥ 60, on the primary way through the world *while the
-field is in play*; the fortune's 3.6 s auto-dismiss, which excluded VoiceOver
+field is in play*. **Imani's figure of 0.74 was not available**, and CI caught
+it: it came from the contrast target alone, and `idleLow` is 0.70, so 0.74
+would make the whisper brighter while she plays than at the bottom of its own
+idle breath — inverting the behaviour the constant exists to produce. The
+finding under it is that **two committed specs disagree**: 05 §2.1 fixes the
+idle band at 70–85% and 05 §2.2 wants Lc ≥ 60, but `idleLow` itself measures
+Lc 58.9, so nothing below it can reach 60. Shipped at 0.62 — Lc ~22 → ~46–50,
+better than a doubling, with the recede intact — and **the residual is open
+for Amara and the owner**: reaching Lc 60 means moving the whole 70–85% band,
+which is a design decision about the most-present element in the world and
+should not be taken on sRGB-modelled numbers. Also fixed: the fortune's 3.6 s auto-dismiss, which excluded VoiceOver
 users exactly the way the timed hold this project already refused would have
 (C3); and `firstHint`, the only instruction in the product, which was fixed at
 12 pt and Lc 30 (C4).

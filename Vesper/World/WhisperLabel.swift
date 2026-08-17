@@ -53,20 +53,38 @@ struct WhisperPresentation: Equatable {
     /// the legible reading wins. If the on-device APCA measurement at minimum
     /// brightness disagrees, this constant moves up, never down.
     ///
-    /// **R-A11Y C1 — it moved up.** The clause above was a claim, and Imani
-    /// measured it: `#E8E4DA` composited `.plusLighter` over this world's
-    /// ground reaches **Lc 22–25 at 0.40**, not ≥ 60 — roughly 3.4:1, against
-    /// a WCAG AA bar of 4.5:1 for 13 pt text. It failed both bars, and it
-    /// failed them *while the field is in play*: exactly the state the
-    /// constant exists for, and on the PRIMARY way through this world
-    /// (R-SPIKE ruling 7), not a decoration.
+    /// **R-A11Y C1 — it moved up, and not as far as Imani asked.**
     ///
-    /// 0.74 measures **Lc 60.2 on the darkest ground**. The whisper still
-    /// visibly recedes during play — 0.74 is below `idleHigh`, so the
-    /// behaviour the constant was written for survives; it now recedes to
-    /// legible rather than to 3.4:1. Nothing brightens except this, and the
-    /// on-device confirmation at minimum brightness is on the playtest card.
-    static let playFloor: Double = 0.74
+    /// The clause above was a claim, and she measured it: `#E8E4DA`
+    /// composited `.plusLighter` over this world's ground reaches **Lc 22–25
+    /// at 0.40**, not ≥ 60 — about 3.4:1, against a WCAG AA bar of 4.5:1 for
+    /// 13 pt text. It failed both bars, and it failed them *while the field is
+    /// in play*: the state the constant exists for, on the PRIMARY way through
+    /// this world (R-SPIKE ruling 7), not a decoration. That finding is real
+    /// and this constant had to move.
+    ///
+    /// **Her figure was 0.74, and 0.74 is not available.** It was derived from
+    /// the contrast target alone, without reference to the band this value
+    /// lives in: `idleLow` is 0.70, so 0.74 would make the whisper BRIGHTER
+    /// while she is playing than at the bottom of its own idle breath —
+    /// inverting the one behaviour the constant exists to produce.
+    /// `testWhisperNeverReachesZero` fails on it, and it is right to.
+    ///
+    /// **What is actually true here is that two committed specs disagree.**
+    /// 05 §2.1 fixes the idle band at 70–85%; 05 §2.2 wants Lc ≥ 60 for
+    /// functional text. But `idleLow` at 0.70 measures **Lc 58.9** — the
+    /// band's own floor is already marginal, so no value below it can reach
+    /// 60. Reaching Imani's bar means moving the whole 70–85% band, which is
+    /// a design decision about the most-present element in the world, taken
+    /// on numbers that are sRGB-modelled rather than measured on glass.
+    ///
+    /// **So: 0.62.** It is the balance available without rewriting a
+    /// doc-committed band on unmeasured numbers — Lc rises from ~22 to ~46–50,
+    /// better than a doubling, while the whisper still visibly recedes against
+    /// a 0.70–0.85 breath. The residual is logged for Amara and the owner: the
+    /// two specs cannot both hold, and which one gives is not a call to make
+    /// from a colour model.
+    static let playFloor: Double = 0.62
 
     /// One full breath, in seconds. "Nothing blinks. Light *breathes*
     /// (≥ 2 s cycles)" (05 §3) — so this may never drop below 2.
