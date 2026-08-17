@@ -3,9 +3,12 @@ import Foundation
 // The infinite pop map — "The Path" — modeled as stepping stones.
 //
 // Each stone is one playable level: a field seeded from that stone's 1–3
-// pops. Clearing a stone opens 1–3 roads ahead; the road behind fades after
-// a few days (MapStore.fadeAfter), so the map stays small and the past lets
-// go of itself. Design: docs/pop_map.md.
+// pops. Clearing a stone opens 1–3 roads ahead; the road behind SETTLES after
+// a few days (MapStore.fadeAfter) into a thin permanent constellation line —
+// the map's memory. It used to be deleted at that point; W08 replaced the
+// removal with a settle-state transition, so nothing on the map is ever lost
+// and what keeps the sky small is the screenful `SkyLayout` draws, not the
+// destruction of the past. Design: docs/pop_map.md.
 
 struct MapStone: Identifiable, Codable, Equatable {
     let id: UUID

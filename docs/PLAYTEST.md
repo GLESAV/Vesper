@@ -50,7 +50,7 @@ we chose.
 | **Onboarding and the arrival sequence** (W15) | The build drops you straight into a field. Only a fresh player can judge a first run, and neither of you is fresh. |
 | **Evening light** (W16) | The background does not shift hue with the hour yet. It cannot be judged in one evening anyway. |
 | **Keepsakes, the lamp, the fortune archive** (W10) | These need a change to the save file that this build is not allowed to make. |
-| **Older stones you may remember** (W08) | The sky draws the stones your phone still has. Ones the old map pruned away are gone and are not coming back in this build. A sparse sky is expected. |
+| **Older stones you may remember** (W08) | **The pruning is gone — the map now keeps everything from here on.** Stones the old three-day pass already deleted are gone and cannot come back; nothing deleted since. So expect a sparse sky at first that only ever grows, and after about three days expect the road behind you to *settle* — a dim constellation line rather than an absence. Settled stones stay tappable and replayable. |
 | **Long-press on the field to begin again** | Not in yet. `begin this field again` lives on the journal's *quiet things* page. |
 | **A transition-sounds toggle** | Not in yet. |
 
@@ -467,6 +467,27 @@ less bright light in a large moving image is easier on the eyes.
   feels visually loud, we can turn it up without touching how the world moves.
 
 ---
+
+### 5g. The road behind, three days on
+
+This one needs the calendar rather than a session, and it is the only check
+here that cannot be hurried.
+
+Play a field or two, then come back **three or more days later** and open the
+sky. What you should see is the map *leading with* where you are — your latest
+stone and the roads open ahead of it, bright — and everything you walked before
+still there above it, drawn as a thin dim line. Not gone. **Settled, not
+spent.**
+
+Tap something old up there. It should still be playable. Nothing on this map is
+ever supposed to be lost, and until this build it quietly was: a pass ran on
+every foreground and deleted any stone you had not touched for three days. If
+you have been playing since v1.2, some of your early stones went that way and
+are not recoverable — from this build on, nothing else will.
+
+What would be wrong: the old part of the path missing entirely, a star up there
+that will not respond to a tap, or the sky drawing stars up under the status bar
+or the Dynamic Island where you cannot reliably hit them.
 
 ## 6. Resetting between sessions
 

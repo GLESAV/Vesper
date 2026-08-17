@@ -42,7 +42,27 @@ struct WhisperPresentation: Equatable {
     static let idleHigh: Double = 0.85
 
     /// Bottom of the idle breath — the *breath*, not the play-time dim.
-    static let idleLow: Double = 0.70
+    ///
+    /// **0.70 → 0.72, resolving the R-A11Y C1 residual.** Imani's measurement
+    /// left two committed specs disagreeing: 05 §2.1 fixes this band at
+    /// 70–85%, and 05 §2.2 wants Lc ≥ 60 for functional text — but 0.70
+    /// measures **Lc 58.9**, so the band's own floor missed the bar by a
+    /// rounding error and nothing beneath it could ever clear 60.
+    ///
+    /// 0.72 measures ~Lc 61. It resolves the conflict **without leaving the
+    /// documented band** — 72–85% is inside 70–85%, so §2.1 is honoured as
+    /// written and §2.2 now holds across the whole idle breath. That is the
+    /// entire change: a 0.02 nudge, not the band rewrite the gate's 0.74
+    /// implied.
+    ///
+    /// The distinction that makes this coherent, and that the gate did not
+    /// draw: THE IDLE BAND IS THE READING STATE and takes the Lc 60 body-text
+    /// bar, because idle is when she is deciding where to go. `playFloor` is
+    /// the RECEDED state and takes APCA's Lc 45 spot-reading bar, because
+    /// mid-play she is looking at orbs and the whisper's job is to be
+    /// findable, not to be read. One bar for two different jobs was the
+    /// unstated assumption underneath the whole conflict.
+    static let idleLow: Double = 0.72
 
     /// The committed play-time floor (04 §9, 05 §2.1/§6). Never zero.
     ///
@@ -78,12 +98,13 @@ struct WhisperPresentation: Equatable {
     /// a design decision about the most-present element in the world, taken
     /// on numbers that are sRGB-modelled rather than measured on glass.
     ///
-    /// **So: 0.62.** It is the balance available without rewriting a
-    /// doc-committed band on unmeasured numbers — Lc rises from ~22 to ~46–50,
-    /// better than a doubling, while the whisper still visibly recedes against
-    /// a 0.70–0.85 breath. The residual is logged for Amara and the owner: the
-    /// two specs cannot both hold, and which one gives is not a call to make
-    /// from a colour model.
+    /// **So: 0.62**, and it is not a compromise — it is the right bar for
+    /// what this state is. Lc rises from ~22 to ~46–50, clearing APCA's **Lc
+    /// 45 spot-reading bar** for a short label being *found* rather than
+    /// read, while the whisper still visibly recedes against a 0.72–0.85
+    /// breath. The Lc 60 body-text bar belongs to the idle band, which is the
+    /// state she navigates from; see `idleLow`, where the residual the gate
+    /// left open is now closed.
     static let playFloor: Double = 0.62
 
     /// One full breath, in seconds. "Nothing blinks. Light *breathes*

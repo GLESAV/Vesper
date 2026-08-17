@@ -77,7 +77,8 @@ final class WhisperLabelTests: XCTestCase {
 
         // THE BAND'S ORDERING IS THE INVARIANT, and it is what caught the
         // reviewer's own figure. Imani's 0.74 came from the contrast target
-        // alone and sits ABOVE `idleLow` (0.70), which would make the whisper
+        // alone and sits ABOVE `idleLow` (0.70 then, 0.72 now), which would
+        // make the whisper
         // brighter during play than at the bottom of its idle breath —
         // inverting the one behaviour this constant exists to produce.
         // Pinning the number without pinning the ordering is how that ships.
@@ -202,9 +203,20 @@ final class WhisperLabelTests: XCTestCase {
         XCTAssertTrue(state.breathes)
         XCTAssertEqual(state.opacity(atBreathPeak: false), WhisperPresentation.idleLow, accuracy: 0.0001)
         XCTAssertEqual(state.opacity(atBreathPeak: true), WhisperPresentation.idleHigh, accuracy: 0.0001)
-        // 05 §2.1: `text.whisper` idles at 70–85%.
-        XCTAssertEqual(WhisperPresentation.idleLow, 0.70, accuracy: 0.0001)
+        // 05 §2.1: `text.whisper` idles at 70–85%. The band is pinned as a
+        // RANGE rather than as two exact numbers, because that is what the
+        // token says and because the R-A11Y C1 residual was closed by moving
+        // inside it: `idleLow` went 0.70 → 0.72 (~Lc 58.9 → ~61) so the whole
+        // idle breath clears the Lc 60 body-text bar without leaving the
+        // documented band. Pinning 0.70 exactly would have made honouring one
+        // committed spec fail the test for the other.
+        XCTAssertGreaterThanOrEqual(WhisperPresentation.idleLow, 0.70)
         XCTAssertEqual(WhisperPresentation.idleHigh, 0.85, accuracy: 0.0001)
+        XCTAssertLessThan(WhisperPresentation.idleLow, WhisperPresentation.idleHigh)
+
+        // The idle band is the READING state and owes the Lc 60 bar, which is
+        // why its floor may not slip back below the measured 0.72.
+        XCTAssertGreaterThanOrEqual(WhisperPresentation.idleLow, 0.72)
     }
 
     func testBreathIsSlowerThanTheBlinkFloor() {

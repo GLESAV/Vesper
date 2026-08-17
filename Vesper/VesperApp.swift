@@ -16,9 +16,11 @@ struct VesperApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             PopSoundEngine.shared.setActive(phase == .active)
-            if phase == .active {
-                MapStore.shared.prune()
-            }
+            // The map used to be pruned here on every foreground — the pass
+            // that deleted any stone untouched for three days. W08 removed it:
+            // settling is now derived at draw time from the stone's own dates,
+            // so coming back to the app changes nothing about the map. There
+            // is no longer anything the map needs done to it on waking.
         }
     }
 
