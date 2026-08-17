@@ -283,6 +283,17 @@ final class GameViewModel: ObservableObject {
         fortuneText = Fortunes.messages.randomElement() ?? ""
         withAnimation(.easeOut(duration: 0.4)) { showFortune = true }
         fortuneDismissWork?.cancel()
+        // R-A11Y C3. NO TIMED DISAPPEARANCE WHILE AN ASSISTIVE TECHNOLOGY IS
+        // RUNNING. This project already states the principle, in `Strings`,
+        // about the `begin again` hold: "a timed disarm would exclude Switch
+        // Control users exactly the way a timed hold does (04 §6)." A fortune
+        // that removes itself after 3.6 s is the same thing — VoiceOver does
+        // not finish speaking a full sentence in that time at the default
+        // rate, so she loses it mid-word, every time, with no way back.
+        //
+        // Dismissal stays available by tap, which is how she got here. The
+        // card simply waits, which is what the rest of this world does.
+        guard !AssistiveTechMonitor.shared.isRunning else { return }
         let work = DispatchWorkItem { [weak self] in
             withAnimation(.easeInOut(duration: 0.4)) { self?.showFortune = false }
         }

@@ -1,6 +1,10 @@
 import Combine
 import CoreGraphics
 import Foundation
+// For `UIAccessibility` only (R-A11Y B3). This object is the SwiftUI-facing
+// model, not one of the pure ones — `WorldCamera`, `InputArbiter` and
+// `GameSimulation` import neither UIKit nor SwiftUI and still do not.
+import UIKit
 
 // The world's one observable object, and the seam between three things that
 // deliberately cannot see each other: the pure camera (no SwiftUI), the pure
@@ -254,7 +258,46 @@ final class WorldModel: ObservableObject {
                 guard let self else { return }
                 guard self.camera.isIdle else { return }
                 self.worldAwake = false
+                self.announceArrivalIfPlaceChanged()
             }
+        }
+    }
+
+    // MARK: - R-A11Y B3: arrival is spoken
+
+    // The last place VoiceOver was told about, so a journey is announced once
+    // and a stay is announced never.
+    private var lastAnnouncedPlace: Place = .field
+
+    // A WORLD WITH NO CHROME HAS TO SAY SO ITSELF. Every other iOS navigation
+    // model hands VoiceOver something to narrate for free — a pushed nav bar,
+    // a presented sheet, a selected tab. This one has none of that: travelling
+    // moves a camera and flips `place`, and to VoiceOver that is
+    // indistinguishable from nothing happening. Tapping `your journal` used to
+    // travel the whole world in silence, with the cursor left behind on the
+    // whisper she had just tapped.
+    //
+    // ON ARRIVAL, NOT AT THE COMMIT INSTANT. `place` flips when the commit is
+    // resolved, but the world is still travelling then; announcing there would
+    // talk over the motion and name a place not yet on screen. This is called
+    // from `worldQuietened`, which is the frame the camera has nothing left to
+    // do — the moment she has actually arrived.
+    //
+    // GUARDED ON CHANGE, because `worldQuietened` also runs at the end of an
+    // end-of-axis acknowledgement, which moves nothing. Announcing "the field"
+    // because she flicked at a wall would be chatter, and chatter is the way
+    // VoiceOver support gets switched off.
+    private func announceArrivalIfPlaceChanged() {
+        guard place != lastAnnouncedPlace else { return }
+        lastAnnouncedPlace = place
+        UIAccessibility.post(notification: .screenChanged, argument: Self.label(for: place))
+    }
+
+    private static func label(for place: Place) -> String {
+        switch place {
+        case .sky: return Strings.skyA11y
+        case .field: return Strings.fieldA11y
+        case .journal: return Strings.journalA11y
         }
     }
 }

@@ -196,18 +196,6 @@ struct JournalView: View {
                         .foregroundColor(JournalPalette.dim)
                 }
 
-                if let hint = lockedHint {
-                    Text(hint)
-                        .font(.system(.footnote, design: .serif))
-                        .italic()
-                        .foregroundColor(JournalPalette.soft)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(panel())
-                }
-
                 driftRow
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: cellEdge), spacing: 12)],
@@ -220,6 +208,43 @@ struct JournalView: View {
             .frame(maxWidth: 520)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
+        }
+        // R-CRAFT A3. THE HINT IS PINNED, NOT SCROLLED. It used to sit at the
+        // top of this `ScrollView`'s content, above the grid — so a tap on a
+        // locked pop anywhere below the first screenful, which is almost
+        // everywhere in a hundred-cell grid about twenty rows tall, put the
+        // answer off screen. The cell she pressed does not change, so the
+        // world simply appeared not to have heard her. Guardrail 1 asks for a
+        // kind hint rather than a wall, and a hint she cannot see is not a
+        // hint; it is silence in reply to a deliberate press, which is the one
+        // thing that makes a calm interface feel broken instead of calm.
+        //
+        // It also fixes a second, quieter fault: inserting a panel into the
+        // flow shifted the entire grid under her finger. Now nothing moves.
+        //
+        // An overlay at the FOOT rather than the head, because that is the
+        // thumb's reach (04 §12) and because the head of this page is already
+        // the heading and the count. It still clears itself on a page turn and
+        // on leaving the journal — that logic is untouched.
+        .overlay(alignment: .bottom) {
+            if let hint = lockedHint {
+                Text(hint)
+                    .font(.system(.footnote, design: .serif))
+                    .italic()
+                    .foregroundColor(JournalPalette.soft)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: 520, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(panel())
+                    .padding(.horizontal, 4)
+                    .transition(.opacity)
+                    // The hint answers a press she made; VoiceOver should hear
+                    // it in the same breath rather than having to hunt for it.
+                    .accessibilityAddTraits(.isStaticText)
+            }
         }
     }
 
