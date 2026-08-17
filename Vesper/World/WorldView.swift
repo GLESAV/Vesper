@@ -557,7 +557,30 @@ private struct WorldScene: View {
             // `alpha` ALONE, not the dimmed product: what is on screen is a
             // fact about the world, and how brightly the world is lit while it
             // travels may not be allowed to change what VoiceOver can reach.
-            .accessibilityHidden(alpha < 0.01)
+            //
+            // R-A11Y BLOCKER B2, THE SECOND TERM. `alpha` alone was not
+            // enough, and the way it failed was inverted: with Reduce Motion
+            // ON the crossfade drives `alpha` to ~0 for the places she is not
+            // in, so this was correct there — but with Reduce Motion OFF,
+            // `alpha` is LITERALLY THE CONSTANT 1 for all three places, since
+            // they are separated by translation rather than by opacity. So
+            // nothing was ever hidden on the DEFAULT path. Standing in the
+            // field, a VoiceOver swipe walked off the counter and into every
+            // star on the map, a full screen height off-glass.
+            // `JournalView` guards itself; the sky did not.
+            //
+            // `allowsHitTesting` above does not cover this: it gates touches,
+            // and accessibility activation is a separate path — which is
+            // precisely how a phantom star could be double-tapped into
+            // re-seeding her field and landing her somewhere she never chose.
+            //
+            // `!worldMoving` preserves the stated intent above: mid-transit
+            // the neighbouring places really are partly on screen and belong
+            // in the rotor. Both new terms are published and change once per
+            // commit, so this adds no per-frame invalidation — ruling 7 is
+            // untouched.
+            .accessibilityHidden(alpha < 0.01
+                                 || (model.place != place && !model.worldMoving))
     }
 
     private func placeLabel(for place: Place) -> String {
@@ -602,6 +625,34 @@ private struct WorldScene: View {
         // a v1.2 lesson written into `ContentView`'s own comments, and it is
         // now one modifier away from being relearned.
         .allowsHitTesting(false)
+        // R-A11Y BLOCKER B1. This veto is what makes the field work for a
+        // sighted finger, and it is ALSO what made the game unplayable with
+        // VoiceOver on: the orbs are drawn into a `Canvas`, so there is no
+        // accessibility element per orb, and the layer that actually takes
+        // touches is a bare `UIView` that is not one either. VoiceOver
+        // intercepts direct touches and delivers only ACTIVATIONS, to
+        // elements. There was nothing here to activate. Not "harder to play" —
+        // no game at all.
+        //
+        // `.allowsDirectInteraction` is the trait for exactly this case: a
+        // drawn surface where the touch itself IS the interaction rather than
+        // a proxy for one. It hands this region's raw touches back to the app,
+        // which hit-tests them normally — and normal hit-testing is the line
+        // above, so they fall through to the arbiter and pop on touch-down by
+        // the same path a sighted touch takes.
+        //
+        // ONE REGION, NOT ONE ELEMENT PER ORB, deliberately: an orb is a
+        // moving target that lives for seconds, and a rotor filling with and
+        // emptying of them would be worse than useless — it would also make
+        // the pop a two-step activation, which is not what popping is.
+        //
+        // The pop already answers without sight — a tone from `PopSoundEngine`
+        // and an impact from `HapticsEngine` per pop, success on clear — so
+        // once the touch can land, the loop is conveyed.
+        .accessibilityElement()
+        .accessibilityLabel(Text(Strings.fieldA11y))
+        .accessibilityHint(Text(Strings.fieldDirectTouchHint))
+        .accessibilityAddTraits(.allowsDirectInteraction)
     }
 
     private var hud: some View {
@@ -624,7 +675,7 @@ private struct WorldScene: View {
                     .accessibilityHidden(true)
 
                 if game.sessionPoints > 0 {
-                    Text("\(game.sessionPoints) pop points")
+                    Text("\(game.sessionPoints) \(Strings.popPoints)")
                         .font(.system(size: 9))
                         .tracking(1.5)
                         .monospacedDigit()
@@ -658,9 +709,22 @@ private struct WorldScene: View {
 
             if !game.started {
                 Text(Strings.firstHint)
-                    .font(.system(size: 12, design: .serif))
+                    // R-A11Y C4. This is the only instruction in the product,
+                    // and it was the field's least legible text: `dim` at 0.85
+                    // measures Lc 30 / 4.26:1 on the field's ground, under the
+                    // 4.5:1 bar for 13 pt, at a FIXED 12 pt that never scaled
+                    // — so someone who sets large text got a 12 pt sentence
+                    // telling them how to play, forever.
+                    //
+                    // `.footnote` scales; `soft` at full opacity measures Lc
+                    // 66 / 7.4:1 and is already in the muted pastel set, so
+                    // nothing brightens and nothing saturates. The counter's
+                    // 62 pt display face is deliberately left alone — it is
+                    // R-CRAFT S4 / item 11, an after-playtest change to the
+                    // field's most-looked-at element.
+                    .font(.system(.footnote, design: .serif))
                     .italic()
-                    .foregroundColor(Palette.dim.opacity(0.85))
+                    .foregroundColor(Palette.soft)
                     .padding(.bottom, 30)
                     .transition(.opacity)
             }

@@ -158,6 +158,12 @@ enum Strings {
     static let skyA11y = "the sky, the path of stones"
     static let journalA11y = "your journal, the pages you keep"
     static let fieldA11y = "the field, where the orbs drift"
+    // The field is a drawn surface, not a list of controls: with VoiceOver on
+    // it is entered directly and the touch itself is the pop (R-A11Y B1). The
+    // hint has to say so, because "double-tap to activate" — the thing a
+    // VoiceOver user would otherwise reasonably assume — is exactly not how
+    // this works.
+    static let fieldDirectTouchHint = "touch the orbs directly to let them go"
     /// VoiceOver reading of the counter, which is otherwise a bare number.
     static let setFreeA11y = "orbs set free"
 
@@ -225,6 +231,7 @@ enum Strings {
         skyA11y,
         journalA11y,
         fieldA11y,
+        fieldDirectTouchHint,
         setFreeA11y
     ]
 

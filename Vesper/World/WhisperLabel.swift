@@ -52,7 +52,21 @@ struct WhisperPresentation: Equatable {
     /// composited opacity (05 §2.2), and when a legibility floor is ambiguous
     /// the legible reading wins. If the on-device APCA measurement at minimum
     /// brightness disagrees, this constant moves up, never down.
-    static let playFloor: Double = 0.40
+    ///
+    /// **R-A11Y C1 — it moved up.** The clause above was a claim, and Imani
+    /// measured it: `#E8E4DA` composited `.plusLighter` over this world's
+    /// ground reaches **Lc 22–25 at 0.40**, not ≥ 60 — roughly 3.4:1, against
+    /// a WCAG AA bar of 4.5:1 for 13 pt text. It failed both bars, and it
+    /// failed them *while the field is in play*: exactly the state the
+    /// constant exists for, and on the PRIMARY way through this world
+    /// (R-SPIKE ruling 7), not a decoration.
+    ///
+    /// 0.74 measures **Lc 60.2 on the darkest ground**. The whisper still
+    /// visibly recedes during play — 0.74 is below `idleHigh`, so the
+    /// behaviour the constant was written for survives; it now recedes to
+    /// legible rather than to 3.4:1. Nothing brightens except this, and the
+    /// on-device confirmation at minimum brightness is on the playtest card.
+    static let playFloor: Double = 0.74
 
     /// One full breath, in seconds. "Nothing blinks. Light *breathes*
     /// (≥ 2 s cycles)" (05 §3) — so this may never drop below 2.

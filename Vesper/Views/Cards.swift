@@ -28,8 +28,18 @@ struct FortuneCard: View {
         .onTapGesture { onDismiss() }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Fortune: \(text)")
-        .accessibilityHint("Tap to dismiss")
+        // R-CRAFT J2 / R-A11Y C2. Copy read aloud is copy. The label was
+        // `"Fortune: \(text)"` and the hint was `"Tap to dismiss"` — a system
+        // string, capitalized, and the sentence every other app says. The
+        // serif italic and the ✦ already tell a sighted reader what this is,
+        // so the label is the fortune itself.
+        //
+        // `.isButton` because it IS one: it was hinted as tappable without
+        // ever being announced as actionable, which is the combination that
+        // makes a VoiceOver user distrust the hint.
+        .accessibilityLabel(Text(text))
+        .accessibilityHint(Text(Strings.fortuneDismissHint))
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -41,64 +51,118 @@ struct DoneCard: View {
     let lifetimePops: Int
     let onRestart: () -> Void
 
+    // R-CRAFT ITEM 1 — the one place this build stopped being a world.
+    //
+    // Three reviewers arrived at this view independently and found the same
+    // sixty lines. What was here: a full-screen `.ultraThinMaterial` scrim
+    // that swallowed every touch on the glass, so while the card was up the
+    // swipe was dead and the `your journal` whisper sat underneath it,
+    // washed out and untappable, with no escape for VoiceOver — the only
+    // thing she could do with her phone, at the moment the field had just
+    // gone quiet, was press the brightest object in the game and start
+    // another field. It said `Nicely done.` in pure white, congratulating
+    // her performance at a game with no performance, and `Nothing left to
+    // worry about — for now`, which hands the worry back on the way out. It
+    // said `GO AGAIN` in tracked semibold caps on a solid near-white slab
+    // that emitted more light than any orb this game draws.
+    //
+    // 04 §8 W5 specifies the opposite in as many words: the done card
+    // "drifts in like a note, not a modal … `again?` (tap) or just leave —
+    // swiping away is a valid, unpunished exit."
+    //
+    // WHAT CHANGED, AND WHY THE SCRIM WENT RATHER THAN GAINING `.isModal`.
+    // R-A11Y asked for `.isModal` so VoiceOver could not wander off the card
+    // into the world behind it; R-CRAFT asked for the hold to end. Removing
+    // the scrim answers both, and they only appeared to conflict because
+    // both were reasoning from a modal that should not exist: with nothing
+    // covering the world, reaching the whispers is not an escape from the
+    // card, it is HOW SHE LEAVES. The card keeps its own bounds, the world
+    // stays live underneath, and every exit — swipe up, swipe down, tap a
+    // whisper, tap `again?`, or put the phone down — is equally valid and
+    // none of them is punished.
+    //
+    // The words were already written, catalogued, shipped in the binary and
+    // called from nowhere: `Strings.fieldIsQuiet` is documented in the
+    // catalog as "the done card's chrome" and `Strings.again` as "the
+    // invitation after a field is clear". This was a wiring bug wearing a
+    // copy bug's clothes.
     var body: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-            VStack(spacing: 0) {
-                ZStack {
-                    Circle().stroke(Color.white.opacity(0.3), lineWidth: 1)
-                        .frame(width: 52, height: 52)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(Color(red: 236/255, green: 234/255, blue: 244/255))
-                }
-                .padding(.bottom, 22)
+        VStack(spacing: 0) {
+            // The checkmark and its ring are gone (05 §6: no icons). A
+            // checkmark is also the wrong grammar — it is the mark a task
+            // manager uses to say a duty is discharged, and nothing here was
+            // a duty.
+            Text(Strings.fieldIsQuiet)
+                .font(.system(size: 26, weight: .light, design: .serif))
+                // NOT `.white`. 05 §2 caps ink at 96% and this was the only
+                // literal `.white` used as ink in the app.
+                .foregroundColor(CardPalette.bright)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 14)
 
-                Text("Nicely done.")
-                    .font(.system(size: 30, weight: .light, design: .serif))
-                    .foregroundColor(.white)
-                    .padding(.bottom, 12)
+            // What she did, stated as a fact about the field rather than as
+            // praise aimed at her. `set free` is the counter's own word.
+            Text("\(count.formatted()) \(Strings.setFreeLabel)")
+                .font(.system(size: 13.5, design: .serif))
+                .monospacedDigit()
+                .foregroundColor(CardPalette.soft.opacity(0.9))
+                .padding(.bottom, 10)
 
-                Text("You cleared all \(count) orbs.\nNothing left to worry about — for now.")
-                    .font(.system(size: 13.5))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .foregroundColor(Color(red: 155/255, green: 149/255, blue: 178/255))
-                    .padding(.bottom, 10)
+            Text("+\(sessionPoints.formatted()) \(Strings.popPoints)")
+                .font(.system(size: 12, design: .serif))
+                .italic()
+                .monospacedDigit()
+                .foregroundColor(CardPalette.accent.opacity(0.9))
+                .padding(.bottom, lifetimePops > count ? 6 : 26)
 
-                Text("+\(sessionPoints.formatted()) pop points")
-                    .font(.system(size: 12, design: .serif))
+            if lifetimePops > count {
+                Text("\(lifetimePops.formatted()) \(Strings.setFreeLabel), all time.")
+                    .font(.system(size: 11, design: .serif))
                     .italic()
                     .monospacedDigit()
-                    .foregroundColor(Color(red: 195/255, green: 175/255, blue: 220/255).opacity(0.9))
-                    .padding(.bottom, lifetimePops > count ? 6 : 24)
-
-                if lifetimePops > count {
-                    Text("\(lifetimePops.formatted()) set free, all time.")
-                        .font(.system(size: 11, design: .serif))
-                        .italic()
-                        .foregroundColor(Color(red: 139/255, green: 134/255, blue: 163/255).opacity(0.8))
-                        .padding(.bottom, 24)
-                }
-
-                Button(action: onRestart) {
-                    Text("GO AGAIN")
-                        .font(.system(size: 12, weight: .semibold))
-                        .tracking(2)
-                        .foregroundColor(Color(red: 18/255, green: 17/255, blue: 26/255))
-                        .padding(.horizontal, 30).padding(.vertical, 13)
-                        .background(Color(red: 233/255, green: 230/255, blue: 244/255))
-                        .clipShape(RoundedRectangle(cornerRadius: 11))
-                }
-                .accessibilityLabel("Go again")
+                    .foregroundColor(CardPalette.dim.opacity(0.85))
+                    .padding(.bottom, 26)
             }
-            .padding(44)
-            .frame(maxWidth: 340)
-            .background(Color(red: 22/255, green: 20/255, blue: 32/255).opacity(0.9))
-            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.1), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 22))
-            .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
+
+            // THE OFFER, NOT THE INSTRUCTION. Serif italic in `soft`, the
+            // same grammar the whispers use for "this is touchable" — 05
+            // §6.1 names the done card's `again?` as an instance of it. No
+            // fill: the brightest moment in this game is the pop, and it
+            // must remain the pop.
+            Button(action: onRestart) {
+                Text(Strings.again)
+                    .font(.system(size: 15, design: .serif))
+                    .italic()
+                    .foregroundColor(CardPalette.soft)
+                    .padding(.horizontal, 26)
+                    // ≥ 44 pt, the criterion the rest of this build holds
+                    // religiously and this button missed at ~40.
+                    .frame(minHeight: WhisperPresentation.minimumHitEdge)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(Strings.again))
         }
+        .padding(.horizontal, 40)
+        .padding(.vertical, 34)
+        .frame(maxWidth: 340)
+        .background(CardPalette.card.opacity(0.9))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .shadow(color: .black.opacity(0.5), radius: 40, y: 20)
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
+}
+
+// The cards' tones, which are the field's tones. R-CRAFT S3 asks for one
+// `Tokens` type shared by all four palettes in the app and is right to; that
+// is an after-playtest refactor, and this enum exists so the cards stop
+// carrying loose hex in the meantime — it is the same five values as
+// `WorldView`'s `Palette`, which is `private` to that file.
+private enum CardPalette {
+    static let bright = Color(red: 244/255, green: 242/255, blue: 250/255)
+    static let soft   = Color(red: 214/255, green: 204/255, blue: 230/255)
+    static let accent = Color(red: 195/255, green: 175/255, blue: 220/255)
+    static let dim    = Color(red: 139/255, green: 134/255, blue: 163/255)
+    static let card   = Color(red: 24/255, green: 22/255, blue: 34/255)
 }

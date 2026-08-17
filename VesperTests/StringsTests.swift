@@ -167,4 +167,68 @@ final class StringsTests: XCTestCase {
         )
         return try String(contentsOf: path, encoding: .utf8)
     }
+
+    /// Every Swift file under `Vesper/`, located the same way as the catalog
+    /// so it works from any checkout path. Skips rather than fails when the
+    /// sources are not on disk, exactly as `catalogSource` does.
+    private static func appSwiftFiles() throws -> [URL] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // VesperTests
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Vesper")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: root.path),
+            "app sources not available in this run"
+        )
+        guard let walker = FileManager.default.enumerator(at: root,
+                                                          includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return walker.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+    }
+
+    // MARK: - R-CRAFT J1/J2: catalogued, and actually wired
+
+    // The done card said `Nicely done.` and `GO AGAIN` while
+    // `Strings.fieldIsQuiet` — documented in this catalog as "the done card's
+    // chrome" — and `Strings.again` sat in the binary with zero call sites.
+    // The fortune card said "Tap to dismiss" while `fortuneDismissHint` did
+    // the same. Three strings were written, reviewed, catalogued and shipped,
+    // and the views still said the v1.2 words: a WIRING bug wearing a copy
+    // bug's clothes, and invisible to a test that only reads the catalog.
+    //
+    // So this reads the SOURCE. Entries whose whole purpose is to be the words
+    // on a specific surface must appear somewhere other than their own
+    // definition. Deliberately narrow — it names the strings whose absence was
+    // an actual defect, rather than asserting every catalog entry is used,
+    // because several are correctly unused while their features are deferred
+    // (`keepHint` is W10, `skyNoticed` is W15, `roadFaded` is W08).
+    func testTheStringsWrittenForASurfaceAreActuallyOnIt() throws {
+        let mustBeWired = [
+            "fieldIsQuiet",
+            "again",
+            "fortuneDismissHint",
+            "fieldDirectTouchHint",
+            "popPoints",
+        ]
+        let sources = try Self.appSwiftFiles()
+
+        for name in mustBeWired {
+            var callSites = 0
+            for url in sources {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let isCatalog = url.lastPathComponent == "Strings.swift"
+                for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                    guard line.contains("Strings.\(name)") else { continue }
+                    // The definition itself, and prose about it, are not uses.
+                    if isCatalog { continue }
+                    if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
+                    callSites += 1
+                }
+            }
+            XCTAssertGreaterThan(callSites, 0,
+                                 "`Strings.\(name)` is catalogued for a surface and used nowhere — "
+                                 + "the words exist and the view still says the old ones (R-CRAFT J1)")
+        }
+    }
 }

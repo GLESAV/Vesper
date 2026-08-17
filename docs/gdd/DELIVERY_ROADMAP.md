@@ -339,3 +339,105 @@ is the one risk the ruling above accepts knowingly.
 tap latency median/p99 against the W20a baseline on A12-class hardware; whether
 the 1.125-screen-height worst-case commit *feels* inside Amara's ceiling; and
 whether a Reduce Motion crossfade reads as travel rather than as a cut.
+
+---
+
+### R-A11Y — **BLOCKED, then cleared** · Imani Brooks
+
+Ran after the One World merge, against `30fca54`. Scoped off motion safety
+(ruling 18 settled that half at R-SPIKE). Three barriers, all fixed:
+
+**B1 — a VoiceOver user could not pop a single orb.** The orbs are drawn into
+a `Canvas`, so there was no accessibility element per orb, and the layer that
+actually takes touches is a bare `UIView` that was not one either. VoiceOver
+intercepts direct touches and delivers only *activations*, to elements. There
+was nothing to activate. Not "harder to play" — with VoiceOver on there was no
+game in the middle of the world. Fixed with `.allowsDirectInteraction` on the
+field region, which hands raw touches back to the app to be hit-tested
+normally, so they fall through to the arbiter by the same path a sighted touch
+takes. One region rather than one element per orb: an orb lives for seconds,
+and a rotor filling and emptying with them would be worse than useless.
+
+**B2 — the accessibility correctness of the build was inverted against the
+default setting.** `alpha` is the Reduce Motion crossfade, so with RM ON the
+places she is not in were correctly hidden — but with RM OFF it is *literally
+the constant 1* for all three, because they are separated by translation
+rather than opacity. Standing in the field, a VoiceOver swipe walked off the
+counter and into every star on the map, a full screen height off-glass, where
+a double-tap would re-seed her field and land her in the journal.
+`allowsHitTesting` does not cover this: accessibility activation is a separate
+path. `JournalView` guarded itself; the sky did not.
+
+**B3 — arrival was silent.** No `UIAccessibility.post` anywhere in the app. A
+world with no nav bar, no sheet and no tab bar has no chrome for the system to
+narrate on its behalf, so travelling was indistinguishable from nothing
+happening. Now posted on arrival (not at the commit instant, which would talk
+over the motion) and guarded on place change, so an end-of-axis flick — which
+moves nothing — stays quiet.
+
+Also fixed: the whisper's play-time floor (C1), which its own doc comment said
+"moves up, never down" if measurement disagreed — measurement disagreed, at
+Lc 22 against a claimed ≥ 60, on the primary way through the world *while the
+field is in play*; the fortune's 3.6 s auto-dismiss, which excluded VoiceOver
+users exactly the way the timed hold this project already refused would have
+(C3); and `firstHint`, the only instruction in the product, which was fixed at
+12 pt and Lc 30 (C4).
+
+**Device-only, on the playtest card:** whether `.allowsDirectInteraction`
+actually routes through to the sibling input layer, and whether a phantom star
+could have been *fired* rather than merely reached. If B1's fix does not route,
+the fallback is a per-orb element layer and needs scoping before it is
+attempted.
+
+### R-CRAFT — **PASS WITH NOTES** · Sofia Lindqvist · June Ashford · Aria Vale
+
+Eleven items, no guardrail-1 violations — the panel looked hard for pressure
+mechanics and found none: nothing is spent, timed, compared, or walled.
+
+Three reviewers arrived independently at the same sixty lines. **`DoneCard` was
+the one place this build stopped being a world**: a full-screen
+`.ultraThinMaterial` scrim that swallowed every touch, so while it was up the
+swipe was dead and the `your journal` whisper sat underneath it untappable,
+with no escape for VoiceOver — at the moment the field had just gone quiet, the
+only thing she could do with her phone was press the brightest object in the
+game and start another field. It congratulated her in pure white for her
+performance at a game with no performance, and handed the worry back on the way
+out ("for now"). 04 §8 W5 specifies the opposite in as many words: it "drifts in
+like a note, not a modal … or just leave — swiping away is a valid, unpunished
+exit."
+
+Rebuilt. **The scrim went rather than gaining `.isModal`** — R-A11Y wanted
+VoiceOver kept on the card, R-CRAFT wanted the hold to end, and the two only
+appeared to conflict because both were reasoning from a modal that should not
+exist. With nothing covering the world, reaching the whispers is not an escape
+from the card; it is how she leaves.
+
+**The words were already written.** `Strings.fieldIsQuiet` is documented in the
+catalog as "the done card's chrome" and `Strings.again` as "the invitation
+after a field is clear"; both shipped in the binary with zero call sites while
+the view said `Nicely done.` and `GO AGAIN`. A wiring bug wearing a copy bug's
+clothes — which is why `StringsTests` now scans the *source*, not just the
+catalog: the old test could only prove a string existed, never that any surface
+said it.
+
+Also fixed: the hundred unlock hints, which read one at a time in code and a
+hundred at once on the page, where a grid of imperatives is a task list and a
+task list is an obligation (counts unchanged, mood changed); the locked-pop
+hint, which appeared above a twenty-row grid so a tap below the fold produced
+no visible response at all; and one fortune restored to its canon wording,
+where the shipped line attached the frame to her and the doc's dissolves it.
+
+**Rejected: "stop calling `MapStore.prune()`."** Aria argues the sky's
+permanence claim and `pop_map.md` are both broken by the three-day fade, and
+she is right that they contradict each other. But the fade is an explicit
+product request from the owner — "the map changes after a few days, the road
+disappears behind, twiddling down to the latest pop unlocked and played" — and
+a reviewer's pillar argument does not overturn a stated product intent. The
+contradiction is real and goes to the owner, not to a silent code change. Her
+compounding-cost point stands and is worth an answer: every day W08 waits, more
+stones are deleted that W08 will be unable to restore.
+
+**Deferred to after the playtest:** the warmth pass on three remaining fortunes
+(editorial, and Kate is the obvious second reader), one white point across the
+world, lifting four hand-copied palettes into one `Tokens` type, and the
+counter's Dynamic Type ramp.

@@ -10,7 +10,12 @@ enum Fortunes {
         "Some things are meant to be let go, quietly.",
         "That was never as heavy as it looked.",
         "One less thing. That's the whole trick.",
-        "Nothing is actually keeping score but you.",
+        // R-CRAFT J5: the canon wording from 07 §2, restored. The shipped
+        // line ("Nothing is actually keeping score but you.") attaches the
+        // frame to her; this one dissolves it. A doc/build divergence, not a
+        // rewrite — the warmth pass on the other three flagged lines is
+        // editorial work and waits for its second reader.
+        "Nobody's keeping score. Not even the sky.",
         "The quiet after is the point.",
         "You can always make more worries. Try not to.",
         "This one was hiding something nice: you found it.",

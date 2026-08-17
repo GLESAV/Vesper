@@ -109,15 +109,26 @@ enum UnlockRule {
     case fortunesFound(Int)
     case bestChain(Int)        // longest cascade ever
 
-    // the gentle hint shown on a locked pop in the Journey screen
+    // The gentle hint shown on a locked pop in the collection.
+    //
+    // R-CRAFT J3: STATIVE, NOT IMPERATIVE. These read one at a time in code
+    // and a hundred at once on the page, and a grid of a hundred commands —
+    // `gather` · `set` · `clear` · `find` · `ride` — is a task list, however
+    // kindly each one is worded. A task list is an obligation, and guardrail
+    // 1 asks for a kind hint rather than a wall or a chore. `with you from
+    // the start` was already right, and it was right by being stative; the
+    // other five now match it.
+    //
+    // EVERY NUMBER IS UNCHANGED. This is a mood change, not a difficulty
+    // change — nothing here is harder or easier to reach than it was.
     var hint: String {
         switch self {
         case .start: return "with you from the start"
-        case .points(let n): return "gather \(n.formatted()) pop points"
-        case .totalPops(let n): return "set \(n.formatted()) orbs free"
-        case .fieldsCleared(let n): return "clear \(n.formatted()) fields"
-        case .fortunesFound(let n): return "find \(n.formatted()) fortunes"
-        case .bestChain(let n): return "ride a chain of \(n)"
+        case .points(let n): return "arrives at \(n.formatted()) pop points"
+        case .totalPops(let n): return "arrives at \(n.formatted()) orbs set free"
+        case .fieldsCleared(let n): return "arrives after \(n.formatted()) fields"
+        case .fortunesFound(let n): return "arrives with \(n.formatted()) fortunes found"
+        case .bestChain(let n): return "arrives after a chain of \(n)"
         }
     }
 }
