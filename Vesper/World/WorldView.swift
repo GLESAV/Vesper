@@ -190,6 +190,7 @@ private struct WorldScene: View {
             // alone — otherwise a touch-down while resting at the sky pops an
             // orb on a field she cannot see.
             WorldInputLayer(isFieldAtRest: { model.simActive },
+                            onPointer: { game.pointerMoved(to: $0) },
                             onOutcome: { model.handle($0) })
 
             // ── 2. THE MOVING WORLD ─────────────────────────────────────

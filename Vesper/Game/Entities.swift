@@ -15,6 +15,10 @@ struct Orb {
     var alive: Bool = true
     var spawn: CGFloat = 0
     var isFortune: Bool = false
+
+    /// What this orb does beyond drifting and popping. Defaulted, so every
+    /// existing construction site and test still reads as it did.
+    var kind: OrbKind = .plain
 }
 
 struct Particle {
@@ -56,4 +60,16 @@ enum GameEvent {
     case popped(orb: Orb, chained: Bool)
     case fortuneRevealed
     case cleared(total: Int)
+
+    /// A splitter opened into children. Carries the parent (for where and what
+    /// colour) and how many arrived.
+    case split(from: Orb, into: Int)
+
+    /// A generator produced an orb — by its own interval, or because she
+    /// pressed it and it gave one up without closing.
+    case emitted(orb: Orb, byTap: Bool)
+
+    /// A generator closed on its own terms: spent, or settled. Deliberately
+    /// distinct from `.popped` — nothing was popped, and nothing was lost.
+    case generatorClosed(orb: Orb)
 }

@@ -61,6 +61,19 @@ final class WorldInputView: UIView {
     // once per UIEvent (see `flush`).
     var onOutcome: ([InputOutcome]) -> Void = { _ in }
 
+    /// Where the finger is, reported for drifters to ease away from. Nil on
+    /// release.
+    ///
+    /// STRICTLY OBSERVATIONAL, AND THAT IS THE POINT. It is called beside the
+    /// arbiter, never through it: it produces no `InputOutcome`, consumes
+    /// none, and cannot change what the arbiter decides about a pop or a pan.
+    /// Pop-vs-pan arbitration is the single most heavily gated behaviour in
+    /// this project (R-SPIKE's scripted 20-swipes-from-an-orb condition), and
+    /// a gameplay feature must not be able to reach it. Adding a case to
+    /// `InputOutcome` would have been the tidy-looking way to do this and
+    /// would have put drifters inside that contract.
+    var onPointer: (CGPoint?) -> Void = { _ in }
+
     private var arbiter = InputArbiter()
 
     // The one touch that steers the camera. Extra fingers still reach the
@@ -156,6 +169,7 @@ final class WorldInputView: UIView {
             let p = touch.location(in: self)
             let hadSteering = arbiter.isTracking
             batch.appendCollapsingPanChanges(arbiter.began(at: p, timestamp: touch.timestamp))
+            onPointer(p)
             // Whichever touch the arbiter adopted is the one we follow.
             if !hadSteering && arbiter.isTracking { steeringTouch = touch }
         }
@@ -178,18 +192,24 @@ final class WorldInputView: UIView {
                 arbiter.moved(to: move.location(in: self), timestamp: move.timestamp)
             )
         }
+        // The last sample of the event is where the finger actually is; the
+        // coalesced ones in between are history the arbiter wants and a
+        // drifter does not.
+        onPointer(touch.location(in: self))
         flush(batch)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = steeringTouch, touches.contains(touch) else { return }
         steeringTouch = nil
+        onPointer(nil)
         flush(arbiter.ended(at: touch.location(in: self), timestamp: touch.timestamp))
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = steeringTouch, touches.contains(touch) else { return }
         steeringTouch = nil
+        onPointer(nil)
         // Whatever was popped stays popped — there is no outcome that can
         // undo it (ruling 4).
         flush(arbiter.cancelled())
@@ -213,17 +233,20 @@ final class WorldInputView: UIView {
 // body, which is not ordered against the touch that is about to arrive.
 struct WorldInputLayer: UIViewRepresentable {
     var isFieldAtRest: () -> Bool
+    var onPointer: (CGPoint?) -> Void = { _ in }
     var onOutcome: ([InputOutcome]) -> Void
 
     func makeUIView(context: Context) -> WorldInputView {
         let view = WorldInputView(frame: .zero)
         view.isFieldAtRest = isFieldAtRest
+        view.onPointer = onPointer
         view.onOutcome = onOutcome
         return view
     }
 
     func updateUIView(_ uiView: WorldInputView, context: Context) {
         uiView.isFieldAtRest = isFieldAtRest
+        uiView.onPointer = onPointer
         uiView.onOutcome = onOutcome
     }
 }

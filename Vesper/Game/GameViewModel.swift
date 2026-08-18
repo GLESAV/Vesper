@@ -61,6 +61,10 @@ final class GameViewModel: ObservableObject {
     private func applyFieldPops() {
         let pops = map.activeStone?.popNumbers ?? progression.fieldPops()
         sim.availablePops = pops
+        // The stage rides on fields cleared, so what a field is made of grows
+        // with her rather than with anything she has to choose. Set before
+        // every seed, because `seedField` reads it once and builds to it.
+        sim.stage = FieldPlan.stage(forFieldsCleared: progression.fieldsCleared)
         PopSoundEngine.shared.prepare(pops.map {
             PopCatalog.definition(for: $0).behavior.sound
         })
@@ -145,6 +149,20 @@ final class GameViewModel: ObservableObject {
         sim.restart()
     }
 
+    // MARK: - Pointer
+
+    /// Where the finger is, or nil when nothing is touching.
+    ///
+    /// Drifters read this to ease away. It is reported from the input view
+    /// ALONGSIDE the arbiter and never through it — nothing here can reach
+    /// pop-vs-pan arbitration, which is the one thing R-SPIKE exists to keep
+    /// safe. Written every touch move, so it stays off `@Published`: a
+    /// published write at digitizer rate would invalidate the view 120 times
+    /// a second (ruling 7).
+    func pointerMoved(to p: CGPoint?) {
+        sim.pointer = p
+    }
+
     // MARK: - Events
 
     private func apply(_ events: [GameEvent]) {
@@ -157,6 +175,32 @@ final class GameViewModel: ObservableObject {
                 triggerFortune()
             case .cleared:
                 handleCleared()
+
+            // A splitter opening. It gets its own soft answer rather than
+            // borrowing the pop's — the pop already sounded a frame ago, and
+            // doubling it reads as a glitch rather than as a reward.
+            case .split(let parent, _):
+                let def = PopCatalog.definition(for: parent.popNumber)
+                PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1.34)
+
+            // A generator giving. Only answered when SHE caused it: an orb
+            // arriving on the generator's own interval is ambient and must
+            // not tap her on the shoulder. A press she made is different —
+            // that is the whole feel of working a generator.
+            case .emitted(let orb, let byTap):
+                if byTap {
+                    let def = PopCatalog.definition(for: orb.popNumber)
+                    PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1.18)
+                    HapticsEngine.shared.pop(profile: def.behavior.haptic,
+                                             sizeNorm: 0.25, chained: true)
+                }
+
+            // A generator closing on its own terms. DELIBERATELY SILENT.
+            // Nothing was popped and nothing was lost, so there is nothing to
+            // announce — a sound here would turn "it settled" into "you
+            // missed it", which is the exact feeling this game does not have.
+            case .generatorClosed:
+                break
             }
         }
         if !events.isEmpty { checkUnlocks() }
