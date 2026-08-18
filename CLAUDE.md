@@ -54,7 +54,7 @@ Vesper/                     App source (Xcode file-system-synchronized group —
 │   │   └── PopCatalog.swift   All 100 pops as data; #001 codifies the v1.0 pop
 │   └── Map/
 │       ├── PopMap.swift       MapStone + pure seeded generation (The Path)
-│       └── MapStore.swift     Map state, persistence, 3-day road fading
+│       └── MapStore.swift     Map state, persistence, 3-day road settling
 ├── Rendering/
 │   └── SceneRenderer.swift Palette + Canvas drawing (motes, orbs, rings, particles)
 ├── Audio/
@@ -153,4 +153,5 @@ feature work.
 - `docs/pop_standard.md` — the formal pop schema, envelopes, and authoring rules
 - `docs/pop_progression.md` — the journey: phases, unlock rules, featuring/Drift
 - `docs/pop_points.md` — scoring formula and how stats surface in/out of game
-- `docs/pop_map.md` — The Path: infinite stepping-stone map, roads, 3-day fading
+- `docs/pop_map.md` — The Path: infinite stepping-stone map, roads, 3-day settling
+  (the road behind settles into permanent trace; **nothing is ever deleted** — W08)

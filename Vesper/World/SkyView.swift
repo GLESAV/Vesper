@@ -162,7 +162,21 @@ struct SkyLayout {
         // simply not on this screenful. It is not removed from the map and
         // nothing about it changes — reaching it is the sky's own upward
         // drift, which is not built yet.
-        let ceiling = Self.starRadius
+        //
+        // SINCE W08 THIS IS THE ONLY THING BOUNDING THE SKY, and it is the
+        // right one. The map now accrues forever, so this window is what
+        // makes "the road disappears behind" true without anything being
+        // destroyed to achieve it: the newest generations sit at the
+        // baseline, the walked path climbs away, and the oldest of it passes
+        // quietly out of the top of the screenful while staying on the map.
+        // W08: THE CEILING IS `topInset`, NOT A STAR'S RADIUS. It was the
+        // radius, which let a star be drawn anywhere from ~11 pt upward —
+        // that is under the status bar and behind the Dynamic Island, where a
+        // 44 pt target is not reliably tappable. It barely showed while the
+        // prune pass kept every map two generations tall; now that history
+        // accrues it would show constantly, and `topInset` exists precisely to
+        // say where the sky's drawable ceiling is.
+        let ceiling = Self.topInset
         let visible = stones
             .filter { stone in (centers[stone.id]?.y ?? -1) >= ceiling }
             .sorted { left, right in
@@ -452,8 +466,9 @@ struct SkyView: View {
     }
 
     // The map is read, never written: nothing in this view calls
-    // `ensureGenesis`, `recordClear` or `prune`. `GameViewModel` already
-    // guarantees the first stone exists before any of this is on screen.
+    // `ensureGenesis` or `recordClear`, and since W08 there is no removal
+    // pass left to call. `GameViewModel` already guarantees the first stone
+    // exists before any of this is on screen.
     @ObservedObject private var map = MapStore.shared
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -47,11 +47,23 @@ and replaying a cleared stone is always allowed.
 | Effect | after quiet days the map leads with your latest stone plus its open roads; everything walked before hangs above as trace. History only accrues |
 | When settling runs | app foreground, map open, and view-model init |
 
-Nothing is ever pruned or deleted: `MapStore` replaces its 3-day removal pass
-with a settle-state transition (Phase 0 work, contract in `MapStoreTests` —
+Nothing is ever pruned or deleted: `MapStore` replaced its 3-day removal pass
+with a settle-state transition (**W08, shipped** — contract in `MapStoreTests`:
 *no stone or road is ever removed*). Settled geometry persists compactly
 (position, pops, cleared state), so an unbounded history stays cheap to store
 and draw.
+
+**How it was built.** Settling turned out to need no schema and no migration —
+the deferral had assumed both. It is a pure reading of the stone's own dates
+against the clock (`SkyLayout.isSettled`), so shipping it was a deletion: the
+removal pass came out, and the trace `SkyView` was already written to draw
+(`isSettled`, the `.settled` road tier, the quieted star) began firing for the
+first time. What now keeps the sky small is the screenful `SkyLayout` windows
+to — the newest generations sit at the baseline and the walked path climbs
+quietly out of the top — rather than the destruction of the past.
+`SkyLayoutTests` holds that window: no star is ever drawn above the sky's
+ceiling, the anchor and the newest generation are always on screen, and rows
+never compress below the touch target, at any depth of path.
 
 ### Determinism & persistence
 - Every stone carries a `seed`; its roads ahead (count, lanes, pop sets) are

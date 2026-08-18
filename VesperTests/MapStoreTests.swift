@@ -121,9 +121,14 @@ final class MapStoreTests: XCTestCase {
         XCTAssertEqual(set, [PopCatalog.classic.number])
     }
 
-    // MARK: - The road behind fades
+    // MARK: - The road behind settles, and is never removed (W08)
 
-    func testRoadBehindFadesAfterThreeDaysButNeverTheAnchorOrItsRoads() {
+    // The contract `docs/pop_map.md` has always stated and the code did not
+    // keep: "no stone or road is ever removed". What stood here asserted the
+    // opposite — that the genesis stone and the untaken forks were GONE after
+    // three days — because the store deleted them. That was the deletion W08
+    // replaced with a settle-state transition.
+    func testNothingIsEverRemovedFromTheMapHoweverLongSheIsAway() {
         var now = Date(timeIntervalSince1970: 1_700_000_000)
         let store = freshStore(now: { now })
         store.ensureGenesis(unlocked: Set(1...20))
@@ -131,37 +136,60 @@ final class MapStoreTests: XCTestCase {
         store.setActive(genesis.id)
         let roads = store.recordClear(unlocked: Set(1...20))
 
-        // step onto the first road and clear it too
         store.setActive(roads[0].id)
         let ahead = store.recordClear(unlocked: Set(1...20))
-        XCTAssertTrue(store.stones.contains { $0.id == genesis.id })
+        let everything = store.stones.map(\.id)
 
-        now = now.addingTimeInterval(4 * 24 * 60 * 60)
-        store.prune()
+        // A season away, not just the three days that used to empty it.
+        now = now.addingTimeInterval(120 * 24 * 60 * 60)
+        store.ensureGenesis(unlocked: Set(1...20))
 
-        XCTAssertFalse(store.stones.contains { $0.id == genesis.id },
-                       "the road behind fades")
-        XCTAssertTrue(store.stones.contains { $0.id == roads[0].id },
-                      "the stone you stand on stays")
-        for road in ahead {
-            XCTAssertTrue(store.stones.contains { $0.id == road.id },
-                          "the roads ahead stay")
+        for id in everything {
+            XCTAssertTrue(store.stones.contains { $0.id == id },
+                          "a stone left the map — history only accrues (pop_map.md)")
         }
+        XCTAssertTrue(store.stones.contains { $0.id == genesis.id },
+                      "the first stone of the journey is the one most worth keeping")
         for sibling in roads.dropFirst() {
-            XCTAssertFalse(store.stones.contains { $0.id == sibling.id },
-                           "untaken roads fade with the rest of the past")
+            XCTAssertTrue(store.stones.contains { $0.id == sibling.id },
+                          "an untaken fork stays quietly takeable — nothing can be missed")
+        }
+        for road in ahead {
+            XCTAssertTrue(store.stones.contains { $0.id == road.id })
         }
     }
 
-    func testFreshStonesSurviveEarlyPruning() {
-        let store = freshStore()
+    // Settling is what replaced the deletion: the same three-day threshold,
+    // read rather than enforced. It is derived from the stone's own dates,
+    // which is why W08 needed no schema change and no migration.
+    func testStonesSettleOnTheSameThresholdThatUsedToDeleteThem() {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = freshStore(now: { now })
         store.ensureGenesis(unlocked: Set(1...20))
         let genesis = store.stones[0]
-        store.setActive(genesis.id)
+
+        XCTAssertFalse(SkyLayout.isSettled(genesis, now: now),
+                       "nothing settles inside the window")
+
+        now = now.addingTimeInterval(MapStore.fadeAfter + 60)
+        XCTAssertTrue(SkyLayout.isSettled(genesis, now: now),
+                      "past the window it is the map's memory — settled, not spent")
+
+        // And settling changes nothing about the stored map.
+        XCTAssertTrue(store.stones.contains { $0.id == genesis.id })
+    }
+
+    func testFreshStonesAreNotSettled() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = freshStore(now: { now })
+        store.ensureGenesis(unlocked: Set(1...20))
+        store.setActive(store.stones[0].id)
         let roads = store.recordClear(unlocked: Set(1...20))
-        store.prune()
-        XCTAssertEqual(store.stones.count, 1 + roads.count,
-                       "nothing fades inside the three-day window")
+        XCTAssertEqual(store.stones.count, 1 + roads.count)
+        for stone in store.stones {
+            XCTAssertFalse(SkyLayout.isSettled(stone, now: now),
+                           "nothing settles inside the three-day window")
+        }
     }
 
     // MARK: - Persistence

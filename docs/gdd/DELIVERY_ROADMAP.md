@@ -28,8 +28,9 @@ It is not a release, and it does not try to be the whole plan.
 - `WorldFlags.oneWorldEnabled` is read in **exactly one place** — `VesperApp`
   choosing `ContentView()` or `WorldView()` (ruling 10).
 - CI builds **both** flag configurations on every PR (ruling 11).
-- Persisted-schema changes are out of scope for this build (rulings: W08/W10
-  deferred) — the flag protects surfaces, not save files.
+- Persisted-schema changes are out of scope for this build (ruling: W10
+  deferred; W08 shipped once it proved to need no schema change at all) —
+  the flag protects surfaces, not save files.
 - Accessibility is co-authored into each world item as it lands, never
   retrofitted (ruling 12).
 - Copy for new surfaces comes from the string catalog (ruling 14 scope).
@@ -106,7 +107,7 @@ else advises and does not stop the line.
 | Item | Ruling |
 |---|---|
 | **W21** browser-demo parity | **Cut.** The demo is an 811-line hand-written fork (7 of 100 pop families, a hardcoded lifetime, no haptics, no CoreAudio, browser touch fighting Safari's edge gestures). A gesture-arbitration playtest there would produce confident wrong answers about the exact risk R-SPIKE exists to retire, and two hand-written engines drift within a sprint. The v1.2 demo stays frozen as a v1.2 artifact. |
-| **W08** trace / MapStore migration | **Deferred.** One-way persisted-schema change the view flag cannot protect; "no stone is ever destroyed" is retroactively unachievable because `prune()` has already deleted stones. The sky renders existing stones. |
+| **W08** trace / MapStore migration | **Shipped** (was deferred; see §7). The deferral rested on a premise that did not survive contact: there is no schema change and no migration, because settling is a pure reading of the stone's own dates. The ship was a deletion — the removal pass came out, and the trace `SkyView` was already built to draw started firing. |
 | **W10** ProgressionStore v2 (lamp, keepsakes, fortune archive) | **Deferred.** Same one-way persistence exposure; not required to answer whether the world reads as one place. |
 | **W15** onboarding + arrival | **Deferred, still Protected for v2.0.** Only fresh testers can evaluate a first run; neither the owner nor Kate is fresh. |
 | **W16** evening light | **Deferred.** A ±4% hue drift cannot be judged in one evening and is orthogonal to the navigation question. |
@@ -437,7 +438,11 @@ hint, which appeared above a twenty-row grid so a tap below the fold produced
 no visible response at all; and one fortune restored to its canon wording,
 where the shipped line attached the frame to her and the doc's dissolves it.
 
-**Rejected: "stop calling `MapStore.prune()`."** Aria argues the sky's
+**Rejected at the time, then overtaken by the owner's ruling — see the W08
+entry below, which ships the substance of Aria's finding by the route
+`pop_map.md` had already specified. The reasoning as it stood:**
+
+**"Stop calling `MapStore.prune()`."** Aria argues the sky's
 permanence claim and `pop_map.md` are both broken by the three-day fade, and
 she is right that they contradict each other. But the fade is an explicit
 product request from the owner — "the map changes after a few days, the road
@@ -451,3 +456,58 @@ stones are deleted that W08 will be unable to restore.
 (editorial, and Kate is the obvious second reader), one white point across the
 world, lifting four hand-copied palettes into one `Tokens` type, and the
 counter's Dynamic Type ramp.
+
+---
+
+### W08 — **shipped, on the owner's ruling** *(the two open questions, answered)*
+
+The owner returned both open questions with "just do whatever works best."
+
+**1. The Path's fading.** The contradiction was real: `SkyView` claimed the
+trace was permanent, `pop_map.md` said "nothing is ever pruned or deleted",
+and `prune()` deleted every stone untouched for three days on every
+foreground. What resolved it is that **`pop_map.md` had already specified the
+answer** — the road "transmutes, never disappears: it becomes a thin,
+permanent constellation line, quieter and dimmer, the map's memory" — and that
+answer is *also* what the owner originally asked for. "The road disappears
+behind, twiddling down to the latest pop unlocked and played" is a statement
+about what the map leads with, not a request to destroy it. Deleting was one
+implementation of that sentence, and the wrong one.
+
+**The deferral's premise was false.** W08 was held back as "a one-way
+persisted-schema change the view flag cannot protect". There is no schema
+change: settledness is `now - (lastPlayedAt ?? createdAt) > fadeAfter`, a pure
+reading, already implemented as `SkyLayout.isSettled`. Nor was it retroactively
+unachievable — stones already deleted are gone, but every stone from this
+build forward is kept, which is the whole of what the contract can mean going
+forward. And the rendering was never missing: `isSettled`, the `.settled` road
+tier at 0.14, and the quieted star were all built and could never fire,
+because the stones they describe were deleted before the sky was asked to draw
+them. **Shipping W08 was removing code.**
+
+**What it exposed.** Deleting the prune makes `SkyLayout` the only thing
+bounding the sky, and it was one line short of being ready: the ceiling on
+what may be drawn was `starRadius` (~11 pt) rather than `topInset` (96 pt), so
+a tall map placed stars under the status bar and behind the Dynamic Island,
+where a 44 pt target is not reliably tappable. Pruning had hidden this by
+keeping every map two generations tall; accrual would have exposed it within
+weeks. That is also R-CRAFT's after-playtest item 10, closed early because
+W08 promoted it from cosmetic to load-bearing. `SkyLayoutTests` is new and
+pins the window at 2, 8, 20, 60 and 200 generations deep.
+
+**2. The whisper contrast residual.** Closed with a 0.02 nudge rather than the
+band rewrite the gate's 0.74 implied. The two specs disagreed because they
+were being read as one bar for one state: 05 §2.1 fixes the idle band at
+70–85%, 05 §2.2 wants Lc ≥ 60, and `idleLow` at 0.70 measured Lc 58.9.
+`idleLow` moves to **0.72** (~Lc 61) — still inside the documented 70–85%
+band, so §2.1 is honoured as written and §2.2 now holds across the whole idle
+breath.
+
+The distinction that makes it coherent, and that the gate did not draw: **the
+idle band is the reading state** and takes the Lc 60 body-text bar, because
+idle is when she is deciding where to go; **`playFloor` is the receded state**
+and takes APCA's Lc 45 spot-reading bar, because mid-play she is looking at
+orbs and the whisper's job is to be findable, not readable. At 0.62 it
+measures ~Lc 46–50 and clears that bar. Nothing needs to move on a device
+measurement now — the on-glass check stays on the playtest card as
+confirmation, not as a blocker.

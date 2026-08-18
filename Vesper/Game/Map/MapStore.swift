@@ -9,7 +9,10 @@ import Combine
 final class MapStore: ObservableObject {
     static let shared = MapStore()
 
-    // how long a stone lingers after you've moved past it
+    // How long a stone stays lit after you've moved past it. AFTER THIS IT
+    // SETTLES; IT IS NEVER REMOVED (W08). Read by `SkyLayout.isSettled`, which
+    // derives the state from the stone's own dates rather than writing
+    // anything back — which is why this needed no migration and no schema.
     static let fadeAfter: TimeInterval = 3 * 24 * 60 * 60
 
     @Published private(set) var stones: [MapStone] = []
@@ -55,10 +58,9 @@ final class MapStore: ObservableObject {
 
     // MARK: - Lifecycle
 
-    // Make sure the map exists: prune the faded past, and if nothing is
-    // left (or this is a fresh journey), lay the first stone.
+    // Make sure the map exists: if this is a fresh journey, lay the first
+    // stone. Nothing is removed here any more — see the note on `fadeAfter`.
     func ensureGenesis(unlocked: Set<Int>) {
-        prune()
         guard stones.isEmpty else { return }
         let seed = UInt64.random(in: .min ... .max)
         var rng = SplitMix64(seed: seed)
@@ -118,23 +120,34 @@ final class MapStore: ObservableObject {
         return children
     }
 
-    // The road behind fades: any stone untouched for fadeAfter disappears —
-    // except the anchor and the roads directly ahead of it, which always stay.
-    func prune() {
-        guard let anchor = anchorStone else { return }
-        let cutoff = nowProvider().addingTimeInterval(-Self.fadeAfter)
-        var keep = Set([anchor.id])
-        keep.formUnion(stones.filter { $0.parentID == anchor.id }.map(\.id))
-
-        let before = stones.count
-        stones.removeAll { stone in
-            !keep.contains(stone.id) && lastActivity(stone) < cutoff
-        }
-        if let id = activeStoneID, !stones.contains(where: { $0.id == id }) {
-            activeStoneID = nil
-        }
-        if stones.count != before { save() }
-    }
+    // W08 — THE REMOVAL PASS IS GONE, AND NOTHING REPLACES IT.
+    //
+    // What stood here deleted every stone untouched for `fadeAfter`, except
+    // the anchor and the roads directly ahead of it, and it ran on every
+    // foreground. It was the code behind "the road disappears behind" — and
+    // it implemented that by destroying the map, which is a different thing
+    // from the map leading with where you are.
+    //
+    // `docs/pop_map.md` has specified the replacement all along: the road
+    // "transmutes, never disappears — it becomes a thin, permanent
+    // constellation line, quieter and dimmer, the map's memory", and "no
+    // stone or road is ever removed". `SkyView` was built to that spec and
+    // has been ready the whole time: `SkyLayout.isSettled`, the `.settled`
+    // road tier, the quieted star. None of it could ever fire, because the
+    // stones it describes were deleted before the sky was asked to draw them.
+    //
+    // THE MIGRATION THIS WAS DEFERRED FOR TURNED OUT NOT TO EXIST. W08 was
+    // held back as a one-way persisted-schema change the view flag could not
+    // protect. It is not one: settledness is a pure function of the stone's
+    // own dates and the current time (`SkyLayout.isSettled`), so there is no
+    // new field, no migration, and nothing to roll back. Deleting the pass is
+    // the whole change.
+    //
+    // What she sees is unchanged in the way she asked for and different in
+    // the way that matters: the map still leads with the latest stone and its
+    // open roads, and everything walked before is still there, hanging above
+    // as trace. The map's memory stops being a promise the code was breaking
+    // every three days.
 
     // MARK: - Persistence
 
