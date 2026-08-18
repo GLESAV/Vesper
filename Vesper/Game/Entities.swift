@@ -58,7 +58,9 @@ struct FloatNote {
 
 enum GameEvent {
     case popped(orb: Orb, chained: Bool)
-    case fortuneRevealed
+    /// A fortune orb went. Carries WHERE, so the words can rise from the
+    /// place the orb was instead of arriving in the middle of the screen.
+    case fortuneRevealed(at: CGPoint)
     case cleared(total: Int)
 
     /// A splitter opened into children. Carries the parent (for where and what

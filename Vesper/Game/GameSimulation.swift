@@ -222,7 +222,7 @@ final class GameSimulation {
         let def = PopCatalog.definition(for: orb.popNumber)
         events.append(.popped(orb: orb, chained: chained))
         if orb.isFortune {
-            events.append(.fortuneRevealed)
+            events.append(.fortuneRevealed(at: orb.pos))
         }
 
         spawnBurst(for: orb, def: def)

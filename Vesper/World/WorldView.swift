@@ -658,53 +658,58 @@ private struct WorldScene: View {
 
     private var hud: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 8) {
+            // DECLUTTERED (owner: "the UI at the top is cluttered and ugly").
+            //
+            // What was here: a 62 pt counter, a tracked all-caps `SET FREE`
+            // beneath it, a running points line, and then up to three
+            // transient notes stacked under those — six things competing at
+            // the top of a screen whose whole proposition is quiet.
+            //
+            // What is here now: the number, and one thing at a time under it.
+            //
+            //   * The `SET FREE` caption is gone. A number that changes when
+            //     she pops something needs no label, and a tracked capital
+            //     caption is the loudest typographic gesture in the app.
+            //   * The running points line is gone from the FIELD. Points are
+            //     not lost — they whisper up from each pop, they are on the
+            //     done card, and they are in the journal. They were the third
+            //     number in a column of numbers.
+            //   * The counter drops 62 → 40 pt. Still the largest thing on
+            //     screen and still the answer to a pop, without being the
+            //     subject of the screen. The orbs are the subject.
+            //   * The three note kinds share ONE slot and never stack, so the
+            //     top of the field can only ever hold two things.
+            VStack(spacing: 6) {
                 Text("\(game.count)")
-                    .font(.system(size: 62, weight: .light, design: .serif))
+                    .font(.system(size: 40, weight: .light, design: .serif))
                     .monospacedDigit()
-                    .foregroundColor(Palette.bright)
-                    .scaleEffect(pulse ? 1.1 : 1)
+                    .foregroundColor(Palette.bright.opacity(0.92))
+                    .scaleEffect(pulse ? 1.08 : 1)
                     .accessibilityLabel("\(game.count) \(Strings.setFreeA11y)")
 
-                // `DETONATED` is gone from the build the owner sees (ruling
-                // 14). Every user-facing string on this surface comes from
-                // the catalog; nothing here is inlined.
-                Text(Strings.setFreeLabel)
-                    .font(.system(size: 9, weight: .medium))
-                    .tracking(4)
-                    .foregroundColor(Palette.dim)
-                    .accessibilityHidden(true)
-
-                if game.sessionPoints > 0 {
-                    Text("\(game.sessionPoints) \(Strings.popPoints)")
-                        .font(.system(size: 9))
-                        .tracking(1.5)
-                        .monospacedDigit()
-                        .foregroundColor(Palette.dim.opacity(0.8))
-                        .padding(.top, 2)
-                        .transition(.opacity)
+                // ONE SLOT. Rarest wins: an unlock is a thing that happened
+                // once, a chain is a thing that happens often.
+                Group {
+                    if let note = game.unlockNote {
+                        Text("✦ \(note)")
+                            .font(.system(size: 11, design: .serif))
+                            .italic()
+                            .foregroundColor(Palette.soft.opacity(0.9))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(Palette.card.opacity(0.85))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    } else if let note = game.pathNote {
+                        whisper(note)
+                    } else if let note = game.chainNote {
+                        whisper(note)
+                    }
                 }
-                if let note = game.chainNote {
-                    whisper(note)
-                }
-                if let note = game.pathNote {
-                    whisper(note)
-                }
-                if let note = game.unlockNote {
-                    Text("✦ \(note)")
-                        .font(.system(size: 11, design: .serif))
-                        .italic()
-                        .foregroundColor(Palette.soft.opacity(0.9))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(Palette.card.opacity(0.85))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                        .padding(.top, 10)
-                }
+                .frame(minHeight: 18)
             }
-            .padding(.top, 8)
+            .padding(.top, 10)
 
             Spacer()
 
@@ -878,7 +883,7 @@ private struct WorldScene: View {
 
     @ViewBuilder private var cards: some View {
         if game.showFortune {
-            FortuneCard(text: game.fortuneText, onDismiss: game.dismissFortune)
+            FortuneWhisper(text: game.fortuneText, at: game.fortuneAnchor)
         }
         if game.showDone {
             DoneCard(count: game.count,
@@ -891,16 +896,49 @@ private struct WorldScene: View {
     // MARK: - Background
 
     // One ground under all three places, so nothing seams as the world moves.
+    // THE GROUND TELLS HER WHERE SHE IS (owner: on swipes out of the game,
+    // "the background color should change to be indicative the user is on
+    // another screen").
+    //
+    // KEYED ON `place`, NOT ON THE CAMERA, and that is not a shortcut. Ruling
+    // 7 bars mirroring a camera value into anything SwiftUI diffs — a ground
+    // colour interpolated per frame would invalidate this view at frame rate
+    // and undo the whole reason the camera lives outside the view system.
+    // `place` is published and changes exactly once per commit, so the colour
+    // crossfades on ARRIVAL, over most of a second. That is also the better
+    // reading of the request: she needs the ground to have changed when she
+    // gets somewhere, not to smear continuously while she is travelling —
+    // the parallax and the dimming already carry the travelling.
+    //
+    // All three grounds stay dark, muted and unsaturated (guardrail 4). The
+    // sky goes cooler and deeper, the way a night sky is colder than a room;
+    // the journal goes warmer and browner, the way paper under a lamp is.
+    // Neither is a hue you would call blue or brown if asked — they are the
+    // field's own charcoal, leaned.
     private var background: some View {
         RadialGradient(
-            gradient: Gradient(colors: [
-                Color(red: 22/255, green: 21/255, blue: 31/255),
-                Color(red: 16/255, green: 15/255, blue: 24/255),
-                Color(red: 9/255, green: 8/255, blue: 14/255)
-            ]),
+            gradient: Gradient(colors: groundStops),
             center: UnitPoint(x: 0.5, y: 0.3), startRadius: 0, endRadius: 700
         )
         .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.75), value: model.place)
+    }
+
+    private var groundStops: [Color] {
+        switch model.place {
+        case .field:
+            return [Color(red: 22/255, green: 21/255, blue: 31/255),
+                    Color(red: 16/255, green: 15/255, blue: 24/255),
+                    Color(red: 9/255, green: 8/255, blue: 14/255)]
+        case .sky:
+            return [Color(red: 17/255, green: 21/255, blue: 34/255),
+                    Color(red: 11/255, green: 15/255, blue: 26/255),
+                    Color(red: 5/255, green: 8/255, blue: 16/255)]
+        case .journal:
+            return [Color(red: 28/255, green: 24/255, blue: 29/255),
+                    Color(red: 20/255, green: 17/255, blue: 22/255),
+                    Color(red: 11/255, green: 9/255, blue: 13/255)]
+        }
     }
 }
 

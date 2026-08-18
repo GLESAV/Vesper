@@ -10,6 +10,9 @@ final class GameViewModel: ObservableObject {
     @Published var showDone = false
     @Published var showFortune = false
     @Published private(set) var fortuneText = ""
+
+    /// Where the fortune orb was, so the words rise from it.
+    @Published private(set) var fortuneAnchor: CGPoint = .zero
     @Published private(set) var chainNote: String?
     @Published private(set) var unlockNote: String?
     @Published private(set) var pathNote: String?
@@ -170,8 +173,9 @@ final class GameViewModel: ObservableObject {
             switch event {
             case .popped(let orb, let chained):
                 handlePop(orb: orb, chained: chained)
-            case .fortuneRevealed:
+            case .fortuneRevealed(let at):
                 progression.recordFortune()
+                fortuneAnchor = at
                 triggerFortune()
             case .cleared:
                 handleCleared()
@@ -335,8 +339,11 @@ final class GameViewModel: ObservableObject {
         // not finish speaking a full sentence in that time at the default
         // rate, so she loses it mid-word, every time, with no way back.
         //
-        // Dismissal stays available by tap, which is how she got here. The
-        // card simply waits, which is what the rest of this world does.
+        // On the world path there is nothing to dismiss any more — the
+        // fortune is a `FortuneWhisper` that blocks nothing and leaves on its
+        // own — so under an assistive technology it simply stays until the
+        // next one, which is the reading time a screen reader needs and costs
+        // her nothing, because it was never in her way.
         guard !AssistiveTechMonitor.shared.isRunning else { return }
         let work = DispatchWorkItem { [weak self] in
             withAnimation(.easeInOut(duration: 0.4)) { self?.showFortune = false }

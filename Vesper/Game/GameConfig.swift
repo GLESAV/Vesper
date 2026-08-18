@@ -117,7 +117,11 @@ enum GameConfig {
 
     // MARK: UI timing
 
-    static let fortuneDisplayDuration: TimeInterval = 3.6
+    /// 3.6 s was the life of a card that STOPPED the field: short, because
+    /// it was in her way. The fortune is a whisper now — it blocks nothing
+    /// and eats no touches — so it can last as long as a sentence takes to
+    /// read rather than as long as an interruption can be tolerated.
+    static let fortuneDisplayDuration: TimeInterval = 5.5
     static let doneRevealDelay: TimeInterval = 0.65
     static let chainNoteThreshold = 3
     static let chainWindow: TimeInterval = 0.9

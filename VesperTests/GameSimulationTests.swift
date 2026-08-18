@@ -172,7 +172,7 @@ final class GameSimulationTests: XCTestCase {
         ])
         let events = sim.tap(at: CGPoint(x: 100, y: 300))
         let sawFortune = events.contains {
-            if case .fortuneRevealed = $0 { return true }
+            if case .fortuneRevealed(_) = $0 { return true }
             return false
         }
         XCTAssertTrue(sawFortune)
