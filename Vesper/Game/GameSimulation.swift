@@ -49,6 +49,14 @@ final class GameSimulation {
     /// so she aims at an orb and the world travels instead. Insets are the
     /// simulation's half of that fix; the view's half is placing the signage
     /// where it says it does.
+    /// The air this field is played in. Chosen at seed time from the field's
+    /// own RNG, so a seed is still a field.
+    private(set) var weather: Weather = .clear
+
+    /// Phase of the lateral swell, advanced per frame. Not published and not
+    /// read during a draw.
+    private var swellPhase: CGFloat = 0
+
     var topInset: CGFloat = GameConfig.fieldTopInset
     var bottomInset: CGFloat = 0
 
@@ -78,6 +86,8 @@ final class GameSimulation {
         orbs.removeAll()
         guard bounds.width > 0 else { return }
         plan = FieldPlan.forStage(stage)
+        weather = Weather.choose(using: &rng)
+        swellPhase = 0
         let pool = availablePops.isEmpty ? [PopCatalog.classic.number] : availablePops
 
         // The kinds are dealt into the field rather than rolled per orb, so a
@@ -119,8 +129,11 @@ final class GameSimulation {
                          y: rnd(r + topInset + GameConfig.spawnMargin
                                 ... max(r + topInset + GameConfig.spawnMargin,
                                         bounds.height - r - bottomInset - inset))),
-            vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed),
-                          dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed)),
+            // Weather scales the field's pace from the moment it is seeded,
+            // so the air is something she walks into rather than something
+            // that arrives a few seconds later.
+            vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed) * weather.speedScale,
+                          dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed) * weather.speedScale),
             r: r, baseR: r,
             popNumber: popNumber,
             variantIndex: Int.random(in: 0..<max(1, paintCount), using: &rng),
@@ -417,6 +430,7 @@ final class GameSimulation {
         guard f > 0 else { return [] }
         var events: [GameEvent] = []
 
+        swellPhase += weather.swellRate * f
         stepOrbs(f)
         stepGenerators(f, into: &events)
         stepRings(f, into: &events)
@@ -433,6 +447,7 @@ final class GameSimulation {
                 orbs[i].spawn = min(1, orbs[i].spawn + GameConfig.spawnGrowth * f)
             }
             if case .drifter = orbs[i].kind { evade(i, f) }
+            applyWeather(i, f)
 
             orbs[i].pos.x += orbs[i].vel.dx * f
             orbs[i].pos.y += orbs[i].vel.dy * f
@@ -455,6 +470,68 @@ final class GameSimulation {
             }
 
             orbs[i].r = orbs[i].baseR * (1 + sin(orbs[i].phase) * GameConfig.wobbleAmount) * orbs[i].spawn
+        }
+    }
+
+    /// The air, applied to one orb.
+    ///
+    /// Everything here is a small force or a multiplier — weather never
+    /// teleports an orb, never changes its size, and never touches whether it
+    /// can be hit. The speed ceiling below is the guardrail that makes that
+    /// true in fact rather than in intention: whatever the air does, an orb
+    /// may not end up travelling faster than the weather's own scale allows.
+    private func applyWeather(_ i: Int, _ f: CGFloat) {
+        guard weather != .clear else { return }
+
+        // Glide: how much momentum survives. Rain keeps all of it and slides.
+        if weather.glide != 1 {
+            let k = pow(weather.glide, f)
+            orbs[i].vel.dx *= k
+            orbs[i].vel.dy *= k
+        }
+
+        // Drift: rain drizzles, snow settles.
+        let drift = weather.drift
+        if drift.dy != 0 || drift.dx != 0 {
+            orbs[i].vel.dx += drift.dx * f
+            orbs[i].vel.dy += drift.dy * f
+        }
+
+        // Swell: the whole field breathing sideways together. Phase is shared,
+        // so it is a tide rather than a hundred independent wobbles — that
+        // togetherness is the entire feeling of `summer`.
+        if weather.swellAmount > 0 {
+            orbs[i].vel.dx += sin(swellPhase) * weather.swellAmount * f * 0.06
+        }
+
+        // Wander: the heading turns, the speed does not rise. This is the
+        // whole of storm, and the reason storm cannot make the field harder.
+        if weather.wander > 0 {
+            let amount: CGFloat
+            if weather.wanderIsStepped {
+                // Crunch: nothing, then a step. Snow moves in little jerks.
+                amount = (rnd(0 ... 1) < 0.06) ? weather.wander * 8 : 0
+            } else {
+                amount = weather.wander * (rnd(-1 ... 1))
+            }
+            if amount != 0 {
+                let a = amount * f
+                let dx = orbs[i].vel.dx, dy = orbs[i].vel.dy
+                orbs[i].vel.dx = dx * cos(a) - dy * sin(a)
+                orbs[i].vel.dy = dx * sin(a) + dy * cos(a)
+            }
+        }
+
+        // THE CEILING. Weather may change the character of the motion and may
+        // not make the field faster than its own scale permits — a field that
+        // outruns her is a field she has to keep up with, and this game does
+        // not ask that of anyone.
+        let cap = GameConfig.orbMaxSpeed * weather.speedScale * 1.6
+        let speed = sqrt(orbs[i].vel.dx * orbs[i].vel.dx + orbs[i].vel.dy * orbs[i].vel.dy)
+        if speed > cap {
+            let k = cap / speed
+            orbs[i].vel.dx *= k
+            orbs[i].vel.dy *= k
         }
     }
 
