@@ -111,4 +111,82 @@ final class SkyLayoutTests: XCTestCase {
         XCTAssertFalse(fresh.stars.contains(where: \.isSettled),
                        "nothing settles a minute into the journey")
     }
+
+    // MARK: - The tree grows downward (the axis flip)
+
+    // What this replaced: the NEWEST stone was pinned to the bottom edge and
+    // everything older climbed away above it, so the map slid upward as she
+    // played and the beginning of her journey drifted off the ceiling.
+    // Progression moved up and away — the opposite of growth.
+    func testTheOldestVisibleGenerationSitsAtTheTop() {
+        for generations in [2, 5, 12] {
+            let stones = path(generations)
+            let sky = layout(stones, now: epoch.addingTimeInterval(TimeInterval(generations) * 86_400))
+            let byGeneration = Dictionary(grouping: sky.stars, by: \.stone.generation)
+            let oldestShown = byGeneration.keys.min()!
+            let newestShown = byGeneration.keys.max()!
+            let yOldest = byGeneration[oldestShown]!.first!.center.y
+            let yNewest = byGeneration[newestShown]!.first!.center.y
+            XCTAssertLessThan(yOldest, yNewest,
+                              "the tree is upside down at \(generations) generations")
+            XCTAssertEqual(yOldest, SkyLayout.topInset, accuracy: 0.5,
+                           "the root is not hanging from the top")
+        }
+    }
+
+    // A young map should be a sapling at the top with room to grow into,
+    // not two stones huddled at the bottom of an empty sky.
+    func testAYoungMapHangsFromTheTopWithRoomBeneathIt() {
+        let sky = layout(path(2), now: epoch.addingTimeInterval(2 * 86_400))
+        for star in sky.stars {
+            XCTAssertLessThan(star.center.y, size.height / 2,
+                              "a two-stone map should sit high, with room to grow")
+        }
+    }
+
+    // The growing tip must stay in view however deep the path gets, or she
+    // loses the one stone she is actually standing on.
+    func testTheNewestGenerationIsAlwaysOnScreenAsTheTreeGrows() {
+        for generations in [2, 8, 20, 60, 200] {
+            let stones = path(generations)
+            let sky = layout(stones, now: epoch.addingTimeInterval(TimeInterval(generations) * 86_400))
+            let newest = stones.map(\.generation).max()!
+            XCTAssertTrue(sky.stars.contains { $0.stone.generation == newest },
+                          "the growing tip fell off screen at \(generations) generations")
+        }
+    }
+
+    // Branches taper: thick at the trunk, fine at the tips. That taper is
+    // most of what makes this read as grown rather than as a flowchart.
+    func testBranchesTaperFromTrunkToTip() {
+        let sky = layout(path(10), now: epoch.addingTimeInterval(10 * 86_400))
+        guard sky.roads.count > 2 else { return XCTFail("no branches to measure") }
+        let first = sky.roads.first!.width
+        let last = sky.roads.last!.width
+        XCTAssertGreaterThan(first, last, "the trunk is no thicker than the twigs")
+        for road in sky.roads {
+            XCTAssertGreaterThan(road.width, 0)
+            XCTAssertLessThanOrEqual(road.width, 4)
+        }
+    }
+
+    // MARK: - No collisions in the sky either
+
+    // The sky's own signage is the foot whisper ("the field"); a star under
+    // it would have its tap taken, exactly as on the gameplay screen.
+    func testNoStarCanReachTheFootWhispersTarget() {
+        for generations in [2, 8, 20, 60, 200] {
+            let sky = layout(path(generations),
+                             now: epoch.addingTimeInterval(TimeInterval(generations) * 86_400))
+            let bands = FieldLayout(size: size, safeTop: 59, safeBottom: 34, whisperBand: 44)
+            for star in sky.stars {
+                XCTAssertLessThanOrEqual(star.center.y + SkyLayout.starRadius,
+                                         bands.footWhisperTop,
+                                         "a star reached the foot whisper at \(generations)")
+                XCTAssertGreaterThanOrEqual(star.center.y - SkyLayout.starRadius,
+                                            bands.safeTop,
+                                            "a star climbed under the status bar")
+            }
+        }
+    }
 }
