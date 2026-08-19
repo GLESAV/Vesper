@@ -13,6 +13,13 @@ final class GameViewModel: ObservableObject {
 
     /// Where the fortune orb was, so the words rise from it.
     @Published private(set) var fortuneAnchor: CGPoint = .zero
+
+    /// The verse shown under "the field is quiet now." on the done card.
+    /// Drawn once per completed field, without repeats until the set is
+    /// exhausted — a repeat inside one evening turns a small gift into a slot
+    /// machine.
+    @Published private(set) var closingVerse = ""
+    private var verses = Verses.Deck()
     @Published private(set) var chainNote: String?
     @Published private(set) var unlockNote: String?
     @Published private(set) var pathNote: String?
@@ -256,6 +263,7 @@ final class GameViewModel: ObservableObject {
     }
 
     private func handleCleared() {
+        closingVerse = verses.next()
         sessionPoints += 100
         progression.recordClear(bonus: 100)
 

@@ -930,7 +930,8 @@ private struct WorldScene: View {
             DoneCard(count: game.count,
                      sessionPoints: game.sessionPoints,
                      lifetimePops: game.progression.lifetimePops,
-                     onRestart: game.restart)
+                     onRestart: game.restart,
+                     verse: game.closingVerse)
         }
     }
 
