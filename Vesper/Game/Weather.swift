@@ -22,7 +22,7 @@ import Foundation
 enum Weather: String, CaseIterable, Equatable {
     /// No weather. Still air — the field exactly as it has always been.
     case clear
-    /// Slippery: orbs keep their momentum and slide, with a fine drift down.
+    /// Slippery: orbs keep every bit of their momentum and slide.
     case rain
     /// Cold and crunchy: small, brittle, stepping movements.
     case snow
@@ -63,16 +63,23 @@ enum Weather: String, CaseIterable, Equatable {
         }
     }
 
-    /// A constant drift, in points per frame. Rain drizzles downward; nothing
-    /// else pulls, because a field that all slides one way stops feeling like
-    /// a field.
-    var drift: CGVector {
-        switch self {
-        case .rain: return CGVector(dx: 0, dy: 0.045)
-        case .snow: return CGVector(dx: 0, dy: 0.018)
-        default:    return .zero
-        }
-    }
+    // THERE IS NO NET DRIFT, AND THAT IS A CORRECTION.
+    //
+    // Rain and snow originally carried a constant downward drift, added to
+    // velocity each frame. `testNoWeatherStrandsTheFieldAgainstAnEdge` caught
+    // what that actually does: a one-way force inside a bounded field is not
+    // a drizzle, it is a waterfall. The bias accumulated until every orb hit
+    // its speed ceiling travelling straight down, and the field collapsed
+    // into a band along the floor and bounced there.
+    //
+    // The fix is not a smaller number — any constant one-way force ends in
+    // the same place, it only takes longer. Rain's character comes from
+    // `glide` instead (it loses no momentum at all, so it slides) and from a
+    // little wander; snow's from a stepped wander and a grippy glide. Both
+    // read as themselves without anything pulling the field into a corner.
+    //
+    // The only directional force left in the model is `swellAmount`, which
+    // oscillates and therefore always gives back what it takes.
 
     /// Amplitude of the lateral swell, in points per frame at its peak.
     /// Summer's whole character: the field breathes sideways together.
@@ -105,7 +112,7 @@ enum Weather: String, CaseIterable, Equatable {
         switch self {
         case .storm: return 0.055
         case .snow:  return 0.020
-        case .rain:  return 0.008
+        case .rain:  return 0.014
         default:     return 0
         }
     }

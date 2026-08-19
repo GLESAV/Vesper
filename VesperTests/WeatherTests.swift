@@ -68,7 +68,13 @@ final class WeatherTests: XCTestCase {
         XCTAssertLessThanOrEqual(fastest(storm), GameConfig.orbMaxSpeed * 2.0)
     }
 
-    // No weather may pull the whole field into a corner and hold it there.
+    // NO WEATHER MAY PULL THE WHOLE FIELD INTO A CORNER AND HOLD IT THERE.
+    //
+    // This test earned its place immediately: rain and snow originally
+    // carried a constant downward drift added to velocity each frame, which
+    // inside a bounded field is not a drizzle but a waterfall — the bias
+    // accumulated until every orb hit its ceiling travelling straight down
+    // and the field collapsed into a bouncing band along the floor.
     func testNoWeatherStrandsTheFieldAgainstAnEdge() {
         for weather in Weather.allCases {
             let s = sim(weather)
@@ -102,7 +108,6 @@ final class WeatherTests: XCTestCase {
         XCTAssertEqual(Weather.clear.glide, 1)
         XCTAssertEqual(Weather.clear.wander, 0)
         XCTAssertEqual(Weather.clear.swellAmount, 0)
-        XCTAssertEqual(Weather.clear.drift, .zero)
     }
 
     func testEachWeatherIsDistinguishableFromEveryOther() {
@@ -111,8 +116,8 @@ final class WeatherTests: XCTestCase {
                 let identical = a.speedScale == b.speedScale
                     && a.glide == b.glide
                     && a.wander == b.wander
+                    && a.wanderIsStepped == b.wanderIsStepped
                     && a.swellAmount == b.swellAmount
-                    && a.drift == b.drift
                 XCTAssertFalse(identical, "\(a) and \(b) feel the same")
             }
         }
@@ -121,7 +126,7 @@ final class WeatherTests: XCTestCase {
     func testRainSlidesAndSnowGrips() {
         XCTAssertEqual(Weather.rain.glide, 1, "rain must lose no momentum — that is the slipperiness")
         XCTAssertLessThan(Weather.snow.glide, 1, "snow must be grippy")
-        XCTAssertGreaterThan(Weather.rain.drift.dy, 0, "rain drizzles downward")
+        XCTAssertGreaterThan(Weather.rain.wander, 0, "rain needs some life in it")
         XCTAssertTrue(Weather.snow.wanderIsStepped, "snow moves in crunching steps, not smoothly")
         XCTAssertFalse(Weather.storm.wanderIsStepped, "wind is continuous")
     }

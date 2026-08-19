@@ -369,6 +369,7 @@ final class WorldRegressionTests: XCTestCase {
         // simulation is gated by the same predicate the world gates it with
         // (W07 / ruling 9).
         let sim = GameSimulation(seed: 0xA1C0_5A70_D065)
+        sim.pinnedWeather = .clear
         sim.reduceMotion = true
         sim.layout(size: screen)
 
@@ -821,6 +822,7 @@ final class WorldRegressionTests: XCTestCase {
 
         for seed in Self.baselineSeeds {
             let sim = GameSimulation(seed: seed)
+            sim.pinnedWeather = .clear
             sim.reduceMotion = true
             sim.layout(size: screen)
             let seeded = sim.orbs
@@ -899,6 +901,7 @@ final class WorldRegressionTests: XCTestCase {
         let camera = makeCamera()
         var arbiter = makeArbiter(reading: camera)
         let sim = GameSimulation(seed: 7)
+        sim.pinnedWeather = .clear
         sim.reduceMotion = true
         sim.layout(size: screen)
 

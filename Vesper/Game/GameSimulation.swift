@@ -53,6 +53,14 @@ final class GameSimulation {
     /// own RNG, so a seed is still a field.
     private(set) var weather: Weather = .clear
 
+    /// Forces a particular air, for tests whose subject is something else.
+    ///
+    /// The W20 storm regression and the tap baselines measure input
+    /// arbitration and pop reliability; if the air under them changes between
+    /// runs, they are measuring two things at once and the number they report
+    /// stops meaning what it says. Nil in the app, always.
+    var pinnedWeather: Weather?
+
     /// Phase of the lateral swell, advanced per frame. Not published and not
     /// read during a draw.
     private var swellPhase: CGFloat = 0
@@ -86,7 +94,7 @@ final class GameSimulation {
         orbs.removeAll()
         guard bounds.width > 0 else { return }
         plan = FieldPlan.forStage(stage)
-        weather = Weather.choose(using: &rng)
+        weather = pinnedWeather ?? Weather.choose(using: &rng)
         swellPhase = 0
         let pool = availablePops.isEmpty ? [PopCatalog.classic.number] : availablePops
 
@@ -187,6 +195,13 @@ final class GameSimulation {
     // random layout.
     func replaceOrbs(_ newOrbs: [Orb]) {
         orbs = newOrbs
+        // Weather is part of the randomness this hook exists to remove: a
+        // test that installs an exact field and then watches it move must not
+        // have the air chosen for it. `layout(size:)` seeds a field on first
+        // call, so by the time a test reaches here an air has already been
+        // picked — pin it back to still.
+        weather = .clear
+        swellPhase = 0
         particles.removeAll()
         rings.removeAll()
         notes.removeAll()
@@ -488,13 +503,6 @@ final class GameSimulation {
             let k = pow(weather.glide, f)
             orbs[i].vel.dx *= k
             orbs[i].vel.dy *= k
-        }
-
-        // Drift: rain drizzles, snow settles.
-        let drift = weather.drift
-        if drift.dy != 0 || drift.dx != 0 {
-            orbs[i].vel.dx += drift.dx * f
-            orbs[i].vel.dy += drift.dy * f
         }
 
         // Swell: the whole field breathing sideways together. Phase is shared,
