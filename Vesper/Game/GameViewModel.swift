@@ -152,6 +152,18 @@ final class GameViewModel: ObservableObject {
         sim.restart()
     }
 
+    // MARK: - Field bands
+
+    /// The bands the field may not enter, from `FieldLayout`.
+    ///
+    /// Not `@Published` and not read during a draw: these change on layout
+    /// (launch, rotation, Split View, a Dynamic Type change that grows the
+    /// whisper's target), which is orders of magnitude rarer than a frame.
+    func applyFieldBands(top: CGFloat, bottom: CGFloat) {
+        sim.topInset = top
+        sim.bottomInset = bottom
+    }
+
     // MARK: - Pointer
 
     /// Where the finger is, or nil when nothing is touching.

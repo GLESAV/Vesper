@@ -81,7 +81,7 @@ final class TapBaselineTests: XCTestCase {
     ///
     /// 41 pt is also the largest offset that is guaranteed to stay on screen:
     /// seeding keeps every orb centre at least `r + edgeInset` = 42 pt from the
-    /// left/right/bottom edges and `r + spawnTopInset` from the top, so no
+    /// left/right/bottom edges and `r + topInset + spawnMargin` from the top, so no
     /// trial point is a touch the device could not physically deliver.
     private static let offsetDistances: [CGFloat] = [4, 10, 16, 22, 28, 33, 38, 41]
 

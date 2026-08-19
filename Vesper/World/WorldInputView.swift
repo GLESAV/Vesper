@@ -74,6 +74,18 @@ final class WorldInputView: UIView {
     /// would have put drifters inside that contract.
     var onPointer: (CGPoint?) -> Void = { _ in }
 
+    /// The real safe-area insets, reported on layout.
+    ///
+    /// The world ignores the safe area on purpose — it is one continuous
+    /// place and the ground has to reach the glass — so SwiftUI's geometry
+    /// inside it reports zero insets and cannot tell the signage where the
+    /// Dynamic Island is. This view is already full-screen and already reads
+    /// its own bounds here for the arbiter's gates, so it is the one place
+    /// that can answer without adding a view to the tree (rule 2 keeps this
+    /// layer's position in the ZStack fixed, and a new sibling reader is
+    /// exactly the kind of thing that quietly moves it).
+    var onSafeArea: (CGFloat, CGFloat) -> Void = { _, _ in }
+
     private var arbiter = InputArbiter()
 
     // The one touch that steers the camera. Extra fingers still reach the
@@ -113,6 +125,7 @@ final class WorldInputView: UIView {
         // view) land here; a size change does not disturb an in-flight touch
         // beyond re-evaluating the gates against the new height.
         arbiter.bounds = bounds.size
+        onSafeArea(safeAreaInsets.top, safeAreaInsets.bottom)
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -234,12 +247,14 @@ final class WorldInputView: UIView {
 struct WorldInputLayer: UIViewRepresentable {
     var isFieldAtRest: () -> Bool
     var onPointer: (CGPoint?) -> Void = { _ in }
+    var onSafeArea: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onOutcome: ([InputOutcome]) -> Void
 
     func makeUIView(context: Context) -> WorldInputView {
         let view = WorldInputView(frame: .zero)
         view.isFieldAtRest = isFieldAtRest
         view.onPointer = onPointer
+        view.onSafeArea = onSafeArea
         view.onOutcome = onOutcome
         return view
     }
@@ -247,6 +262,7 @@ struct WorldInputLayer: UIViewRepresentable {
     func updateUIView(_ uiView: WorldInputView, context: Context) {
         uiView.isFieldAtRest = isFieldAtRest
         uiView.onPointer = onPointer
+        uiView.onSafeArea = onSafeArea
         uiView.onOutcome = onOutcome
     }
 }

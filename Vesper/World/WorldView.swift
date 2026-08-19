@@ -94,6 +94,21 @@ private struct WorldScene: View {
     // value (ruling 7 bars mirroring those into anything SwiftUI diffs).
     @State private var pulse = false
 
+    // THE FIELD'S LAYOUT CONTRACT (see `FieldLayout`). The safe insets come
+    // from UIKit through the input layer, because this world ignores the safe
+    // area and SwiftUI's geometry inside it therefore reports zero. The
+    // default is the largest inset any supported iPhone has, so the very
+    // first frame is never too tight — it can only get roomier when the truth
+    // arrives, never suddenly collide.
+    @State private var safeTop: CGFloat = 59
+    @State private var safeBottom: CGFloat = 34
+
+    // The whisper's target grows with Dynamic Type, so the band it needs is
+    // measured rather than assumed. Assuming 44 is how this collision comes
+    // back at accessibility sizes, for the people least able to absorb it.
+    @ScaledMetric(relativeTo: .footnote)
+    private var scaledWhisperBand: CGFloat = WhisperPresentation.minimumHitEdge
+
     private let renderer = SceneRenderer()
 
     var body: some View {
@@ -122,6 +137,11 @@ private struct WorldScene: View {
                 withAnimation(.easeOut(duration: 0.15)) { pulse = false }
             }
         }
+    }
+
+    private func layout(_ size: CGSize) -> FieldLayout {
+        FieldLayout(size: size, safeTop: safeTop, safeBottom: safeBottom,
+                    whisperBand: scaledWhisperBand)
     }
 
     private func applyReduceMotion(_ value: Bool) {
@@ -191,6 +211,10 @@ private struct WorldScene: View {
             // orb on a field she cannot see.
             WorldInputLayer(isFieldAtRest: { model.simActive },
                             onPointer: { game.pointerMoved(to: $0) },
+                            onSafeArea: { top, bottom in
+                                if safeTop != top { safeTop = top }
+                                if safeBottom != bottom { safeBottom = bottom }
+                            },
                             onOutcome: { model.handle($0) })
 
             // ── 2. THE MOVING WORLD ─────────────────────────────────────
@@ -289,7 +313,7 @@ private struct WorldScene: View {
             // tapped at all, and below the cards so a fortune is never
             // fighting one for a touch. The whole of the reasoning is on
             // `whispers`.
-            whispers
+            whispers(size: size)
 
             // ── 4. WORLD-LEVEL OVERLAYS THAT SURVIVE TRANSIT ────────────
             //
@@ -616,7 +640,20 @@ private struct WorldScene: View {
             // The counter belongs to the FIELD, not to the app: it travels
             // with the world and leaves the screen when she does, which is
             // most of what makes this a place rather than a screen.
-            hud
+            hud(size: size)
+        }
+        // THE SIMULATION'S HALF OF THE COLLISION FIX. Orbs bounce off the
+        // bands instead of drifting behind the signage — and the signage is a
+        // Button in a layer ABOVE the input layer, so an orb under "the sky"
+        // does not merely look wrong: its tap is taken by the whisper and the
+        // world travels when she meant to pop. Applied on layout, never per
+        // frame; `applyFieldBands` writes nothing published.
+        .onAppear {
+            let bands = layout(size)
+            game.applyFieldBands(top: bands.simTopInset, bottom: bands.simBottomInset)
+        }
+        .onChange(of: layout(size)) { _, bands in
+            game.applyFieldBands(top: bands.simTopInset, bottom: bands.simBottomInset)
         }
         // NON-INTERACTIVE, AND SINCE THE REORDER THIS IS THE LINE THE FIELD
         // DEPENDS ON. The moving body is above the input layer now, so this
@@ -656,8 +693,9 @@ private struct WorldScene: View {
         .accessibilityAddTraits(.allowsDirectInteraction)
     }
 
-    private var hud: some View {
-        VStack(spacing: 0) {
+    private func hud(size: CGSize) -> some View {
+        let bands = layout(size)
+        return VStack(spacing: 0) {
             // DECLUTTERED (owner: "the UI at the top is cluttered and ugly").
             //
             // What was here: a 62 pt counter, a tracked all-caps `SET FREE`
@@ -709,7 +747,7 @@ private struct WorldScene: View {
                 }
                 .frame(minHeight: 18)
             }
-            .padding(.top, 10)
+            .padding(.top, bands.hudTop)
 
             Spacer()
 
@@ -731,7 +769,7 @@ private struct WorldScene: View {
                     .font(.system(.footnote, design: .serif))
                     .italic()
                     .foregroundColor(Palette.soft)
-                    .padding(.bottom, 30)
+                    .padding(.bottom, bands.hintBottomInset)
                     .transition(.opacity)
             }
         }
@@ -790,11 +828,12 @@ private struct WorldScene: View {
     // anywhere inside the moving body — and why nothing in either place may
     // grow one back. A whisper inside a place travels off screen exactly when
     // she needs it, and is rebuilt every frame of every swipe.
-    private var whispers: some View {
-        VStack(spacing: 0) {
-            wayfindingWhisper(going: .up, edge: .top, inset: Self.headInset)
+    private func whispers(size: CGSize) -> some View {
+        let bands = layout(size)
+        return VStack(spacing: 0) {
+            wayfindingWhisper(going: .up, edge: .top, inset: bands.headWhisperTop)
             Spacer(minLength: 0)
-            wayfindingWhisper(going: .down, edge: .bottom, inset: Self.footInset)
+            wayfindingWhisper(going: .down, edge: .bottom, inset: bands.footWhisperInset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // `place` is published and changes at most once per commit, so this
@@ -876,8 +915,10 @@ private struct WorldScene: View {
     // The world ignores the safe area, so the whispers keep their own
     // distance: clear of a Dynamic Island at the head, clear of the home
     // indicator at the foot, on every supported iPhone.
-    private static let headInset: CGFloat = 60
-    private static let footInset: CGFloat = 34
+    // The head/foot insets that used to live here are gone: `FieldLayout`
+    // owns every vertical band now, because two of them measured from the
+    // screen edge in one file while the counter measured from it in another
+    // is precisely how the signage and the counter came to overlap.
 
     // MARK: - Cards
 

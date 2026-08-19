@@ -41,6 +41,17 @@ final class GameSimulation {
     /// arbitration (the one thing R-SPIKE exists to protect).
     var pointer: CGPoint?
 
+    /// THE BANDS THE FIELD MAY NOT ENTER, driven by `FieldLayout`.
+    ///
+    /// These were a single hardcoded `GameConfig.fieldTopInset` measured from
+    /// the screen edge, which is how orbs came to drift under the sky
+    /// whisper — and an orb under a whisper has its tap taken by the whisper,
+    /// so she aims at an orb and the world travels instead. Insets are the
+    /// simulation's half of that fix; the view's half is placing the signage
+    /// where it says it does.
+    var topInset: CGFloat = GameConfig.fieldTopInset
+    var bottomInset: CGFloat = 0
+
     private var rng: SplitMix64
 
     init(seed: UInt64 = UInt64.random(in: .min ... .max)) {
@@ -105,8 +116,9 @@ final class GameSimulation {
         let inset = GameConfig.edgeInset
         var orb = Orb(
             pos: CGPoint(x: rnd(r + inset ... max(r + inset, bounds.width - r - inset)),
-                         y: rnd(r + GameConfig.spawnTopInset ... max(r + GameConfig.spawnTopInset,
-                                                                     bounds.height - r - inset))),
+                         y: rnd(r + topInset + GameConfig.spawnMargin
+                                ... max(r + topInset + GameConfig.spawnMargin,
+                                        bounds.height - r - bottomInset - inset))),
             vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed),
                           dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed)),
             r: r, baseR: r,
@@ -299,8 +311,8 @@ final class GameSimulation {
 
     private func clampIntoBounds(_ p: CGPoint, radius: CGFloat) -> CGPoint {
         CGPoint(x: min(max(p.x, radius), max(radius, bounds.width - radius)),
-                y: min(max(p.y, radius + GameConfig.fieldTopInset),
-                       max(radius + GameConfig.fieldTopInset, bounds.height - radius)))
+                y: min(max(p.y, radius + topInset),
+                       max(radius + topInset, bounds.height - radius - bottomInset)))
     }
 
     private func spawnBurst(for orb: Orb, def: PopDefinition) {
@@ -363,11 +375,11 @@ final class GameSimulation {
                 orbs[i].pos.x = bounds.width - r
                 orbs[i].vel.dx = -abs(orbs[i].vel.dx)
             }
-            if orbs[i].pos.y < r + GameConfig.fieldTopInset {
-                orbs[i].pos.y = r + GameConfig.fieldTopInset
+            if orbs[i].pos.y < r + topInset {
+                orbs[i].pos.y = r + topInset
                 orbs[i].vel.dy = abs(orbs[i].vel.dy)
-            } else if orbs[i].pos.y > bounds.height - r {
-                orbs[i].pos.y = bounds.height - r
+            } else if orbs[i].pos.y > bounds.height - r - bottomInset {
+                orbs[i].pos.y = bounds.height - r - bottomInset
                 orbs[i].vel.dy = -abs(orbs[i].vel.dy)
             }
 
