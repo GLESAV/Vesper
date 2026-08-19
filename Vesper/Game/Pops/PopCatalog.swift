@@ -50,7 +50,15 @@ enum PopCatalog {
         pCount: Int = GameConfig.particleBaseCount,
         pSpeed: ClosedRange<Double> = 1.2...6,
         gravity: Double = Double(GameConfig.particleGravity),
-        freq: Double = 460, spread: Double = 420, sweep: Double = 0.55,
+        // SWEEP DEFAULTS TO A SLIGHT RISE, NOT A FALL. It was 0.55 — a drop to
+        // 55% of the start frequency inside 140 ms, which is the arcade "pew"
+        // and is what the owner heard. Things that open go up; 1.02 is a lift
+        // small enough to be felt rather than heard as a pitch bend.
+        // `PopSoundEngine` also floors steep falls, so the ~55 entries that
+        // override this cannot reintroduce a laser either — but the DEFAULT
+        // has to be honest on its own, or the next person to author a pop
+        // reads 0.55 and believes it.
+        freq: Double = 460, spread: Double = 420, sweep: Double = 1.02,
         dur: Double = 0.14, sDecay: Double = 7.5, bright: Double = 0,
         hBase: Double = 0.35, hSize: Double = 0.5, sharp: Bool = false,
         voice: SoundVoice? = nil,
