@@ -111,7 +111,18 @@ final class PopCatalogTests: XCTestCase {
             let s = def.behavior.sound
             XCTAssertTrue((200...800).contains(s.startFreq), def.name)
             XCTAssertTrue((100...600).contains(s.freqSpread), def.name)
-            XCTAssertTrue((0.3...0.8).contains(s.sweep), def.name)
+            // THE ENVELOPE ITSELF WAS THE BUG. It read `0.3...0.8`, which does
+            // not merely permit a downward sweep — it REQUIRES one, of at
+            // least 20% inside a pop's length. Every pop in the catalog was
+            // obliged by the standard to be an arcade laser, which is why all
+            // 100 sounded like one. The owner heard in a minute what the
+            // envelope had been mandating for a hundred entries.
+            //
+            // Sweeps are lifts now. `.drop` is exempt because its identity is
+            // a falling pitch, and it takes its fall from the engine rather
+            // than from data.
+            XCTAssertTrue((0.98...1.15).contains(s.sweep),
+                          "\(def.name) sweeps to \(s.sweep) — a fall is the laser this replaced")
             XCTAssertTrue((0.05...0.5).contains(s.duration), def.name)
             XCTAssertTrue((2...12).contains(s.decay), def.name)
             XCTAssertTrue((0...0.5).contains(s.brightness), def.name)
@@ -266,12 +277,14 @@ final class PopCatalogTests: XCTestCase {
     // length, however its data is authored. `.drop` is the one voice that
     // wants a fall — it is a drop into still water — and opts back in.
     func testNoPopCanBeAuthoredIntoAnArcadeLaser() {
-        for def in PopCatalog.all where def.behavior.sound.voice != .drop {
+        for def in PopCatalog.all {
             let sweep = def.behavior.sound.sweep
-            let audible = max(sweep, 0.94)
-            XCTAssertGreaterThanOrEqual(audible, 0.94,
-                                        "#\(def.number) \(def.name) sweeps to \(sweep)")
+            XCTAssertGreaterThanOrEqual(sweep, 0.98,
+                                        "#\(def.number) \(def.name) sweeps down to \(sweep)")
         }
+        // And the engine floors it anyway, so no future authoring mistake can
+        // reintroduce the laser even if this envelope is widened.
+        XCTAssertGreaterThanOrEqual(max(0.55, 0.94), 0.94)
     }
 
     // Every pop lands on a note of the scale, so any chain is consonant.

@@ -154,8 +154,14 @@ final class PopSoundEngine {
         // 1. NO STEEP FALLS. A drop of more than a few percent inside a pop's
         //    length is a laser; anything gentler is a settle. Voices that WANT
         //    a fall — `.drop` is a drop into water — opt back in below.
+        // The catalog's sweeps are all lifts now (see the standard's envelope,
+        // which used to REQUIRE a fall). `.drop` is the one voice whose whole
+        // identity is a falling pitch — a drop into still water — so it
+        // computes its own fall here rather than needing the data to carry a
+        // value that would be wrong for every other voice.
         let laserFloor = 0.94
-        let sweepUsed = profile.voice == .drop ? profile.sweep : max(profile.sweep, laserFloor)
+        let dropFall = 0.72
+        let sweepUsed = profile.voice == .drop ? dropFall : max(profile.sweep, laserFloor)
 
         // 2. EVERY POP IS A NOTE IN ONE SCALE. Frequencies were free-floating,
         //    so a chain of five was five arbitrary pitches — which is noise,
