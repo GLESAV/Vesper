@@ -10,6 +10,9 @@ final class GameViewModel: ObservableObject {
     @Published var showDone = false
     @Published var showFortune = false
     @Published private(set) var fortuneText = ""
+
+    /// Where the fortune orb was, so the words rise from it.
+    @Published private(set) var fortuneAnchor: CGPoint = .zero
     @Published private(set) var chainNote: String?
     @Published private(set) var unlockNote: String?
     @Published private(set) var pathNote: String?
@@ -61,6 +64,10 @@ final class GameViewModel: ObservableObject {
     private func applyFieldPops() {
         let pops = map.activeStone?.popNumbers ?? progression.fieldPops()
         sim.availablePops = pops
+        // The stage rides on fields cleared, so what a field is made of grows
+        // with her rather than with anything she has to choose. Set before
+        // every seed, because `seedField` reads it once and builds to it.
+        sim.stage = FieldPlan.stage(forFieldsCleared: progression.fieldsCleared)
         PopSoundEngine.shared.prepare(pops.map {
             PopCatalog.definition(for: $0).behavior.sound
         })
@@ -145,6 +152,20 @@ final class GameViewModel: ObservableObject {
         sim.restart()
     }
 
+    // MARK: - Pointer
+
+    /// Where the finger is, or nil when nothing is touching.
+    ///
+    /// Drifters read this to ease away. It is reported from the input view
+    /// ALONGSIDE the arbiter and never through it — nothing here can reach
+    /// pop-vs-pan arbitration, which is the one thing R-SPIKE exists to keep
+    /// safe. Written every touch move, so it stays off `@Published`: a
+    /// published write at digitizer rate would invalidate the view 120 times
+    /// a second (ruling 7).
+    func pointerMoved(to p: CGPoint?) {
+        sim.pointer = p
+    }
+
     // MARK: - Events
 
     private func apply(_ events: [GameEvent]) {
@@ -152,11 +173,38 @@ final class GameViewModel: ObservableObject {
             switch event {
             case .popped(let orb, let chained):
                 handlePop(orb: orb, chained: chained)
-            case .fortuneRevealed:
+            case .fortuneRevealed(let at):
                 progression.recordFortune()
+                fortuneAnchor = at
                 triggerFortune()
             case .cleared:
                 handleCleared()
+
+            // A splitter opening. It gets its own soft answer rather than
+            // borrowing the pop's — the pop already sounded a frame ago, and
+            // doubling it reads as a glitch rather than as a reward.
+            case .split(let parent, _):
+                let def = PopCatalog.definition(for: parent.popNumber)
+                PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1.34)
+
+            // A generator giving. Only answered when SHE caused it: an orb
+            // arriving on the generator's own interval is ambient and must
+            // not tap her on the shoulder. A press she made is different —
+            // that is the whole feel of working a generator.
+            case .emitted(let orb, let byTap):
+                if byTap {
+                    let def = PopCatalog.definition(for: orb.popNumber)
+                    PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1.18)
+                    HapticsEngine.shared.pop(profile: def.behavior.haptic,
+                                             sizeNorm: 0.25, chained: true)
+                }
+
+            // A generator closing on its own terms. DELIBERATELY SILENT.
+            // Nothing was popped and nothing was lost, so there is nothing to
+            // announce — a sound here would turn "it settled" into "you
+            // missed it", which is the exact feeling this game does not have.
+            case .generatorClosed:
+                break
             }
         }
         if !events.isEmpty { checkUnlocks() }
@@ -291,8 +339,11 @@ final class GameViewModel: ObservableObject {
         // not finish speaking a full sentence in that time at the default
         // rate, so she loses it mid-word, every time, with no way back.
         //
-        // Dismissal stays available by tap, which is how she got here. The
-        // card simply waits, which is what the rest of this world does.
+        // On the world path there is nothing to dismiss any more — the
+        // fortune is a `FortuneWhisper` that blocks nothing and leaves on its
+        // own — so under an assistive technology it simply stays until the
+        // next one, which is the reading time a screen reader needs and costs
+        // her nothing, because it was never in her way.
         guard !AssistiveTechMonitor.shared.isRunning else { return }
         let work = DispatchWorkItem { [weak self] in
             withAnimation(.easeInOut(duration: 0.4)) { self?.showFortune = false }

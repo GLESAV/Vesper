@@ -43,6 +43,62 @@ struct FortuneCard: View {
     }
 }
 
+// MARK: - Fortune whisper
+
+/// The fortune, as a line of light rising off the orb it came from.
+///
+/// **This replaces the card on the field** (owner, after his first session:
+/// "the text pop up is annoying"). `FortuneCard` was a bordered, shadowed,
+/// centre-screen panel that had to be dismissed — the grammar of an alert,
+/// used for the one thing in this game that is meant to feel like a small
+/// gift. It stopped the field to hand her a message.
+///
+/// What it is instead: no panel, no border, no shadow, no scrim, and nothing
+/// to dismiss. The words fade in where the orb was, drift upward the way a
+/// point whisper does, and leave on their own. She can keep popping straight
+/// through it — `allowsHitTesting(false)` guarantees the words can never eat
+/// a touch meant for an orb, which was the other half of the annoyance.
+///
+/// It keeps its own hit-free space rather than being drawn into the `Canvas`
+/// with the other float notes, for one reason: a fortune is a SENTENCE, and
+/// `Canvas` text does not wrap. SwiftUI `Text` does.
+struct FortuneWhisper: View {
+    let text: String
+    let at: CGPoint
+
+    @State private var lift: CGFloat = 14
+
+    var body: some View {
+        GeometryReader { geo in
+            Text(text)
+                .font(.system(size: 15, design: .serif))
+                .italic()
+                .multilineTextAlignment(.center)
+                .lineSpacing(5)
+                .foregroundColor(Color(red: 232/255, green: 228/255, blue: 242/255).opacity(0.92))
+                .shadow(color: .black.opacity(0.55), radius: 8)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: min(300, geo.size.width - 56))
+                // Vertically it sits just above the orb it came from, held
+                // clear of the counter at the top and the whisper at the
+                // foot. Horizontally it centres: the text can run to 300 pt,
+                // so following the orb sideways would push a fortune from an
+                // edge orb half off the screen for no gain.
+                .position(x: geo.size.width / 2,
+                          y: min(max(at.y - 52, 150), max(150, geo.size.height - 150)))
+                .offset(y: lift)
+                .allowsHitTesting(false)
+                .onAppear {
+                    withAnimation(.easeOut(duration: 2.4)) { lift = -10 }
+                }
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
+        .accessibilityElement()
+        .accessibilityLabel(Text(text))
+    }
+}
+
 // MARK: - Done card
 
 struct DoneCard: View {

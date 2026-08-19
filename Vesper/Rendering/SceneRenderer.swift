@@ -317,6 +317,57 @@ struct SceneRenderer {
                                width: hr * 2, height: hr * 2)
             glow.fill(Path(ellipseIn: hRect),
                       with: .color(Color.white.opacity(style.highlightOpacity)))
+
+            // WHAT KIND OF ORB THIS IS, SAID IN LIGHT.
+            //
+            // A mechanic she cannot see is a mechanic she cannot learn, and
+            // the field is where all of the teaching happens — there is no
+            // tutorial and there is not going to be one. So each kind carries
+            // one mark, and each mark is a HINT AT ITS BEHAVIOUR rather than a
+            // badge: the splitter shows the smaller orb waiting inside it, the
+            // generator breathes open like something with more to give, the
+            // drifter is drawn a touch softer, the way a thing that is about
+            // to move away already looks.
+            //
+            // No icons, no outlines, nothing saturated — these are the same
+            // paints the orb already carries, at different radii.
+            switch o.kind {
+            case .plain:
+                break
+
+            case .splitter:
+                // The doll inside the doll.
+                let innerR = R * GameConfig.splitChildScale * 0.62
+                let inner = CGRect(x: o.pos.x - innerR, y: o.pos.y - innerR,
+                                   width: innerR * 2, height: innerR * 2)
+                glow.stroke(Path(ellipseIn: inner),
+                            with: .color(glowColor.opacity(0.5 * pulse)),
+                            lineWidth: 1)
+
+            case .drifter:
+                // Softer-edged: a ring just outside the body, like something
+                // already half-somewhere-else.
+                let haze = R * 1.16
+                let ring = CGRect(x: o.pos.x - haze, y: o.pos.y - haze,
+                                  width: haze * 2, height: haze * 2)
+                glow.stroke(Path(ellipseIn: ring),
+                            with: .color(glowColor.opacity(0.26 * pulse)),
+                            lineWidth: 1)
+
+            case .generator:
+                // Two slow rings, breathing on the orb's own phase — the
+                // grammar this project already uses for "there is more here".
+                // It breathes rather than blinks (05 §3).
+                let breath = 1 + 0.08 * Double(sin(o.phase * 1.2))
+                for k in 1...2 {
+                    let rr = R * (1.1 + 0.22 * CGFloat(k)) * CGFloat(breath)
+                    let rect = CGRect(x: o.pos.x - rr, y: o.pos.y - rr,
+                                      width: rr * 2, height: rr * 2)
+                    glow.stroke(Path(ellipseIn: rect),
+                                with: .color(glowColor.opacity((0.34 - 0.12 * Double(k)) * pulse)),
+                                lineWidth: 1)
+                }
+            }
         }
 
         // shockwave rings
