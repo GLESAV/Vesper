@@ -68,8 +68,12 @@ struct PopStyle {
 // instrument, and the ten pops in it are the notes. That is how a catalogue
 // this size stays coherent instead of becoming a hundred unrelated noises.
 enum SoundVoice: String, Hashable, CaseIterable {
-    /// v1.0 exactly: sine, optional second harmonic, swept, exponential
-    /// decay. Pop #001 must keep this forever.
+    /// THE ASMR POP: a soft broadband transient and a resonant body that
+    /// lifts very slightly as it decays. This is what a bubble, a water drop
+    /// or a mouth pop actually does, and it is the base sound of the game.
+    case pop
+    /// Sine with an optional second harmonic and an exponential decay. The
+    /// v1.0 shape, kept for pops that want a plain round tone.
     case tone
     /// Struck and inharmonic, long ringing tail. Bells, not tones.
     case bell
@@ -83,8 +87,6 @@ enum SoundVoice: String, Hashable, CaseIterable {
     case wood
     /// Filtered noise bursts over a low body. Embers settling.
     case crackle
-    /// Slow attack, low body under a noise wash. Water arriving.
-    case swell
     /// Layered detuned sines with slow amplitude drift. Barely a pitch.
     case shimmer
     /// A pitch that falls and lands. A single drop into water.
@@ -269,15 +271,15 @@ enum PopFamily: String, CaseIterable {
     /// The instrument this family is played on.
     var voice: SoundVoice {
         switch self {
-        case .vesper:  return .tone      // the original, preserved exactly
+        case .vesper:  return .pop       // the ASMR pop — the base sound
         case .ember:   return .crackle   // embers settling
-        case .tide:    return .swell     // water arriving
-        case .bloom:   return .pluck     // a string touched once
+        case .tide:    return .drop      // one drop into still water
+        case .bloom:   return .tone      // a plain round tone, no sweep
         case .frost:   return .glass     // glass tapped with a nail
         case .chime:   return .bell      // struck metal, ringing
         case .lantern: return .wood      // a knuckle on a table
         case .current: return .breath    // air with a pitch centre
-        case .prism:   return .drop      // a pitch that falls and lands
+        case .prism:   return .pluck     // a string touched once
         case .aurora:  return .shimmer   // barely a pitch at all
         }
     }

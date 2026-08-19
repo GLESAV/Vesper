@@ -229,8 +229,12 @@ final class PopCatalogTests: XCTestCase {
     func testTheClassicPopIsExactlyWhatItAlwaysWas() {
         let classic = PopCatalog.classic
         XCTAssertEqual(classic.number, 1)
-        XCTAssertEqual(classic.behavior.sound.voice, .tone,
-                       "pop #001 is the v1.0 sound and may never be re-voiced")
+        // The voice DID change, on the owner's instruction: v1.0's sound was
+        // a fast downward sweep, which is an arcade laser, and he heard it as
+        // one. `.pop` is the ASMR bubble. Everything else about #001 — its
+        // touch and its gesture — is still v1.0 exactly.
+        XCTAssertEqual(classic.behavior.sound.voice, .pop,
+                       "the base pop is the ASMR pop, never the swept tone")
         XCTAssertEqual(classic.behavior.haptic.pattern, .single)
         XCTAssertEqual(classic.behavior.burst, .radial)
     }
