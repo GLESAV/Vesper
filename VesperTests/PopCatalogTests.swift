@@ -167,4 +167,82 @@ final class PopCatalogTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
         return ProgressionStore(defaults: defaults)
     }
+
+    // MARK: - "Truly unique": the three expressive axes
+
+    // THE DIAGNOSIS THIS SUITE PINS. The catalog varied colour, pitch and
+    // length across all 100 pops, on ONE synthesis model, with ONE haptic
+    // (baseIntensity and intensityPerSize were overridden in exactly one
+    // entry) and ONE burst gesture. A hundred notes on the same string.
+    //
+    // These tests assert the structure that fixed it: ten families, each with
+    // its own instrument, its own thing to say to the hand, and its own way of
+    // moving — so a pop is recognisable as a member of its family and never
+    // mistakable for another family's.
+
+    func testEveryFamilyHasItsOwnVoice() {
+        let voices = PopFamily.allCases.map(\.voice)
+        XCTAssertEqual(Set(voices).count, PopFamily.allCases.count,
+                       "two families share a synthesis voice — they will be confused for each other")
+    }
+
+    func testEveryFamilyHasItsOwnBurstGesture() {
+        let bursts = PopFamily.allCases.map(\.burst)
+        XCTAssertEqual(Set(bursts).count, PopFamily.allCases.count,
+                       "two families burst identically — the eye remembers the gesture")
+    }
+
+    func testTheHapticVocabularyIsSpreadAcrossTheFamilies() {
+        // Only five patterns exist for ten families, so these cannot all be
+        // distinct — but a vocabulary of five that only ever uses two is the
+        // bug this replaced.
+        let patterns = Set(PopFamily.allCases.map(\.hapticPattern))
+        XCTAssertEqual(patterns.count, HapticPattern.allCases.count,
+                       "the haptic vocabulary is not fully used: \(patterns)")
+    }
+
+    func testNoTwoFamiliesShareTheirWholeSignature() {
+        // The real bar: two families may share one axis, never all three.
+        for a in PopFamily.allCases {
+            for b in PopFamily.allCases where a != b {
+                let same = (a.voice == b.voice)
+                    && (a.hapticPattern == b.hapticPattern)
+                    && (a.burst == b.burst)
+                XCTAssertFalse(same, "\(a) and \(b) are indistinguishable")
+            }
+        }
+    }
+
+    func testEveryPopInheritsItsFamilysSignatureUnlessItSaysOtherwise() {
+        for def in PopCatalog.all {
+            let f = def.family
+            let matchesFamily = def.behavior.sound.voice == f.voice
+                && def.behavior.haptic.pattern == f.hapticPattern
+                && def.behavior.burst == f.burst
+            let deliberateOverride = def.rarity == .rare || def.rarity == .secret
+            XCTAssertTrue(matchesFamily || deliberateOverride,
+                          "#\(def.number) \(def.name) drifted from its family for no stated reason")
+        }
+    }
+
+    // v1.0 must survive all of this untouched.
+    func testTheClassicPopIsExactlyWhatItAlwaysWas() {
+        let classic = PopCatalog.classic
+        XCTAssertEqual(classic.number, 1)
+        XCTAssertEqual(classic.behavior.sound.voice, .tone,
+                       "pop #001 is the v1.0 sound and may never be re-voiced")
+        XCTAssertEqual(classic.behavior.haptic.pattern, .single)
+        XCTAssertEqual(classic.behavior.burst, .radial)
+    }
+
+    // Distinctness has to survive contact with the actual catalog, not just
+    // the family table: a pop is heard, felt and seen together.
+    func testTheCatalogUsesItsWholeExpressiveRange() {
+        let voices = Set(PopCatalog.all.map(\.behavior.sound.voice))
+        let bursts = Set(PopCatalog.all.map(\.behavior.burst))
+        let patterns = Set(PopCatalog.all.map(\.behavior.haptic.pattern))
+        XCTAssertEqual(voices.count, SoundVoice.allCases.count, "unused voices: unheard range")
+        XCTAssertEqual(bursts.count, BurstMotion.allCases.count, "unused burst motions")
+        XCTAssertEqual(patterns.count, HapticPattern.allCases.count, "unused haptic patterns")
+    }
 }

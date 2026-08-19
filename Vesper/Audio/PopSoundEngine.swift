@@ -146,18 +146,134 @@ final class PopSoundEngine {
         let endFreq = startFreq * profile.sweep
         let channel = buffer.floatChannelData![0]
 
+        // ONE INSTRUMENT PER VOICE. Everything below shares the envelope
+        // discipline of the original — a fast raised-cosine attack so nothing
+        // clicks, an exponential decay, and a final 0.5 gain so nothing in
+        // this game is ever loud — and differs in how the sample itself is
+        // made. That is the difference between a hundred notes on one string
+        // and a hundred sounds.
+        //
+        // Deterministic noise: a small LCG seeded from the profile's own
+        // numbers, never `Double.random` and never `hashValue` — Swift seeds
+        // its hasher per process, so a hash-seeded texture would be subtly
+        // different on every launch. Buffers are pre-rendered and cached, and
+        // a pop has to be the same sound every time anyone hears it.
+        var rngState = (profile.startFreq.bitPattern &* 31)
+            ^ (profile.duration.bitPattern &* 131)
+            ^ UInt64(profile.voice.rawValue.count &+ 7)
+        rngState |= 1
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+
+        // A one-pole low-pass, for the voices built out of noise.
+        var lp = 0.0
+        // A two-sample history for the band-passed voices.
+        var bp1 = 0.0, bp2 = 0.0
+
         for frame in 0..<Int(frameCount) {
             let t = Double(frame) / sampleRate
             let progress = t / duration
             let freq = startFreq + (endFreq - startFreq) * progress
             let phase = 2.0 * .pi * freq * t
-            let attack = sin(min(1, progress * 40) * .pi / 2)
             let decay = exp(-progress * profile.decay)
-            var sample = sin(phase)
-            if profile.brightness > 0 {
-                sample += sin(phase * 2) * profile.brightness
+
+            // Attack shape is part of a voice's identity: a bell and a breath
+            // differ more in how they START than in what they contain.
+            let attack: Double
+            switch profile.voice {
+            case .swell, .breath, .shimmer:
+                attack = sin(min(1, progress * 6) * .pi / 2)      // slow, arriving
+            case .glass, .pluck, .wood, .crackle:
+                attack = sin(min(1, progress * 90) * .pi / 2)     // near-instant
+            default:
+                attack = sin(min(1, progress * 40) * .pi / 2)     // v1.0
             }
-            let norm = 1.0 + profile.brightness
+
+            var sample: Double
+            var norm = 1.0
+
+            switch profile.voice {
+            case .tone:
+                sample = sin(phase)
+                if profile.brightness > 0 { sample += sin(phase * 2) * profile.brightness }
+                norm = 1.0 + profile.brightness
+
+            case .bell:
+                // Inharmonic partials — the ratios are what make a bell read
+                // as struck metal rather than as a chord.
+                sample = sin(phase)
+                    + 0.6 * sin(phase * 2.76) * exp(-progress * profile.decay * 1.6)
+                    + 0.35 * sin(phase * 5.40) * exp(-progress * profile.decay * 2.4)
+                norm = 1.95
+
+            case .pluck:
+                // Harmonics that collapse at different rates: bright for a
+                // few milliseconds, then just a body.
+                sample = sin(phase)
+                    + 0.5 * sin(phase * 2) * exp(-progress * profile.decay * 3)
+                    + 0.25 * sin(phase * 3) * exp(-progress * profile.decay * 6)
+                norm = 1.75
+
+            case .breath:
+                // Band-passed noise: air with a pitch centre rather than a
+                // pitch. Two poles are enough to hear the centre move.
+                let n = noise()
+                let k = min(0.45, freq / sampleRate * 6)
+                bp1 += k * (n - bp1)
+                bp2 += k * (bp1 - bp2)
+                sample = (bp1 - bp2) * 6
+                norm = 1.4
+
+            case .glass:
+                // A detuned pair beating against itself, very short.
+                sample = sin(phase) + 0.85 * sin(phase * 1.008)
+                    + 0.3 * sin(phase * 4.1) * exp(-progress * profile.decay * 4)
+                norm = 2.0
+
+            case .wood:
+                // Low, damped, and mostly transient: the pitch barely
+                // survives the attack.
+                let body = sin(phase) * exp(-progress * profile.decay * 2.2)
+                lp += 0.22 * (noise() - lp)
+                sample = body + lp * 1.6 * exp(-progress * profile.decay * 5)
+                norm = 1.9
+
+            case .crackle:
+                // Sparse noise grains over a quiet low body. The grains are
+                // gated so it reads as crackling rather than as hiss.
+                let n = noise()
+                let grain = abs(n) > 0.86 ? n * 1.4 : n * 0.12
+                lp += 0.4 * (grain - lp)
+                sample = lp * 1.5 + 0.35 * sin(phase * 0.5)
+                norm = 1.7
+
+            case .swell:
+                // Water: a low sine under a slow noise wash, both arriving.
+                lp += 0.05 * (noise() - lp)
+                sample = sin(phase) * 0.75 + lp * 1.1
+                norm = 1.6
+
+            case .shimmer:
+                // Three detuned sines with slow amplitude drift — the pitch
+                // is present but never quite settles.
+                let drift = 1 + 0.02 * sin(2 * .pi * 3.1 * t)
+                sample = sin(phase * drift)
+                    + 0.7 * sin(phase * 1.004)
+                    + 0.5 * sin(phase * 0.996)
+                sample *= 0.6 + 0.4 * sin(2 * .pi * 5.5 * t)
+                norm = 2.2
+
+            case .drop:
+                // A pitch that falls fast and lands: the sweep does the work,
+                // so it is steepened here rather than in the profile.
+                let fallen = startFreq + (endFreq - startFreq) * pow(progress, 0.35)
+                sample = sin(2.0 * .pi * fallen * t)
+                    + 0.3 * sin(2.0 * .pi * fallen * 2 * t) * exp(-progress * profile.decay * 3)
+                norm = 1.3
+            }
+
             channel[frame] = Float(sample / norm * attack * decay * 0.5)
         }
         return buffer

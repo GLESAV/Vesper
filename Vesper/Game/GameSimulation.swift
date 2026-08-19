@@ -325,13 +325,84 @@ final class GameSimulation {
         }
         let speed = def.behavior.particleSpeedRange
         let size = def.style.particleSizeRange
-        for _ in 0..<n {
+        for k in 0..<n {
             let a = rnd(0 ... .pi * 2)
-            let sp = rnd(CGFloat(speed.lowerBound) ... CGFloat(speed.upperBound)) * (0.7 + strength)
+            let base = rnd(CGFloat(speed.lowerBound) ... CGFloat(speed.upperBound)) * (0.7 + strength)
+
+            // THE GESTURE OF THE BURST. Every pop in the catalog used to throw
+            // its particles the same way — a full-circle scatter with a slight
+            // upward bias, falling under gravity — so the thing the eye
+            // actually remembers about a pop was identical across all 100.
+            // Shape and speed varied; the MOTION did not.
+            //
+            // Each case below is one gesture. They are deliberately extreme
+            // relative to one another: a difference the eye has to look for is
+            // not a difference.
+            var vel: CGVector
+            var life: CGFloat = 1
+            var decay = rnd(0.01 ... 0.024)
+
+            switch def.behavior.burst {
+            case .radial:
+                vel = CGVector(dx: cos(a) * base, dy: sin(a) * base - rnd(0 ... 0.8))
+
+            case .bloom:
+                // Slow, even, and held: petals opening rather than debris.
+                let sp = base * 0.45
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp - rnd(0 ... 0.3))
+                decay *= 0.55
+
+            case .implode:
+                // Inward first. The particle starts outside and falls in, so
+                // the burst reads as a breath taken before it goes.
+                let sp = base * 0.8
+                vel = CGVector(dx: -cos(a) * sp, dy: -sin(a) * sp)
+
+            case .spiral:
+                // Tangential rather than radial: the burst turns as it leaves.
+                let sp = base * 0.9
+                vel = CGVector(dx: cos(a + .pi / 2) * sp + cos(a) * sp * 0.35,
+                               dy: sin(a + .pi / 2) * sp + sin(a) * sp * 0.35)
+
+            case .drip:
+                // Heavy and downward, a few thrown wide.
+                let sp = base * (k % 5 == 0 ? 0.9 : 0.35)
+                vel = CGVector(dx: cos(a) * sp * 0.5, dy: abs(sin(a)) * sp + 0.6)
+
+            case .ascend:
+                // Upward and slowing — sparks leaving a fire.
+                let sp = base * 0.7
+                vel = CGVector(dx: cos(a) * sp * 0.6, dy: -abs(sin(a)) * sp - 0.5)
+                decay *= 0.7
+
+            case .scatter:
+                // Flat and fast: a horizontal sweep more than a circle.
+                let sp = base * 1.35
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp * 0.28)
+
+            case .shiver:
+                // Barely travels. It trembles apart in place.
+                let sp = base * 0.22
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp)
+                decay *= 1.5
+
+            case .ring:
+                // One speed for everything: a thin expanding band.
+                let sp = base * 0.85 + 1.2
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp)
+                life = 0.9
+
+            case .veil:
+                // Hangs and fades. Almost no speed, almost no fall.
+                let sp = base * 0.18
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp * 0.5 - 0.12)
+                decay *= 0.5
+            }
+
             particles.append(Particle(
                 pos: orb.pos,
-                vel: CGVector(dx: cos(a) * sp, dy: sin(a) * sp - rnd(0 ... 0.8)),
-                life: 1, decay: rnd(0.01 ... 0.024),
+                vel: vel,
+                life: life, decay: decay,
                 size: rnd(CGFloat(size.lowerBound) ... CGFloat(size.upperBound)),
                 popNumber: orb.popNumber,
                 variantIndex: orb.variantIndex))
