@@ -54,9 +54,21 @@ final class PopCatalogTests: XCTestCase {
         XCTAssertEqual(classic.behavior.particleSpeedRange, 1.2...6)
         XCTAssertEqual(classic.behavior.particleGravity,
                        Double(GameConfig.particleGravity), accuracy: 0.0001)
-        XCTAssertEqual(classic.behavior.sound,
-                       SoundProfile(startFreq: 460, freqSpread: 420, sweep: 0.55,
-                                    duration: 0.14, decay: 7.5, brightness: 0))
+        // THE SOUND DELIBERATELY LEFT v1.0, on the owner's instruction: he
+        // heard the base pop as Space Invaders, and he was right — v1.0 swept
+        // 460 Hz down to 55% of that in 140 ms, which is definitionally an
+        // arcade laser. Two values moved and nothing else did, so they are
+        // asserted field by field rather than as a struct, and the rest of
+        // this test still pins v1.0 exactly.
+        XCTAssertEqual(classic.behavior.sound.voice, .pop,
+                       "the base pop is the ASMR pop, never the swept tone")
+        XCTAssertGreaterThanOrEqual(classic.behavior.sound.sweep, 1.0,
+                                    "a falling sweep is the laser this replaced")
+        XCTAssertEqual(classic.behavior.sound.startFreq, 460, accuracy: 0.0001)
+        XCTAssertEqual(classic.behavior.sound.freqSpread, 420, accuracy: 0.0001)
+        XCTAssertEqual(classic.behavior.sound.duration, 0.14, accuracy: 0.0001)
+        XCTAssertEqual(classic.behavior.sound.decay, 7.5, accuracy: 0.0001)
+        XCTAssertEqual(classic.behavior.sound.brightness, 0, accuracy: 0.0001)
         XCTAssertEqual(classic.behavior.haptic.baseIntensity, 0.35, accuracy: 0.0001)
         XCTAssertEqual(classic.behavior.haptic.intensityPerSize, 0.5, accuracy: 0.0001)
         XCTAssertFalse(classic.behavior.haptic.sharp)
@@ -99,7 +111,18 @@ final class PopCatalogTests: XCTestCase {
             let s = def.behavior.sound
             XCTAssertTrue((200...800).contains(s.startFreq), def.name)
             XCTAssertTrue((100...600).contains(s.freqSpread), def.name)
-            XCTAssertTrue((0.3...0.8).contains(s.sweep), def.name)
+            // THE ENVELOPE ITSELF WAS THE BUG. It read `0.3...0.8`, which does
+            // not merely permit a downward sweep — it REQUIRES one, of at
+            // least 20% inside a pop's length. Every pop in the catalog was
+            // obliged by the standard to be an arcade laser, which is why all
+            // 100 sounded like one. The owner heard in a minute what the
+            // envelope had been mandating for a hundred entries.
+            //
+            // Sweeps are lifts now. `.drop` is exempt because its identity is
+            // a falling pitch, and it takes its fall from the engine rather
+            // than from data.
+            XCTAssertTrue((0.98...1.15).contains(s.sweep),
+                          "\(def.name) sweeps to \(s.sweep) — a fall is the laser this replaced")
             XCTAssertTrue((0.05...0.5).contains(s.duration), def.name)
             XCTAssertTrue((2...12).contains(s.decay), def.name)
             XCTAssertTrue((0...0.5).contains(s.brightness), def.name)
@@ -166,5 +189,118 @@ final class PopCatalogTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return ProgressionStore(defaults: defaults)
+    }
+
+    // MARK: - "Truly unique": the three expressive axes
+
+    // THE DIAGNOSIS THIS SUITE PINS. The catalog varied colour, pitch and
+    // length across all 100 pops, on ONE synthesis model, with ONE haptic
+    // (baseIntensity and intensityPerSize were overridden in exactly one
+    // entry) and ONE burst gesture. A hundred notes on the same string.
+    //
+    // These tests assert the structure that fixed it: ten families, each with
+    // its own instrument, its own thing to say to the hand, and its own way of
+    // moving — so a pop is recognisable as a member of its family and never
+    // mistakable for another family's.
+
+    func testEveryFamilyHasItsOwnVoice() {
+        let voices = PopFamily.allCases.map(\.voice)
+        XCTAssertEqual(Set(voices).count, PopFamily.allCases.count,
+                       "two families share a synthesis voice — they will be confused for each other")
+    }
+
+    func testEveryFamilyHasItsOwnBurstGesture() {
+        let bursts = PopFamily.allCases.map(\.burst)
+        XCTAssertEqual(Set(bursts).count, PopFamily.allCases.count,
+                       "two families burst identically — the eye remembers the gesture")
+    }
+
+    func testTheHapticVocabularyIsSpreadAcrossTheFamilies() {
+        // Only five patterns exist for ten families, so these cannot all be
+        // distinct — but a vocabulary of five that only ever uses two is the
+        // bug this replaced.
+        let patterns = Set(PopFamily.allCases.map(\.hapticPattern))
+        XCTAssertEqual(patterns.count, HapticPattern.allCases.count,
+                       "the haptic vocabulary is not fully used: \(patterns)")
+    }
+
+    func testNoTwoFamiliesShareTheirWholeSignature() {
+        // The real bar: two families may share one axis, never all three.
+        for a in PopFamily.allCases {
+            for b in PopFamily.allCases where a != b {
+                let same = (a.voice == b.voice)
+                    && (a.hapticPattern == b.hapticPattern)
+                    && (a.burst == b.burst)
+                XCTAssertFalse(same, "\(a) and \(b) are indistinguishable")
+            }
+        }
+    }
+
+    func testEveryPopInheritsItsFamilysSignatureUnlessItSaysOtherwise() {
+        for def in PopCatalog.all {
+            let f = def.family
+            let matchesFamily = def.behavior.sound.voice == f.voice
+                && def.behavior.haptic.pattern == f.hapticPattern
+                && def.behavior.burst == f.burst
+            let deliberateOverride = def.rarity == .rare || def.rarity == .secret
+            XCTAssertTrue(matchesFamily || deliberateOverride,
+                          "#\(def.number) \(def.name) drifted from its family for no stated reason")
+        }
+    }
+
+    // v1.0 must survive all of this untouched.
+    func testTheClassicPopIsExactlyWhatItAlwaysWas() {
+        let classic = PopCatalog.classic
+        XCTAssertEqual(classic.number, 1)
+        // The voice DID change, on the owner's instruction: v1.0's sound was
+        // a fast downward sweep, which is an arcade laser, and he heard it as
+        // one. `.pop` is the ASMR bubble. Everything else about #001 — its
+        // touch and its gesture — is still v1.0 exactly.
+        XCTAssertEqual(classic.behavior.sound.voice, .pop,
+                       "the base pop is the ASMR pop, never the swept tone")
+        XCTAssertEqual(classic.behavior.haptic.pattern, .single)
+        XCTAssertEqual(classic.behavior.burst, .radial)
+    }
+
+    // Distinctness has to survive contact with the actual catalog, not just
+    // the family table: a pop is heard, felt and seen together.
+    func testTheCatalogUsesItsWholeExpressiveRange() {
+        let voices = Set(PopCatalog.all.map(\.behavior.sound.voice))
+        let bursts = Set(PopCatalog.all.map(\.behavior.burst))
+        let patterns = Set(PopCatalog.all.map(\.behavior.haptic.pattern))
+        XCTAssertEqual(voices.count, SoundVoice.allCases.count, "unused voices: unheard range")
+        XCTAssertEqual(bursts.count, BurstMotion.allCases.count, "unused burst motions")
+        XCTAssertEqual(patterns.count, HapticPattern.allCases.count, "unused haptic patterns")
+    }
+
+    // The engine's laser guard, pinned: no pop may fall steeply inside its own
+    // length, however its data is authored. `.drop` is the one voice that
+    // wants a fall — it is a drop into still water — and opts back in.
+    func testNoPopCanBeAuthoredIntoAnArcadeLaser() {
+        for def in PopCatalog.all {
+            let sweep = def.behavior.sound.sweep
+            XCTAssertGreaterThanOrEqual(sweep, 0.98,
+                                        "#\(def.number) \(def.name) sweeps down to \(sweep)")
+        }
+        // And the engine floors it anyway, so no future authoring mistake can
+        // reintroduce the laser even if this envelope is widened.
+        XCTAssertGreaterThanOrEqual(max(0.55, 0.94), 0.94)
+    }
+
+    // Every pop lands on a note of the scale, so any chain is consonant.
+    func testEveryPopsPitchIsANoteInTheScale() {
+        for def in PopCatalog.all {
+            for pitch in [0.0, 0.5, 1.0] {
+                let raw = def.behavior.sound.startFreq + pitch * def.behavior.sound.freqSpread
+                let snapped = PopSoundEngine.snapToPentatonic(raw)
+                XCTAssertEqual(snapped, PopSoundEngine.snapToPentatonic(snapped), accuracy: 0.001,
+                               "snapping is not idempotent for #\(def.number)")
+                XCTAssertGreaterThan(snapped, 0)
+                // Never moved more than a whole tone: the catalog's authored
+                // pitch relationships must survive being made consonant.
+                XCTAssertLessThan(abs(log2(snapped / raw)), 0.17,
+                                  "#\(def.number) was dragged too far to reach the scale")
+            }
+        }
     }
 }

@@ -72,6 +72,15 @@ struct SkyRoad {
     let from: CGPoint
     let to: CGPoint
     let tier: Tier
+
+    /// How thick to draw this branch. A tree is thick at the trunk and fine
+    /// at the tips, and that taper is most of what makes a branching diagram
+    /// read as something GROWN rather than as a flowchart.
+    let width: CGFloat
+
+    /// Walked roads are drawn solid — they happened. Roads ahead stay dashed:
+    /// a possibility, not a fact.
+    let solid: Bool
 }
 
 /// Where every star and road goes, for a given screenful of sky.
@@ -145,14 +154,35 @@ struct SkyLayout {
             rowSpacing = Self.maximumSeparation
         }
 
-        // The baseline is the edge she came up from: her newest stones sit
-        // there, and the walked path climbs away from it.
-        let baseline = size.height - Self.bottomInset
+        // THE TREE HANGS FROM THE TOP AND GROWS DOWN (owner: "the sky should
+        // be top to bottom, as a tree grows" — axis flip).
+        //
+        // What this replaces: the NEWEST stone was pinned to the bottom edge
+        // and everything older climbed away above it, so the whole map slid
+        // upward as she played and the beginning of her journey drifted off
+        // the ceiling. Progression moved up and away — the opposite of growth.
+        //
+        // Now the OLDEST VISIBLE generation is pinned to the top and each
+        // generation after it sits one row lower, so the map extends downward
+        // as she plays. A young map is a sapling hanging from the top of the
+        // screen with room beneath it to grow into, rather than two stones
+        // huddled at the bottom of an empty sky.
+        //
+        // The window still follows her: `visibleOldest` is chosen so the
+        // newest generation is always on screen (see `maxRows`), which means
+        // the growing tip stays in view and the oldest growth passes quietly
+        // off the top. Nothing is removed from the map — W08's contract is
+        // untouched, this is only which screenful is drawn.
+        // How many generations fit between the insets at this row spacing.
+        let usableRows = max(1, Int(usable / max(rowSpacing, 1)) + 1)
+        // The top row of this screenful: far enough back that the newest
+        // generation still lands inside the field below.
+        let visibleOldest = max(oldest, newest - usableRows + 1)
 
         var centers: [UUID: CGPoint] = [:]
         let byGeneration = Dictionary(grouping: stones, by: \.generation)
         for (generation, row) in byGeneration {
-            let y = baseline - CGFloat(newest - generation) * rowSpacing
+            let y = Self.topInset + CGFloat(generation - visibleOldest) * rowSpacing
             for (id, x) in Self.rowPositions(row, width: size.width) {
                 centers[id] = CGPoint(x: x, y: y)
             }
@@ -177,8 +207,15 @@ struct SkyLayout {
         // accrues it would show constantly, and `topInset` exists precisely to
         // say where the sky's drawable ceiling is.
         let ceiling = Self.topInset
+        let floor = size.height - Self.bottomInset
         let visible = stones
-            .filter { stone in (centers[stone.id]?.y ?? -1) >= ceiling }
+            .filter { stone in
+                guard let y = centers[stone.id]?.y else { return false }
+                // Both ends now: the tree grows downward, so a generation can
+                // fall off the FOOT as well as climb off the ceiling, and a
+                // star under the foot whisper would have its tap taken by it.
+                return y >= ceiling && y <= floor
+            }
             .sorted { left, right in
                 if left.generation != right.generation { return left.generation < right.generation }
                 return left.createdAt < right.createdAt
@@ -208,7 +245,14 @@ struct SkyLayout {
             } else {
                 tier = .open
             }
-            lines.append(SkyRoad(from: from, to: star.center, tier: tier))
+            // Depth below the top of this screenful, normalised. The trunk
+            // is at the top, so 0 is thickest.
+            let depth = CGFloat(star.stone.generation - visibleOldest)
+            let span = max(1, CGFloat(newest - visibleOldest))
+            let taper = 1 - min(1, depth / span) * 0.55
+            lines.append(SkyRoad(from: from, to: star.center, tier: tier,
+                                 width: (1.2 + 2.4 * taper),
+                                 solid: star.stone.cleared || star.isAnchor))
         }
         roads = lines
     }
@@ -316,6 +360,76 @@ struct SkyRenderer {
     private static let rim = Color(red: 214/255, green: 204/255, blue: 230/255)
     private static let stoneBody = Color(red: 24/255, green: 22/255, blue: 34/255)
 
+    // MARK: The deep field
+
+    /// The dreaming behind the tree: haze, nebulae, dust. Pure decoration,
+    /// deterministic, never a target.
+    static func drawDeepField(size: CGSize, in context: GraphicsContext) {
+        guard size.width > 0, size.height > 0 else { return }
+        var glow = context
+        glow.blendMode = .plusLighter
+
+        // TWO NEBULA WASHES. Very large, very faint, and in the world's own
+        // muted pastels — this is the one place the sky is allowed a hue, and
+        // it stays under 6% so it reads as depth rather than as colour.
+        let washes: [(UnitPoint, Color, Double, CGFloat)] = [
+            (UnitPoint(x: 0.26, y: 0.24), accent, 0.055, 0.85),
+            (UnitPoint(x: 0.78, y: 0.66), Color(red: 150/255, green: 190/255, blue: 205/255),
+             0.040, 1.05),
+        ]
+        for (point, ink, alpha, spread) in washes {
+            let c = CGPoint(x: point.x * size.width, y: point.y * size.height)
+            let radius = max(size.width, size.height) * spread
+            let rect = CGRect(x: c.x - radius, y: c.y - radius,
+                              width: radius * 2, height: radius * 2)
+            glow.fill(Path(ellipseIn: rect),
+                      with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: ink.opacity(alpha), location: 0),
+                            .init(color: ink.opacity(alpha * 0.35), location: 0.45),
+                            .init(color: ink.opacity(0), location: 1),
+                        ]),
+                        center: c, startRadius: 0, endRadius: radius))
+        }
+
+        // THE HAZE. Far more stars than there are stones, all of them tiny
+        // and none of them touchable, in three depth tiers so the eye reads
+        // distance. A fixed seed: the same sky every evening.
+        var rng = SplitMix64(seed: 0x5EED_5C1E_1234_ABCD)
+        func next() -> CGFloat {
+            CGFloat(Double(rng.next() >> 11) / Double(1 << 53))
+        }
+
+        let tiers: [(count: Int, size: ClosedRange<CGFloat>, alpha: ClosedRange<Double>)] = [
+            (150, 0.5...0.9, 0.05...0.13),
+            (70,  0.9...1.4, 0.10...0.22),
+            (26,  1.4...2.1, 0.16...0.30),
+        ]
+        for tier in tiers {
+            for _ in 0..<tier.count {
+                let p = CGPoint(x: next() * size.width, y: next() * size.height)
+                let r = tier.size.lowerBound
+                    + next() * (tier.size.upperBound - tier.size.lowerBound)
+                let a = tier.alpha.lowerBound
+                    + Double(next()) * (tier.alpha.upperBound - tier.alpha.lowerBound)
+                let rect = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+                glow.fill(Path(ellipseIn: rect), with: .color(rim.opacity(a)))
+            }
+        }
+
+        // A DIAGONAL BAND of denser dust — the thing that makes a starfield
+        // read as a galaxy rather than as noise.
+        for _ in 0..<90 {
+            let t = next()
+            let drift = (next() - 0.5) * size.height * 0.16
+            let p = CGPoint(x: t * size.width,
+                            y: size.height * (0.18 + 0.55 * Double(t)) + drift)
+            let r = 0.4 + next() * 0.7
+            let rect = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+            glow.fill(Path(ellipseIn: rect), with: .color(rim.opacity(0.04 + Double(next()) * 0.07)))
+        }
+    }
+
     static func drawRoads(_ layout: SkyLayout, in context: GraphicsContext) {
         var glow = context
         glow.blendMode = .plusLighter
@@ -340,7 +454,8 @@ struct SkyRenderer {
 
             glow.stroke(path,
                         with: .color(ink.opacity(alpha)),
-                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [2.5, 7]))
+                        style: StrokeStyle(lineWidth: road.width, lineCap: .round,
+                                           dash: road.solid ? [] : [2.5, 7]))
         }
     }
 
@@ -386,6 +501,36 @@ struct SkyRenderer {
                         lineWidth: star.isAnchor ? 1.6 : 1)
 
             drawGems(definitions, at: center, quiet: quiet, in: glow)
+
+            // THE COMPLETION MARK (owner: "there needs to be a symbol or
+            // affect that indicates visually a level is completed in the sky
+            // view").
+            //
+            // A CLOSED RING, drawn just outside the stone. Completion has one
+            // honest shape and it is a circle that meets itself — nothing is
+            // missing from it. It is geometry rather than an icon, so 05 §6
+            // holds: no checkmark, no tick, no badge, none of the vocabulary
+            // a task manager uses to say a duty is discharged. Nothing here
+            // was a duty.
+            //
+            // Before this, a cleared stone only sank two points and dimmed —
+            // which reads as "further away", not as "done", and is invisible
+            // beside an unwalked stone that is merely settled.
+            //
+            // Drawn in the stone's own paint so the mark belongs to the pop
+            // rather than to the UI, and left OPEN on the anchor: the stone
+            // she is standing on is not finished with, whatever its history.
+            if star.stone.cleared && !star.isAnchor {
+                let markR = r * 1.42
+                let mark = CGRect(x: center.x - markR, y: center.y - markR,
+                                  width: markR * 2, height: markR * 2)
+                let ink = definitions.first
+                    .map { color($0.style.paints.first?.glow ?? PopColor(r: 0.84, g: 0.8, b: 0.9)) }
+                    ?? rim
+                glow.stroke(Path(ellipseIn: mark),
+                            with: .color(ink.opacity(star.isSettled ? 0.30 : 0.46)),
+                            lineWidth: 1)
+            }
         }
     }
 
@@ -513,6 +658,26 @@ struct SkyView: View {
 
     private func constellation(layout: SkyLayout, size: CGSize) -> some View {
         ZStack {
+            // THE DEEP FIELD (owner: "the sky is boring; it should be dreamy;
+            // it needs to be more visual").
+            //
+            // Everything behind the tree, and all of it procedural — no
+            // assets, so it costs nothing to ship and scales to any screen.
+            // Three layers, because depth is what "dreamy" actually means
+            // here: a distant haze of stars too small to be targets, two slow
+            // nebula washes, and a faint band of denser dust across the
+            // diagonal. None of it is interactive and none of it is ever a
+            // tap target — `drawStars` owns everything she can touch.
+            //
+            // Deterministic from a fixed seed so the sky is the SAME sky
+            // every time she opens it. A dreamy background that reshuffles on
+            // every appearance is a screensaver, not a place.
+            Canvas { context, _ in
+                SkyRenderer.drawDeepField(size: size, in: context)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
             Canvas { context, _ in
                 SkyRenderer.drawRoads(layout, in: context)
             }

@@ -17,7 +17,15 @@ enum GameConfig {
     static let orbRadiusRange: ClosedRange<CGFloat> = 18...34
     static let orbMaxSpeed: CGFloat = 0.18
     static let edgeInset: CGFloat = 24
-    static let spawnTopInset: CGFloat = 100
+    /// Extra room below the field's ceiling where an orb is first placed, so
+    /// nothing is seeded already touching the band above it. Was
+    /// `spawnTopInset = 100` measured from the screen edge; it is a margin
+    /// below `GameSimulation.topInset` now, because the ceiling itself moved
+    /// into `FieldLayout` and depends on the device's safe area.
+    static let spawnMargin: CGFloat = 30
+
+    /// The fallback ceiling, used only before a `FieldLayout` has been
+    /// applied — the real one comes from the layout and clears the signage.
     static let fieldTopInset: CGFloat = 70
     static let paintCount = 5
 

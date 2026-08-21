@@ -41,6 +41,33 @@ final class GameSimulation {
     /// arbitration (the one thing R-SPIKE exists to protect).
     var pointer: CGPoint?
 
+    /// THE BANDS THE FIELD MAY NOT ENTER, driven by `FieldLayout`.
+    ///
+    /// These were a single hardcoded `GameConfig.fieldTopInset` measured from
+    /// the screen edge, which is how orbs came to drift under the sky
+    /// whisper — and an orb under a whisper has its tap taken by the whisper,
+    /// so she aims at an orb and the world travels instead. Insets are the
+    /// simulation's half of that fix; the view's half is placing the signage
+    /// where it says it does.
+    /// The air this field is played in. Chosen at seed time from the field's
+    /// own RNG, so a seed is still a field.
+    private(set) var weather: Weather = .clear
+
+    /// Forces a particular air, for tests whose subject is something else.
+    ///
+    /// The W20 storm regression and the tap baselines measure input
+    /// arbitration and pop reliability; if the air under them changes between
+    /// runs, they are measuring two things at once and the number they report
+    /// stops meaning what it says. Nil in the app, always.
+    var pinnedWeather: Weather?
+
+    /// Phase of the lateral swell, advanced per frame. Not published and not
+    /// read during a draw.
+    private var swellPhase: CGFloat = 0
+
+    var topInset: CGFloat = GameConfig.fieldTopInset
+    var bottomInset: CGFloat = 0
+
     private var rng: SplitMix64
 
     init(seed: UInt64 = UInt64.random(in: .min ... .max)) {
@@ -67,6 +94,8 @@ final class GameSimulation {
         orbs.removeAll()
         guard bounds.width > 0 else { return }
         plan = FieldPlan.forStage(stage)
+        weather = pinnedWeather ?? Weather.choose(using: &rng)
+        swellPhase = 0
         let pool = availablePops.isEmpty ? [PopCatalog.classic.number] : availablePops
 
         // The kinds are dealt into the field rather than rolled per orb, so a
@@ -105,10 +134,14 @@ final class GameSimulation {
         let inset = GameConfig.edgeInset
         var orb = Orb(
             pos: CGPoint(x: rnd(r + inset ... max(r + inset, bounds.width - r - inset)),
-                         y: rnd(r + GameConfig.spawnTopInset ... max(r + GameConfig.spawnTopInset,
-                                                                     bounds.height - r - inset))),
-            vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed),
-                          dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed)),
+                         y: rnd(r + topInset + GameConfig.spawnMargin
+                                ... max(r + topInset + GameConfig.spawnMargin,
+                                        bounds.height - r - bottomInset - inset))),
+            // Weather scales the field's pace from the moment it is seeded,
+            // so the air is something she walks into rather than something
+            // that arrives a few seconds later.
+            vel: CGVector(dx: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed) * weather.speedScale,
+                          dy: rnd(-GameConfig.orbMaxSpeed ... GameConfig.orbMaxSpeed) * weather.speedScale),
             r: r, baseR: r,
             popNumber: popNumber,
             variantIndex: Int.random(in: 0..<max(1, paintCount), using: &rng),
@@ -162,6 +195,13 @@ final class GameSimulation {
     // random layout.
     func replaceOrbs(_ newOrbs: [Orb]) {
         orbs = newOrbs
+        // Weather is part of the randomness this hook exists to remove: a
+        // test that installs an exact field and then watches it move must not
+        // have the air chosen for it. `layout(size:)` seeds a field on first
+        // call, so by the time a test reaches here an air has already been
+        // picked — pin it back to still.
+        weather = .clear
+        swellPhase = 0
         particles.removeAll()
         rings.removeAll()
         notes.removeAll()
@@ -299,8 +339,8 @@ final class GameSimulation {
 
     private func clampIntoBounds(_ p: CGPoint, radius: CGFloat) -> CGPoint {
         CGPoint(x: min(max(p.x, radius), max(radius, bounds.width - radius)),
-                y: min(max(p.y, radius + GameConfig.fieldTopInset),
-                       max(radius + GameConfig.fieldTopInset, bounds.height - radius)))
+                y: min(max(p.y, radius + topInset),
+                       max(radius + topInset, bounds.height - radius - bottomInset)))
     }
 
     private func spawnBurst(for orb: Orb, def: PopDefinition) {
@@ -313,13 +353,84 @@ final class GameSimulation {
         }
         let speed = def.behavior.particleSpeedRange
         let size = def.style.particleSizeRange
-        for _ in 0..<n {
+        for k in 0..<n {
             let a = rnd(0 ... .pi * 2)
-            let sp = rnd(CGFloat(speed.lowerBound) ... CGFloat(speed.upperBound)) * (0.7 + strength)
+            let base = rnd(CGFloat(speed.lowerBound) ... CGFloat(speed.upperBound)) * (0.7 + strength)
+
+            // THE GESTURE OF THE BURST. Every pop in the catalog used to throw
+            // its particles the same way — a full-circle scatter with a slight
+            // upward bias, falling under gravity — so the thing the eye
+            // actually remembers about a pop was identical across all 100.
+            // Shape and speed varied; the MOTION did not.
+            //
+            // Each case below is one gesture. They are deliberately extreme
+            // relative to one another: a difference the eye has to look for is
+            // not a difference.
+            var vel: CGVector
+            var life: CGFloat = 1
+            var decay = rnd(0.01 ... 0.024)
+
+            switch def.behavior.burst {
+            case .radial:
+                vel = CGVector(dx: cos(a) * base, dy: sin(a) * base - rnd(0 ... 0.8))
+
+            case .bloom:
+                // Slow, even, and held: petals opening rather than debris.
+                let sp = base * 0.45
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp - rnd(0 ... 0.3))
+                decay *= 0.55
+
+            case .implode:
+                // Inward first. The particle starts outside and falls in, so
+                // the burst reads as a breath taken before it goes.
+                let sp = base * 0.8
+                vel = CGVector(dx: -cos(a) * sp, dy: -sin(a) * sp)
+
+            case .spiral:
+                // Tangential rather than radial: the burst turns as it leaves.
+                let sp = base * 0.9
+                vel = CGVector(dx: cos(a + .pi / 2) * sp + cos(a) * sp * 0.35,
+                               dy: sin(a + .pi / 2) * sp + sin(a) * sp * 0.35)
+
+            case .drip:
+                // Heavy and downward, a few thrown wide.
+                let sp = base * (k % 5 == 0 ? 0.9 : 0.35)
+                vel = CGVector(dx: cos(a) * sp * 0.5, dy: abs(sin(a)) * sp + 0.6)
+
+            case .ascend:
+                // Upward and slowing — sparks leaving a fire.
+                let sp = base * 0.7
+                vel = CGVector(dx: cos(a) * sp * 0.6, dy: -abs(sin(a)) * sp - 0.5)
+                decay *= 0.7
+
+            case .scatter:
+                // Flat and fast: a horizontal sweep more than a circle.
+                let sp = base * 1.35
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp * 0.28)
+
+            case .shiver:
+                // Barely travels. It trembles apart in place.
+                let sp = base * 0.22
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp)
+                decay *= 1.5
+
+            case .ring:
+                // One speed for everything: a thin expanding band.
+                let sp = base * 0.85 + 1.2
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp)
+                life = 0.9
+
+            case .veil:
+                // Hangs and fades. Almost no speed, almost no fall.
+                let sp = base * 0.18
+                vel = CGVector(dx: cos(a) * sp, dy: sin(a) * sp * 0.5 - 0.12)
+                decay *= 0.5
+            }
+
             particles.append(Particle(
                 pos: orb.pos,
-                vel: CGVector(dx: cos(a) * sp, dy: sin(a) * sp - rnd(0 ... 0.8)),
-                life: 1, decay: rnd(0.01 ... 0.024),
+                vel: vel,
+                life: life, decay: decay,
                 size: rnd(CGFloat(size.lowerBound) ... CGFloat(size.upperBound)),
                 popNumber: orb.popNumber,
                 variantIndex: orb.variantIndex))
@@ -334,6 +445,7 @@ final class GameSimulation {
         guard f > 0 else { return [] }
         var events: [GameEvent] = []
 
+        swellPhase += weather.swellRate * f
         stepOrbs(f)
         stepGenerators(f, into: &events)
         stepRings(f, into: &events)
@@ -350,6 +462,7 @@ final class GameSimulation {
                 orbs[i].spawn = min(1, orbs[i].spawn + GameConfig.spawnGrowth * f)
             }
             if case .drifter = orbs[i].kind { evade(i, f) }
+            applyWeather(i, f)
 
             orbs[i].pos.x += orbs[i].vel.dx * f
             orbs[i].pos.y += orbs[i].vel.dy * f
@@ -363,15 +476,70 @@ final class GameSimulation {
                 orbs[i].pos.x = bounds.width - r
                 orbs[i].vel.dx = -abs(orbs[i].vel.dx)
             }
-            if orbs[i].pos.y < r + GameConfig.fieldTopInset {
-                orbs[i].pos.y = r + GameConfig.fieldTopInset
+            if orbs[i].pos.y < r + topInset {
+                orbs[i].pos.y = r + topInset
                 orbs[i].vel.dy = abs(orbs[i].vel.dy)
-            } else if orbs[i].pos.y > bounds.height - r {
-                orbs[i].pos.y = bounds.height - r
+            } else if orbs[i].pos.y > bounds.height - r - bottomInset {
+                orbs[i].pos.y = bounds.height - r - bottomInset
                 orbs[i].vel.dy = -abs(orbs[i].vel.dy)
             }
 
             orbs[i].r = orbs[i].baseR * (1 + sin(orbs[i].phase) * GameConfig.wobbleAmount) * orbs[i].spawn
+        }
+    }
+
+    /// The air, applied to one orb.
+    ///
+    /// Everything here is a small force or a multiplier — weather never
+    /// teleports an orb, never changes its size, and never touches whether it
+    /// can be hit. The speed ceiling below is the guardrail that makes that
+    /// true in fact rather than in intention: whatever the air does, an orb
+    /// may not end up travelling faster than the weather's own scale allows.
+    private func applyWeather(_ i: Int, _ f: CGFloat) {
+        guard weather != .clear else { return }
+
+        // Glide: how much momentum survives. Rain keeps all of it and slides.
+        if weather.glide != 1 {
+            let k = pow(weather.glide, f)
+            orbs[i].vel.dx *= k
+            orbs[i].vel.dy *= k
+        }
+
+        // Swell: the whole field breathing sideways together. Phase is shared,
+        // so it is a tide rather than a hundred independent wobbles — that
+        // togetherness is the entire feeling of `summer`.
+        if weather.swellAmount > 0 {
+            orbs[i].vel.dx += sin(swellPhase) * weather.swellAmount * f * 0.06
+        }
+
+        // Wander: the heading turns, the speed does not rise. This is the
+        // whole of storm, and the reason storm cannot make the field harder.
+        if weather.wander > 0 {
+            let amount: CGFloat
+            if weather.wanderIsStepped {
+                // Crunch: nothing, then a step. Snow moves in little jerks.
+                amount = (rnd(0 ... 1) < 0.06) ? weather.wander * 8 : 0
+            } else {
+                amount = weather.wander * (rnd(-1 ... 1))
+            }
+            if amount != 0 {
+                let a = amount * f
+                let dx = orbs[i].vel.dx, dy = orbs[i].vel.dy
+                orbs[i].vel.dx = dx * cos(a) - dy * sin(a)
+                orbs[i].vel.dy = dx * sin(a) + dy * cos(a)
+            }
+        }
+
+        // THE CEILING. Weather may change the character of the motion and may
+        // not make the field faster than its own scale permits — a field that
+        // outruns her is a field she has to keep up with, and this game does
+        // not ask that of anyone.
+        let cap = GameConfig.orbMaxSpeed * weather.speedScale * 1.6
+        let speed = sqrt(orbs[i].vel.dx * orbs[i].vel.dx + orbs[i].vel.dy * orbs[i].vel.dy)
+        if speed > cap {
+            let k = cap / speed
+            orbs[i].vel.dx *= k
+            orbs[i].vel.dy *= k
         }
     }
 

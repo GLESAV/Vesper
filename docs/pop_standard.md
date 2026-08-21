@@ -39,8 +39,38 @@ PopDefinition
 | `particleCountBase` | debris count (+1 per pt of radius) | `18` |
 | `particleSpeedRange` | initial debris speed | `1.2…6` |
 | `particleGravity` | fall rate | `0.07` |
-| `sound` | `startFreq / freqSpread / sweep / duration / decay / brightness` | `460 / 420 / 0.55 / 0.14s / 7.5 / 0` |
-| `haptic` | `baseIntensity / intensityPerSize / sharp` | `0.35 / 0.5 / soft` |
+| `sound` | `voice / startFreq / freqSpread / sweep / duration / decay / brightness` | `pop / 460 / 420 / 1.02 / 0.14s / 7.5 / 0` |
+| `haptic` | `baseIntensity / intensityPerSize / sharp / pattern` | `0.35 / 0.5 / soft / single` |
+| `burst` | the gesture of the debris | `radial` |
+
+#### `sweep` is a LIFT, and this envelope used to say the opposite
+
+The envelope here read `0.3…0.8`, which does not merely permit a falling
+pitch — it **requires** one, of at least 20% inside a pop's 140 ms. Every pop
+in the catalog was obliged by this standard to be an arcade laser, and that is
+exactly what all 100 of them sounded like. The owner heard in one minute what
+the envelope had been mandating for a hundred entries.
+
+The envelope is **`0.98…1.15`**: a small rise. Things that open go up, which
+is what a bubble, a water drop and a mouth pop all do. `PopSoundEngine` also
+floors steep falls independently, so widening this table cannot reintroduce
+the laser by itself.
+
+`.drop` is the single exception — its identity *is* a falling pitch — and it
+takes its fall from the engine rather than from data, so its catalog entry
+stays inside the same envelope as everything else.
+
+#### The three expressive axes
+
+`voice`, `pattern` and `burst` are **categorical**, not numeric, and that is
+the point: the catalog was already heavily authored in pitch and length
+(`freq` overridden in 98 of 100 entries) through one synthesis model, one
+haptic and one burst gesture. A hundred notes on the same string.
+
+Defaults come from the **family** (`PopFamily.voice / .hapticPattern /
+.burst`), so the ten families are ten instruments and the ten pops inside each
+are notes on it. Authoring a new pop should normally state none of the three;
+overriding them is a budget to spend on rare and secret pops.
 
 ### ChainBehavior — ripple
 | Field | Meaning | Classic |

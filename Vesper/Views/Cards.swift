@@ -106,6 +106,8 @@ struct DoneCard: View {
     let sessionPoints: Int
     let lifetimePops: Int
     let onRestart: () -> Void
+    /// A line of verse under the card's own sentence. Empty renders nothing.
+    var verse: String = ""
 
     // R-CRAFT ITEM 1 — the one place this build stopped being a world.
     //
@@ -154,7 +156,28 @@ struct DoneCard: View {
                 // literal `.white` used as ink in the app.
                 .foregroundColor(CardPalette.bright)
                 .multilineTextAlignment(.center)
-                .padding(.bottom, 14)
+                .padding(.bottom, verse.isEmpty ? 14 : 10)
+
+            // THE VERSE, under the card's own line rather than instead of it
+            // (the owner's correction). "the field is quiet now." is what the
+            // game says about the field; this is the thing the evening says
+            // back. Written for Vesper and credited to nobody — see
+            // `Verses` for why inventing a byline would have been worse than
+            // the copyright problem it solved.
+            //
+            // Smaller and dimmer than the line above it, so it reads as an
+            // aside rather than as a second announcement.
+            if !verse.isEmpty {
+                Text(verse)
+                    .font(.system(size: 13, design: .serif))
+                    .italic()
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundColor(CardPalette.soft.opacity(0.72))
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 16)
+            }
 
             // What she did, stated as a fact about the field rather than as
             // praise aimed at her. `set free` is the counter's own word.

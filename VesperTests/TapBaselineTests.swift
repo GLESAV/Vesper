@@ -81,7 +81,7 @@ final class TapBaselineTests: XCTestCase {
     ///
     /// 41 pt is also the largest offset that is guaranteed to stay on screen:
     /// seeding keeps every orb centre at least `r + edgeInset` = 42 pt from the
-    /// left/right/bottom edges and `r + spawnTopInset` from the top, so no
+    /// left/right/bottom edges and `r + topInset + spawnMargin` from the top, so no
     /// trial point is a touch the device could not physically deliver.
     private static let offsetDistances: [CGFloat] = [4, 10, 16, 22, 28, 33, 38, 41]
 
@@ -113,6 +113,7 @@ final class TapBaselineTests: XCTestCase {
 
         for seed in Self.baselineSeeds {
             let sim = GameSimulation(seed: seed)
+            sim.pinnedWeather = .clear
             // Halves the burst particle count. This measures tap resolution,
             // not particle budgets, and it keeps the whole run cheap.
             sim.reduceMotion = true
@@ -186,6 +187,7 @@ final class TapBaselineTests: XCTestCase {
 
         for seed in seeds {
             let sim = GameSimulation(seed: seed)
+            sim.pinnedWeather = .clear
             sim.reduceMotion = true
             sim.layout(size: Self.fieldSize)
             let seeded = sim.orbs
@@ -245,6 +247,7 @@ final class TapBaselineTests: XCTestCase {
     func testStackedOrbsAlwaysResolveToTheTopmostSinglePop() {
         var rng = SplitMix64(seed: 0xB1A551F1ED0FF5E7)
         let sim = GameSimulation(seed: 3)
+        sim.pinnedWeather = .clear
         sim.reduceMotion = true
         sim.layout(size: Self.fieldSize)
 
@@ -287,6 +290,7 @@ final class TapBaselineTests: XCTestCase {
     // not simply the last orb on the field.
     func testTopmostRuleSkipsAnUncoveredTopOrb() {
         let sim = GameSimulation(seed: 11)
+        sim.pinnedWeather = .clear
         sim.layout(size: Self.fieldSize)
         sim.replaceOrbs([
             Self.orb(at: CGPoint(x: 150, y: 400), r: 20),   // covers the point

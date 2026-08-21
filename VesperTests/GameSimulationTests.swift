@@ -33,7 +33,7 @@ final class GameSimulationTests: XCTestCase {
             XCTAssertTrue(GameConfig.orbRadiusRange.contains(o.baseR))
             XCTAssertGreaterThanOrEqual(o.pos.x, o.baseR + GameConfig.edgeInset)
             XCTAssertLessThanOrEqual(o.pos.x, screen.width - o.baseR - GameConfig.edgeInset)
-            XCTAssertGreaterThanOrEqual(o.pos.y, o.baseR + GameConfig.spawnTopInset)
+            XCTAssertGreaterThanOrEqual(o.pos.y, o.baseR + sim.topInset + GameConfig.spawnMargin)
             XCTAssertLessThanOrEqual(o.pos.y, screen.height - o.baseR - GameConfig.edgeInset)
             XCTAssertTrue(o.alive)
         }
