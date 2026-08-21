@@ -100,6 +100,51 @@ keeping, never losing: *"the road behind settles into the sky."* VoiceOver
 reads every stone's pops and state, trace included; all stones are 48pt
 targets.
 
+## 4a. Scrolling the sky
+
+The map screen is `SkyView` now, not `PathSheet`, and the tree grows **top to
+bottom** — the root hangs from the ceiling and each generation sits one row
+(118 pt) below its parent. The gap is a constant, not a fitted value: the sky
+**scrolls**, so a tree taller than the screen is looked through rather than
+squashed into it.
+
+**Where it rests.** A tree shorter than the screen hangs from the ceiling with
+the empty room beneath it that it is going to grow into. A taller one is pinned
+by its **tip** to the foot, because the tip is the only interactive part of the
+sky — the stones you can choose next hang off it — and a place should open on
+the thing you came for. Arriving at the sky always returns to the tip.
+
+**How far back.** Scrolling down drags the tree down and reveals older
+generations above it. The range is capped at ~2,600 pt (about twenty
+generations, three phone screens). That cap is what makes "the road disappears
+behind" true in the sky **without anything being deleted** — the store still
+holds every stone (§2, the trace), the sky simply stops offering to walk back
+through all of them.
+
+**One axis, two meanings.** The world also travels vertically (sky ↔ field ↔
+journal), so a vertical drag in the sky is ambiguous and the ambiguity is
+resolved by ordinary nested scrolling: `InputArbiter` asks the place, once per
+gesture, how many points it can absorb in each direction, and splits the
+cumulative translation — the place gets first refusal, the camera gets the
+leftover. So:
+
+- a drag the sky can absorb **scrolls it and never leaves it**. The camera is
+  not even told there was a gesture, so the world does not dim, wake or travel
+  behind it;
+- a drag that runs the sky out **keeps going in the same unbroken motion** and
+  carries you to the field. You never have to lift your finger and try again;
+- the commit gates see the **leftover**, not the whole finger, so scrolling can
+  never accidentally throw you out of the sky.
+
+Two of the three ways home never touch the scroll at all: the `the field`
+whisper at the foot is a permanent sibling, and VoiceOver's escape gesture
+works from anywhere in the sky.
+
+**What is unchanged.** Every place with no scroll of its own — the field, the
+journal, and every sky short enough to fit, which is every map for its first
+six generations — produces no scroll outcomes and behaves exactly as it did
+before. A transit grab (catching a world in flight) is never scrolled.
+
 ## 5. Why these numbers
 
 - **1–3 pops, 1–3 roads** keeps each choice legible at a glance — a fork on a

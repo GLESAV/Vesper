@@ -84,6 +84,56 @@ enum InputOutcome: Equatable {
     // decide" (§7.3).
     case settleToNearest
     case cancelToRest
+
+    // ── THE PLACE'S OWN SCROLL (the sky) ────────────────────────────────
+    //
+    // A place may have somewhere to go on the SAME axis the world travels on:
+    // the sky's tree grows taller than one screenful, and looking back along
+    // it is a vertical drag. The arbiter gives the place FIRST REFUSAL and
+    // hands the camera only what is left over — the ordinary nested-scroll
+    // rule, and the reason a single unbroken gesture can walk her back up her
+    // own path and then, when the path runs out, carry her to the field.
+    //
+    // THESE ARE NOT CAMERA OUTCOMES. `WorldCamera.consume` ignores all three
+    // explicitly, the way it ignores `.pop`. They are routed to the place.
+    //
+    // The arbiter still does not know what a sky is. It knows only how many
+    // points the current place said it could absorb in each direction, which
+    // it asks for exactly once, when the pan arms (`scrollRoom`).
+    case scrollBegan
+    // Cumulative FINGER translation absorbed by the place, signed by the file's
+    // convention — negative is a finger moving up. Cumulative for the same
+    // reason `.panChanged` is: assignment is idempotent under a dropped or
+    // duplicated event, accumulation is not.
+    case scrollChanged(translation: CGFloat)
+    // Released, with the finger's own velocity — unbounded, exactly like
+    // `.commit`'s. What a glide is allowed to do with it belongs to the place.
+    case scrollEnded(velocity: CGFloat)
+}
+
+// MARK: - Scroll room
+
+/// How many points the current place can absorb in each FINGER direction
+/// before the world should start moving instead.
+///
+/// Both values are non-negative magnitudes; the direction is the key, not the
+/// sign. `.down` is a finger moving down the screen.
+struct ScrollRoom: Equatable {
+    var up: CGFloat
+    var down: CGFloat
+
+    init(up: CGFloat = 0, down: CGFloat = 0) {
+        self.up = max(0, up)
+        self.down = max(0, down)
+    }
+
+    /// A place with nowhere of its own to go. Every place but the sky, and the
+    /// sky itself whenever the tree fits on one screen — which is every map
+    /// for its first several generations, so this is the common case and it
+    /// reproduces the pre-scroll behaviour exactly.
+    static let none = ScrollRoom()
+
+    var isEmpty: Bool { up <= 0 && down <= 0 }
 }
 
 // MARK: - Batching
@@ -97,11 +147,29 @@ extension Array where Element == InputOutcome {
     //
     // Only *consecutive* runs collapse: an interposed `.panBegan` or `.pop`
     // is a real boundary and the order it establishes is preserved.
+    //
+    // `.scrollChanged` collapses on exactly the same terms and for exactly the
+    // same reason: it is cumulative, so only the newest value can matter, and
+    // a place that writes its offset five times inside one frame has paid for
+    // four writes nobody saw. The two kinds never collapse into each other —
+    // they are different runs, and a `.panChanged` between two
+    // `.scrollChanged` is a real boundary.
     mutating func appendCollapsingPanChanges(_ outcomes: [InputOutcome]) {
         for outcome in outcomes {
-            if case .panChanged = outcome, let previous = last, case .panChanged = previous {
-                self[count - 1] = outcome
-            } else {
+            switch outcome {
+            case .panChanged:
+                if let previous = last, case .panChanged = previous {
+                    self[count - 1] = outcome
+                } else {
+                    append(outcome)
+                }
+            case .scrollChanged:
+                if let previous = last, case .scrollChanged = previous {
+                    self[count - 1] = outcome
+                } else {
+                    append(outcome)
+                }
+            default:
                 append(outcome)
             }
         }
@@ -215,6 +283,24 @@ struct InputArbiter {
     // read the camera's live state, never capture a Bool.
     var isFieldAtRest: () -> Bool = { true }
 
+    // How much of a vertical drag the CURRENT PLACE wants for itself, before
+    // the world starts moving. Queried exactly ONCE per gesture, at the moment
+    // the pan arms, and then held for the whole of that gesture.
+    //
+    // ONCE, NOT LIVE, AND THAT IS THE WHOLE DESIGN. Room shrinks as she
+    // scrolls; re-reading it every sample would make the split a function of
+    // its own output, and the finger would stop tracking the content some way
+    // into every drag. Captured at arm time, the split stays a pure,
+    // monotonic, exactly-reversible function of one number — the cumulative
+    // translation — so backing up unwinds the scroll and then the pan in the
+    // same order they were spent.
+    //
+    // A CLOSURE, for the same reason `isFieldAtRest` is one (§7.2): SwiftUI's
+    // update pass is not ordered against UIKit touch delivery, so a pushed
+    // copy is stale at exactly the moments that matter. Its default is
+    // `.none`, which reproduces the pre-scroll behaviour exactly.
+    var scrollRoom: () -> ScrollRoom = { .none }
+
     private var tracking: Touch?
 
     private struct Touch {
@@ -224,11 +310,23 @@ struct InputArbiter {
         // zero instead of jumping by the slop distance the instant it arms.
         var anchor: CGPoint
         var panArmed: Bool
+        // Whether `.panBegan` has been emitted — i.e. whether the CAMERA is
+        // involved in this gesture at all. Distinct from `panArmed`, because a
+        // gesture inside a place that has scroll room of its own is a real,
+        // armed, tracked vertical drag that the camera has not been told
+        // about and must not be: telling it would put the world into
+        // `.dragging` (and dim every place, and wake the frame clock) for a
+        // gesture that is only moving the sky's own content.
+        var cameraArmed: Bool
         var deadZoned: Bool
         // True when this touch began while the camera was moving. It is what
         // makes `.settleToNearest` distinguishable from `.cancelToRest` at
         // release: a grab has no "rest" to go back to.
         var isTransitGrab: Bool
+        // The place's room, captured once at arm time. `.none` for a transit
+        // grab: she is holding a world in flight, and there is no place under
+        // her finger with content of its own to move.
+        var room: ScrollRoom
         var samples: [Sample]
     }
 
@@ -239,10 +337,12 @@ struct InputArbiter {
 
     init(bounds: CGSize = .zero,
          config: Config = .default,
-         isFieldAtRest: @escaping () -> Bool = { true }) {
+         isFieldAtRest: @escaping () -> Bool = { true },
+         scrollRoom: @escaping () -> ScrollRoom = { .none }) {
         self.bounds = bounds
         self.config = config
         self.isFieldAtRest = isFieldAtRest
+        self.scrollRoom = scrollRoom
     }
 
     // The host uses this to learn whether the arbiter adopted a touch as the
@@ -299,8 +399,10 @@ struct InputArbiter {
         var touch = Touch(origin: p,
                           anchor: p,
                           panArmed: false,
+                          cameraArmed: false,
                           deadZoned: isInEdgeDeadZone(p),
                           isTransitGrab: !atRest,
+                          room: .none,
                           samples: [Sample(y: p.y, t: timestamp)])
 
         // Transit grab (04 §5): every move is interruptible, and a touch
@@ -316,6 +418,12 @@ struct InputArbiter {
         // OS edge gestures keep everything they were given.
         if !atRest {
             touch.panArmed = true
+            // The camera is armed immediately AND the room stays `.none`: a
+            // grab is a grab of the world, and the place under her finger is
+            // in flight rather than at rest with content to move. The split is
+            // then the identity and this path behaves exactly as it always
+            // has.
+            touch.cameraArmed = true
             out.append(.panBegan)
         }
 
@@ -358,15 +466,76 @@ struct InputArbiter {
             tracking!.panArmed = true
             tracking!.anchor = CGPoint(x: origin.x,
                                        y: origin.y + (dy > 0 ? config.panSlop : -config.panSlop))
-            out.append(.panBegan)
+
+            // THE ONE QUERY. See `scrollRoom`.
+            tracking!.room = scrollRoom()
+
+            if tracking!.room.isEmpty {
+                // No place scroll: arm the camera here, in the same call, so
+                // this path is byte-for-byte the gesture it has always been.
+                tracking!.cameraArmed = true
+                out.append(.panBegan)
+            } else {
+                out.append(.scrollBegan)
+            }
         }
 
         // Cumulative translation from the anchor, not a per-event delta.
         // Cumulative is idempotent: a dropped or duplicated event costs one
         // frame of smoothness instead of permanently offsetting the camera
         // from her finger, which is what breaks 1:1 finger tracking (04 §5).
-        out.append(.panChanged(translation: p.y - tracking!.anchor.y))
+        let translation = p.y - tracking!.anchor.y
+        let (scroll, pan) = Self.split(translation: translation, room: tracking!.room)
+
+        if !tracking!.room.isEmpty {
+            out.append(.scrollChanged(translation: scroll))
+        }
+
+        // THE CAMERA IS TOLD ONLY ABOUT THE LEFTOVER, and is not told at all
+        // until there is one. `pan != 0` is the moment the place ran out, and
+        // it is also the moment the world may start moving — which is what
+        // makes one unbroken gesture walk back up the sky and then carry her
+        // out of it.
+        //
+        // Once armed it stays armed for the rest of the gesture, so backing up
+        // into the scroll region drives the camera home to zero rather than
+        // stranding it: `.dragging` is absorbing, and a camera that stopped
+        // hearing `.panChanged` would sit wherever it was until release.
+        if pan != 0 || tracking!.cameraArmed {
+            if !tracking!.cameraArmed {
+                tracking!.cameraArmed = true
+                out.append(.panBegan)
+            }
+            out.append(.panChanged(translation: pan))
+        }
         return out
+    }
+
+    // MARK: - The split
+
+    /// Divides one cumulative finger translation between the place's own
+    /// scroll and the world's travel: the place gets first refusal up to its
+    /// room, the world gets whatever is left.
+    ///
+    /// PURE, STATIC AND TOTAL, so every sign question in this feature is
+    /// settled in one testable function rather than argued about in three
+    /// files. It is monotonic in `translation` and exactly reversible — the
+    /// two halves always sum back to the input — which is what makes a
+    /// gesture that overshoots and comes back unwind in the same order it was
+    /// spent, with no hysteresis and nothing to reset.
+    ///
+    /// Sign convention, as everywhere in this file: negative is a finger
+    /// moving UP the screen.
+    static func split(translation: CGFloat, room: ScrollRoom) -> (scroll: CGFloat, pan: CGFloat) {
+        if translation < 0 {
+            let absorbed = max(translation, -room.up)
+            return (absorbed, translation - absorbed)
+        }
+        if translation > 0 {
+            let absorbed = min(translation, room.down)
+            return (absorbed, translation - absorbed)
+        }
+        return (0, 0)
     }
 
     mutating func ended(at p: CGPoint, timestamp: TimeInterval) -> [InputOutcome] {
@@ -384,6 +553,30 @@ struct InputArbiter {
 
         let translation = p.y - touch.anchor.y
         let velocity = releaseVelocity(of: touch)
+        let (_, pan) = Self.split(translation: translation, room: touch.room)
+
+        var out: [InputOutcome] = []
+
+        // The place is released first and unconditionally, including inside a
+        // dead zone: the zone scopes COMMITS (§7.4), and a scroll is not one.
+        // Leaving the sky mid-glide because her thumb happened to end low on
+        // the glass would be the same silence §7.4 already refused once.
+        if !touch.room.isEmpty { out.append(.scrollEnded(velocity: velocity)) }
+
+        // THE GATES SEE THE LEFTOVER, NOT THE WHOLE FINGER. A drag that the
+        // sky absorbed entirely has `pan == 0`, fails the distance gate, and
+        // cannot commit — which is the point: scrolling the sky must never
+        // also throw her out of it. A drag that ran the sky out and kept going
+        // has a real residual, and travelling that far past the end of the
+        // content is as clear a statement of intent as the same distance from
+        // rest would be.
+        //
+        // `cameraArmed` guards the terminator for the same reason it guards
+        // `.panChanged`: a camera that was never told `.panBegan` has nothing
+        // to spring home and must not be sent `.cancelToRest` — invariant A
+        // says a malformed sequence moves nothing, and this layer should not
+        // be producing one.
+        guard touch.cameraArmed else { return out }
 
         // §7.4: the dead zone suppresses the commit and nothing else.
         //
@@ -391,11 +584,13 @@ struct InputArbiter {
         // clamp, sign intact. The camera bounds the rate of the world in
         // screen heights; this layer reports the finger in points.
         if !touch.deadZoned,
-           let direction = commitDirection(translation: translation, velocity: velocity) {
-            return [.commit(direction, velocity: velocity)]
+           let direction = commitDirection(translation: pan, velocity: velocity) {
+            out.append(.commit(direction, velocity: velocity))
+            return out
         }
 
-        return [undecidedRelease(of: touch)]
+        out.append(undecidedRelease(of: touch))
+        return out
     }
 
     // The system took the touch away (a call arrived, a system gesture won),
@@ -423,7 +618,15 @@ struct InputArbiter {
         guard let touch = tracking else { return [] }
         tracking = nil
         guard touch.panArmed else { return [] }
-        return [undecidedRelease(of: touch)]
+
+        var out: [InputOutcome] = []
+        // Zero velocity: the touch was taken away, so there is no release to
+        // read a flick from, and a scroll that coasted on because a call
+        // arrived would be the system's motion rather than hers.
+        if !touch.room.isEmpty { out.append(.scrollEnded(velocity: 0)) }
+        guard touch.cameraArmed else { return out }
+        out.append(undecidedRelease(of: touch))
+        return out
     }
 
     // MARK: - Gates

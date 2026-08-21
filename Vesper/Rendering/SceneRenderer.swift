@@ -267,7 +267,15 @@ struct SceneRenderer {
     // which has no camera at all — keeps calling this exactly as it always
     // has and draws exactly what it always did.
     func draw(_ sim: GameSimulation, into context: inout GraphicsContext, size: CGSize,
-              moteParallax: CGFloat = 0) {
+              moteParallax: CGFloat = 0,
+              horizon: HorizonRender.Horizon = .none) {
+        // THE HORIZON, AT THE VERY BACK OF THE DRAW ORDER — the join between
+        // the sky and the field, drawn behind every mote, orb, ring and
+        // particle so it can never compete with one. Two gradient fills, and
+        // none at all when there is no light to draw. `HorizonRenderer` owns
+        // all of it; this is the only line the field's renderer needs to know.
+        HorizonRender.draw(horizon, into: &context, size: size)
+
         var glow = context
         glow.blendMode = .plusLighter
 
@@ -289,6 +297,12 @@ struct SceneRenderer {
             dust.fill(Path(ellipseIn: rect), with: .color(moteColor.opacity(a)))
         }
 
+        // THE AIR, UNDER THE FIELD. Water bands, light shafts, eddies, gusts
+        // and flakes are drawn between the dust and the orbs, so the pops
+        // float IN the weather; its foam, splash, shine and fog come back over
+        // them at the end of this method. See `WeatherRenderer`.
+        WeatherRenderer.drawBehind(sim.weatherField, glow: &glow, size: size)
+
         // orbs: faint halo (additive) + flat solid disc + soft specular
         for o in sim.orbs where o.alive {
             let style = PopCatalog.definition(for: o.popNumber).style
@@ -309,6 +323,21 @@ struct SceneRenderer {
             let R = o.r * (GameConfig.depthMinScale
                            + (1 - GameConfig.depthMinScale) * CGFloat(depth))
             let pulse = (style.shimmer ? 1 - 0.06 * Double(sin(o.phase * 2)) : 1) * depthAlpha
+
+            // A BALLOON ANIMAL IS NOT A SPHERE, so it does not borrow the
+            // sphere's body. Everything computed above — the pop's own paint,
+            // the depth it has risen to, the pulse, the radius — is handed
+            // over unchanged and the animal is drawn in the same halo,
+            // body-and-highlight grammar; only the silhouette differs. Drawn
+            // here rather than in the kind switch below because that switch
+            // runs after the disc is already down, and the whole point of
+            // this kind is that there is no disc.
+            if case .animal(let animal) = o.kind {
+                drawAnimal(animal, orb: o, radius: R, pulse: pulse,
+                           fill: fill, glowColor: glowColor, style: style,
+                           into: &context, glow: &glow)
+                continue
+            }
 
             let haloRect = CGRect(x: o.pos.x - R * 2.2, y: o.pos.y - R * 2.2,
                                   width: R * 4.4, height: R * 4.4)
@@ -345,6 +374,13 @@ struct SceneRenderer {
             // paints the orb already carries, at different radii.
             switch o.kind {
             case .plain:
+                break
+
+            // Drawn above, in its own silhouette, and the loop has already
+            // moved on by the time this switch runs. The case is here so the
+            // switch stays exhaustive and so a later reader looking for where
+            // an animal is drawn finds the answer beside the others.
+            case .animal:
                 break
 
             case .splitter:
@@ -436,6 +472,12 @@ struct SceneRenderer {
             let tint = GraphicsContext.Shading.color(color(paint.glow).opacity(Double(a)))
             drawParticle(p, shape: style.particleShape, size: s, tint: tint, into: &glow)
         }
+
+        // THE OTHER HALF OF THE AIR, OVER THE FIELD: the foam a crest closes
+        // with, the splash where it met a pop, the shine the pops pick up, and
+        // the fog — which thins where her finger is.
+        WeatherRenderer.drawFront(sim.weatherField, orbs: sim.orbs, pointer: sim.pointer,
+                                  into: &context, glow: &glow, size: size)
 
         // point whispers
         for n in sim.notes {

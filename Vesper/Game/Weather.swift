@@ -122,6 +122,77 @@ enum Weather: String, CaseIterable, Equatable {
     /// blown about in a storm.
     var wanderIsStepped: Bool { self == .snow }
 
+    // MARK: - The air as a FIELD, not as a multiplier
+    //
+    // Everything above is a per-orb scalar, and the owner's note about the
+    // weather ("it isn't interactive enough… the weather needs to dominate the
+    // scene") is exactly what a per-orb scalar cannot fix: a multiplier has no
+    // body. So each air also describes a small set of things that EXIST in the
+    // field — crests that sweep across it, eddies that turn in it, flakes,
+    // light shafts, banks of fog — which `WeatherField` moves and
+    // `WeatherRenderer` draws, and which push the orbs by moving the air
+    // around them rather than by scaling anything.
+    //
+    // THE SAME GUARDRAIL, RESTATED FOR FORCES. The air may carry an orb; it
+    // may not make anything cross the glass faster than it always could.
+    // `flowCarry` is the speed of the AIR, in multiples of
+    // `GameConfig.orbMaxSpeed`, and `WeatherField.apply` moves an orb's
+    // POSITION at that speed — using only what is left under the ceiling once
+    // the orb's own speed is counted, and never touching that speed itself.
+    // `testTheAirsOwnSpeedStaysUnderTheAirsOwnCeiling` holds every value here
+    // to `speedScale * 1.6`, the ceiling that was already there.
+
+    /// How fast the air itself moves, as a multiple of `GameConfig.orbMaxSpeed`.
+    /// Zero for airs whose character is something other than motion.
+    var flowCarry: CGFloat {
+        switch self {
+        case .rain:   return 1.35   // the water: it rushes, and it carries
+        case .storm:  return 1.20   // eddies and gusts, never a straight shove
+        case .summer: return 0.50   // thermals — a shimmer more than a push
+        case .clear, .snow, .fog: return 0
+        }
+    }
+
+    /// Travelling wave crests. Rain is the water air: bands sweep across the
+    /// field, orbs ride them, and where a crest meets an orb it splashes.
+    ///
+    /// Two, not three. They alternate direction, so two is one swell arriving
+    /// while the last one leaves — which is water — and three at these widths
+    /// is most of the glass under a band at once, which is a flood.
+    var crestCount: Int { self == .rain ? 2 : 0 }
+
+    /// Drifting vortices. Wind arrives in eddies rather than as one direction.
+    var eddyCount: Int { self == .storm ? 4 : 0 }
+
+    /// Whether the air gathers into gusts, with ebbs between them.
+    var hasGusts: Bool { self == .storm }
+
+    /// Falling flakes, which settle at the bottom and are replaced.
+    var flakeCount: Int { self == .snow ? 72 : 0 }
+
+    /// Shafts of low light, and the thermals that rise along their edges.
+    var shaftCount: Int { self == .summer ? 3 : 0 }
+
+    /// Banks of fog, drawn in FRONT of the field and thinned near her finger —
+    /// the fog is the one air she can push out of the way.
+    var bankCount: Int { self == .fog ? 7 : 0 }
+
+    /// How much specular light the orbs pick up. Warm is the bright air, so
+    /// its pops shine; everything else keeps the highlight it always had.
+    var shine: CGFloat {
+        switch self {
+        case .summer: return 1.0
+        case .rain:   return 0.35   // wet things catch a little light too
+        default:      return 0
+        }
+    }
+
+    /// True when this air has anything in it at all to move or draw.
+    var hasField: Bool {
+        crestCount > 0 || eddyCount > 0 || flakeCount > 0
+            || shaftCount > 0 || bankCount > 0 || hasGusts
+    }
+
     // MARK: - What she is told
 
     /// The journal's name for it. Lowercase-calm, like everything else.

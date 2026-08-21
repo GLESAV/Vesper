@@ -29,9 +29,13 @@ final class SkyLayoutTests: XCTestCase {
         return stones
     }
 
+    /// The sky AS SHE ARRIVES IN IT — scroll at rest, which is the growing
+    /// tip (see `SkyScroll.swift`). Every test in this file is about the
+    /// screenful she is handed; what happens when she scrolls away from it is
+    /// `SkyScrollTests`.
     private func layout(_ stones: [MapStone], now: Date) -> SkyLayout {
         SkyLayout(stones: stones, activeID: stones.last?.id, anchorID: stones.last?.id,
-                  now: now, size: size)
+                  now: now, size: size, scroll: 0)
     }
 
     // MARK: - The window
@@ -73,8 +77,10 @@ final class SkyLayoutTests: XCTestCase {
         }
     }
 
-    // Stars stay separately tappable at every depth: the layout compresses to
-    // the touch target and then stops, windowing instead of piling up.
+    // Stars stay separately tappable at every depth. The layout used to
+    // compress the row gap to fit and stop at the touch target; since the sky
+    // scrolls it does not compress at all, and the gap is simply constant —
+    // which is a stronger version of the same guarantee.
     func testStarsStaySeparatelyTappableAtEveryDepth() {
         for generations in [2, 8, 20, 60, 200] {
             let sky = layout(path(generations),
@@ -118,6 +124,16 @@ final class SkyLayoutTests: XCTestCase {
     // everything older climbed away above it, so the map slid upward as she
     // played and the beginning of her journey drifted off the ceiling.
     // Progression moved up and away — the opposite of growth.
+    //
+    // AMENDED BY THE SCROLL, IN ITS SECOND HALF ONLY. "Older is above newer"
+    // is the axis and it is unconditional. "The root hangs from the ceiling"
+    // was only ever true because the layout squashed every map into one
+    // screenful; now that the sky scrolls, it is true exactly while the tree
+    // FITS, and a taller tree hangs by its tip from the foot instead — with
+    // the root above the ceiling, which is precisely the history there is to
+    // scroll back through. Both cases are asserted rather than one being
+    // dropped, because the interesting failure is the layout picking the
+    // wrong one of the two.
     func testTheOldestVisibleGenerationSitsAtTheTop() {
         for generations in [2, 5, 12] {
             let stones = path(generations)
@@ -129,8 +145,22 @@ final class SkyLayoutTests: XCTestCase {
             let yNewest = byGeneration[newestShown]!.first!.center.y
             XCTAssertLessThan(yOldest, yNewest,
                               "the tree is upside down at \(generations) generations")
-            XCTAssertEqual(yOldest, SkyLayout.topInset, accuracy: 0.5,
-                           "the root is not hanging from the top")
+
+            if SkyLayout.metrics(stones: stones, size: size).maxOffset == 0 {
+                XCTAssertEqual(yOldest, SkyLayout.topInset, accuracy: 0.5,
+                               "a tree that fits is not hanging from the top")
+                XCTAssertEqual(oldestShown, 0,
+                               "a tree that fits should be showing its root")
+            } else {
+                // Pinned by the tip instead. The topmost row on screen is the
+                // first one that cleared the ceiling, so it is within one row
+                // gap of it — anything more would be a band of wasted sky.
+                XCTAssertGreaterThanOrEqual(yOldest, SkyLayout.topInset)
+                XCTAssertLessThan(yOldest, SkyLayout.topInset + sky.rowSpacing,
+                                  "a gap opened under the ceiling at \(generations)")
+                XCTAssertEqual(yNewest, size.height - SkyLayout.bottomInset, accuracy: 0.5,
+                               "the tip is not resting on the foot")
+            }
         }
     }
 
