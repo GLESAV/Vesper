@@ -240,4 +240,97 @@ enum GameConfig {
     static let chainNoteThreshold = 3
     static let chainWindow: TimeInterval = 0.9
     static let chainNoteDuration: TimeInterval = 1.4
+
+    // MARK: Weather field
+
+    // The air as things that EXIST in the field rather than as multipliers —
+    // crests, eddies, gusts, flakes, shafts, banks. Every array these bound is
+    // small and fixed: at most 3 crests (rain uses 2), 4 eddies, 3 shafts, 7 fog banks, 72
+    // flakes and 72 splash droplets, so the whole weather layer is under 160
+    // moving things in the very worst air, well inside the same budget the
+    // particle cap protects.
+    //
+    // THE AIR CARRIES THE POP; IT DOES NOT PUSH IT. `WeatherField` moves an
+    // orb's POSITION by the velocity of the air around it and never touches
+    // the orb's own velocity, and the amount it may move it is whatever is
+    // left under the ceiling once the orb's own motion is counted. So the
+    // most anything can ever travel across the glass is exactly the ceiling
+    // that was already there — weather cannot add to it, and cannot
+    // accumulate into it the way a per-frame push can.
+
+    /// How wide a crest's band is, as a fraction of the field's width, and
+    /// how fast the crest line travels in points per frame.
+    ///
+    /// WIDE AND UNHURRIED, AND THAT IS THE WHOLE POINT. How far a wave can
+    /// carry a pop is `airSpeed × bandWidth / crestSpeed` — the water has to
+    /// stay in contact to take anything anywhere — so a narrow, quick band
+    /// only ever taps: at 1.4 pt/frame a wave moved a resting pop nine points
+    /// and was gone. At half a screen wide and 0.5–0.9 pt/frame it carries it
+    /// twenty-five, and a swell crosses in about eighteen seconds, which is
+    /// also the difference between a breaker and a tide.
+    static let weatherCrestWidth: CGFloat = 0.50
+    static let weatherCrestSpeedRange: ClosedRange<CGFloat> = 0.5...0.9
+
+    /// Frames between crests. Long enough that a wave is an event and short
+    /// enough that the water is the weather — usually two on the glass.
+    static let weatherCrestGapRange: ClosedRange<CGFloat> = 260...460
+
+    /// The vertical part of a crest's orbital motion, as a fraction of its
+    /// forward carry. Water lifts about half as much as it shoves.
+    static let weatherCrestLift: CGFloat = 0.45
+
+    /// How much of the band draws BACK. At 0.45 the core runs forward at full
+    /// speed and the shoulders barely move, which is what makes a crest read
+    /// as water gathering rather than as a bar sliding past.
+    static let weatherCrestBackwash: CGFloat = 0.45
+
+    /// A wave does not break evenly along its whole length: the front is cut
+    /// into cells this many points tall, and the pull varies between them.
+    /// This is also what stops a crest from moving the entire field as one
+    /// rigid block — the field is sheared, and so it keeps its spread.
+    static let weatherCrestCellHeight: CGFloat = 260
+
+    /// How hard the other airs pull, as a fraction of their own carry.
+    /// Eddies turn firmly, gusts less so, and a thermal is barely a lift.
+    static let weatherEddyPull: CGFloat = 0.85
+    static let weatherGustPull: CGFloat = 0.70
+    static let weatherThermalPull: CGFloat = 0.50
+
+    /// Splash droplets thrown where a crest meets a pop, and the most that may
+    /// exist at once.
+    static let weatherSplashPerHit = 4
+    static let weatherSplashCap = 72
+
+    /// An eddy's radius as a fraction of the field's smaller side, and how
+    /// long one turns before it wanders off and another forms.
+    static let weatherEddyRadius: ClosedRange<CGFloat> = 0.22...0.40
+    static let weatherEddyLifeRange: ClosedRange<CGFloat> = 420...900
+
+    /// Frames between gusts, and how quickly one arrives and ebbs away.
+    ///
+    /// THE EBB IS THE POINT, and it is the reason these three numbers were
+    /// retuned: at a gentler decay the gusts overlapped and the wind never
+    /// dropped below a third of its peak, which is a fan. A gust now arrives
+    /// over about two seconds, ebbs to nothing over ten, and the field is
+    /// still for a while before the next one gathers.
+    static let weatherGustGapRange: ClosedRange<CGFloat> = 220...600
+    static let weatherGustRise: CGFloat = 0.014
+    static let weatherGustEbb: CGFloat = 0.991
+
+    /// How long a settled flake rests before it melts and falls again.
+    /// Nothing is lost: the same flakes return.
+    static let weatherFlakeRestRange: ClosedRange<CGFloat> = 240...900
+
+    /// Everything the weather layer moves is scaled by this under Reduce
+    /// Motion, and the carrying is switched off entirely — an air she can
+    /// look at, with nothing travelling toward her.
+    static let weatherStillnessScale: CGFloat = 0.22
+
+    /// Ceilings on how much light the weather may put on the screen. The
+    /// scene is dark and stays dark: bands and banks are barely there, and
+    /// only the splash and the specular pin-lights are allowed to be bright.
+    static let weatherBandOpacity: Double = 0.06
+    static let weatherFoamOpacity: Double = 0.16
+    static let weatherFogOpacity: Double = 0.14
+    static let weatherShineOpacity: Double = 0.22
 }
