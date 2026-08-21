@@ -86,9 +86,23 @@ final class FieldDepthTests: XCTestCase {
 
     // MARK: - Rising, not arriving
 
+    /// The first orb on the glass that a single tap actually pops.
+    ///
+    /// A balloon animal takes a few touches before it goes (`AnimalPop`), so
+    /// tapping one makes no room and nothing rises. It is not what these two
+    /// tests are about — they are about DEPTH — so they ask for an orb that
+    /// pops, rather than for whatever happens to be first in the array.
+    private func poppableTarget(in s: GameSimulation) -> Orb? {
+        s.orbs.first { orb in
+            guard orb.alive else { return false }
+            if case .animal = orb.kind { return false }
+            return true
+        }
+    }
+
     func testAnOrbRisesIntoTheRoomAPopJustMade() {
         let s = sim(generation: 10, stage: FieldPlan.finalStage)
-        guard let target = s.orbs.first(where: \.alive) else { return XCTFail("empty field") }
+        guard let target = poppableTarget(in: s) else { return XCTFail("empty field") }
         let held = s.reserve.count
 
         let events = s.tap(at: target.pos)
@@ -112,7 +126,7 @@ final class FieldDepthTests: XCTestCase {
 
     func testAnOrbSurfacesNearTheGapAndNotAtTheEdge() {
         let s = sim(generation: 10, stage: FieldPlan.finalStage)
-        guard let target = s.orbs.first(where: \.alive) else { return XCTFail("empty field") }
+        guard let target = poppableTarget(in: s) else { return XCTFail("empty field") }
         let where_ = target.pos
         s.tap(at: where_)
         guard let risen = s.orbs.last, risen.spawn < 0.2 else { return XCTFail("nothing rose") }
