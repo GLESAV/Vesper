@@ -121,15 +121,45 @@ final class MapStore: ObservableObject {
         let count = PopMapGen.branchCount(using: &rng)
         let lanes = PopMapGen.lanes(from: parent.lane, count: count, using: &rng)
         let locked = PopCatalog.all.map(\.number).filter { !unlocked.contains($0) }
-        var avoiding = Set(parent.popNumbers)
+        // Each child keeps one of the parent's pops and branches with new
+        // ones. `heritable` is shuffled and dealt round-robin so siblings
+        // inherit DIFFERENT things — two roads out of one stone have to
+        // genuinely diverge, or a fork is a coin toss.
+        //
+        // `avoiding` now carries only what earlier SIBLINGS took, never the
+        // parent's own set: the parent's pops are the thing being passed
+        // down, so excluding them was excluding the inheritance.
+        var heritable = parent.popNumbers.shuffled(using: &rng)
+        if heritable.isEmpty { heritable = [PopCatalog.classic.number] }
+        var avoiding = Set<Int>()
         var children: [MapStone] = []
+
+        // EACH ROAD GETS ITS OWN FAMILY, and no two roads out of one stone
+        // share it. That is what makes a fork a choice she can read: one road
+        // is the ember road and the other is the tide road, and the sky says
+        // so in the gem silhouettes before she takes either.
+        //
+        // The parent's own family is offered first, so continuing straight on
+        // is always available — a fork should never force a change of
+        // direction, only offer one.
+        var families = PopFamily.allCases.shuffled(using: &rng)
+        if let parentFamily = parent.leaning {
+            families.removeAll { $0 == parentFamily }
+            families.insert(parentFamily, at: 0)
+        }
+
         for k in 0..<count {
             let childSeed = rng.next()
             var childRng = SplitMix64(seed: childSeed)
-            let pops = PopMapGen.popSet(unlocked: Array(unlocked).sorted(),
-                                        locked: locked, avoiding: avoiding,
-                                        using: &childRng)
-            avoiding.formUnion(pops)
+            let pops = PopMapGen.branchedSet(inheriting: heritable[k % heritable.count],
+                                             leaning: families[k % families.count],
+                                             unlocked: Array(unlocked).sorted(),
+                                             locked: locked, avoiding: avoiding,
+                                             using: &childRng)
+            // Only the NEW pops are withheld from later siblings; the
+            // inherited one may legitimately repeat when a parent has fewer
+            // pops than it has roads.
+            avoiding.formUnion(pops.dropFirst())
             children.append(MapStone(id: UUID(), parentID: parent.id,
                                      generation: parent.generation + 1,
                                      lane: lanes[k], popNumbers: pops,

@@ -208,4 +208,96 @@ final class MapStoreTests: XCTestCase {
         XCTAssertEqual(second.stones.map(\.id), first.stones.map(\.id))
         XCTAssertEqual(second.activeStoneID, first.activeStoneID)
     }
+
+    // MARK: - Lineage: a stone inherits, and a fork is a choice
+
+    // This inverts what the map used to do. Children were generated with
+    // their parent's pops in `avoiding`, so every step replaced the whole set
+    // and nothing carried — a shuffle rather than a lineage, and a stone told
+    // you nothing about the stone it came from.
+    func testEveryChildKeepsSomethingFromItsParent() {
+        let store = freshStore()
+        store.ensureGenesis(unlocked: Set(1...40))
+        let parent = store.stones[0]
+        store.setActive(parent.id)
+        let roads = store.recordClear(unlocked: Set(1...40))
+
+        XCTAssertFalse(roads.isEmpty)
+        for road in roads {
+            let shared = Set(road.popNumbers).intersection(parent.popNumbers)
+            XCTAssertFalse(shared.isEmpty,
+                           "road \(road.popNumbers) shares nothing with parent \(parent.popNumbers)")
+        }
+    }
+
+    func testEveryChildAlsoBringsSomethingNew() {
+        let store = freshStore()
+        store.ensureGenesis(unlocked: Set(1...40))
+        let parent = store.stones[0]
+        store.setActive(parent.id)
+        for road in store.recordClear(unlocked: Set(1...40)) {
+            let fresh = Set(road.popNumbers).subtracting(parent.popNumbers)
+            XCTAssertFalse(fresh.isEmpty,
+                           "road \(road.popNumbers) is only its parent repeated")
+        }
+    }
+
+    // A fork must be a choice she can read, not a coin toss: two roads out of
+    // one stone lean toward different families.
+    func testTwoRoadsOutOfOneStoneDiverge() {
+        var forks = 0
+        for seed in UInt64(1)...40 {
+            let store = freshStore()
+            store.ensureGenesis(unlocked: Set(1...60))
+            var stone = store.stones[0]
+            stone.popNumbers = [Int(seed % 40) + 1]
+            store.setActive(store.stones[0].id)
+            let roads = store.recordClear(unlocked: Set(1...60))
+            guard roads.count > 1 else { continue }
+            forks += 1
+            let sets = roads.map { Set($0.popNumbers) }
+            for i in sets.indices {
+                for j in sets.indices where j > i {
+                    XCTAssertNotEqual(sets[i], sets[j],
+                                      "two roads out of one stone are identical")
+                }
+            }
+        }
+        XCTAssertGreaterThan(forks, 0, "no fork occurred in 40 seeds — nothing was tested")
+    }
+
+    // Nothing is foreclosed by choosing. The road not taken stays walkable
+    // forever, which is the difference between a branching path and a skill
+    // tree — and this game may only have the first.
+    func testTheRoadNotTakenStaysOnTheMapAndStaysWalkable() {
+        let store = freshStore()
+        store.ensureGenesis(unlocked: Set(1...40))
+        store.setActive(store.stones[0].id)
+        let roads = store.recordClear(unlocked: Set(1...40))
+        guard roads.count > 1 else { return }
+
+        store.setActive(roads[0].id)
+        _ = store.recordClear(unlocked: Set(1...40))
+
+        for untaken in roads.dropFirst() {
+            XCTAssertTrue(store.stones.contains { $0.id == untaken.id },
+                          "a road she did not take left the map")
+            store.setActive(untaken.id)
+            XCTAssertEqual(store.activeStoneID, untaken.id,
+                           "a road she did not take is no longer walkable")
+        }
+    }
+
+    func testAStoneKnowsWhichFamilyItLeansToward() {
+        var stone = MapStone(id: UUID(), parentID: nil, generation: 0, lane: 0.5,
+                             popNumbers: [PopCatalog.classic.number],
+                             seed: 1, createdAt: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(stone.leaning, PopCatalog.classic.family)
+
+        // Ties resolve to the same family every time, forever.
+        let mixed = PopCatalog.all.prefix(6).map(\.number)
+        stone.popNumbers = Array(mixed)
+        XCTAssertEqual(stone.leaning, stone.leaning)
+        XCTAssertNotNil(stone.leaning)
+    }
 }
