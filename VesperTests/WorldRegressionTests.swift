@@ -445,6 +445,15 @@ final class WorldRegressionTests: XCTestCase {
                 case .cancelToRest:
                     terminated = true
                     hasPan = true
+                case .scrollBegan, .scrollChanged, .scrollEnded:
+                    // Unreachable in this fixture and asserted to be: this
+                    // arbiter is built with the default `scrollRoom`, which
+                    // answers `.none` for every place. If one of these ever
+                    // shows up here it means the arbiter started handing a
+                    // place points nobody offered, and the invariants below —
+                    // which all reason about a gesture the CAMERA saw in
+                    // full — would be measuring the wrong thing.
+                    XCTFail("#\(index) \(kind.rawValue): a place with no room scrolled")
                 }
             }
 

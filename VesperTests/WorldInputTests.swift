@@ -51,6 +51,14 @@ final class WorldInputTests: XCTestCase {
                     isAtRest = false
                 case .pop, .panChanged:
                     break
+                case .scrollBegan, .scrollChanged, .scrollEnded:
+                    // A place's own scroll does not move the camera, so it
+                    // cannot change whether the field is at rest. Every
+                    // arbiter in this file is built with the default
+                    // `scrollRoom` (`.none`) anyway, so none of these arrive
+                    // — but leaving it to a `default:` would let a future
+                    // outcome inherit "does not wake the camera" silently.
+                    break
                 }
             }
         }
