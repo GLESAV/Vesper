@@ -134,6 +134,35 @@ struct FieldPlan: Equatable {
         }
     }
 
+    // MARK: - Growth: depth along the Path, and on return
+
+    /// How many orbs this field actually holds, once its place on the Path
+    /// and how often she has been here are taken into account.
+    ///
+    /// **Growth is in DEPTH, not in crowding.** Only
+    /// `GameConfig.surfaceCapacity` orbs are ever on the glass at once; the
+    /// rest wait below and rise as room is made. That separation is what
+    /// makes compounding growth safe — a field twice the size takes longer
+    /// and never looks busier.
+    ///
+    /// Both curves are capped, and the cap is not a compromise. 1.2× per
+    /// generation reaches 38× by generation twenty and 5,000× by generation
+    /// fifty; a field that cannot be finished in an evening is not a bigger
+    /// field, it is a broken one. `GameConfig.maxFieldOrbs` is where growth
+    /// stops meaning anything, and the same reasoning caps `finalStage`.
+    static func totalOrbs(base: Int, generation: Int, plays: Int) -> Int {
+        let depth = pow(GameConfig.depthGrowthPerGeneration, Double(max(0, generation)))
+        let replayIndex = min(max(0, plays), GameConfig.replayMultipliers.count - 1)
+        let replay = GameConfig.replayMultipliers[replayIndex]
+        let grown = Double(base) * depth * replay
+        return max(base, min(GameConfig.maxFieldOrbs, Int(grown.rounded())))
+    }
+
+    /// How many of those start on the surface.
+    static func surfaceCount(total: Int) -> Int {
+        min(total, GameConfig.surfaceCapacity)
+    }
+
     /// Stage from lifetime fields cleared. Slow on purpose: three fields at
     /// each step means a new idea lands roughly once an evening rather than
     /// three in the first sitting.

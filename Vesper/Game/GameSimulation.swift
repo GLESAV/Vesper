@@ -61,6 +61,20 @@ final class GameSimulation {
     /// stops meaning what it says. Nil in the app, always.
     var pinnedWeather: Weather?
 
+    /// Where this field sits on the Path, and how many times she has cleared
+    /// this stone before. Both grow the field's DEPTH, never its crowding.
+    var generation: Int = 0
+    var plays: Int = 0
+
+    /// The orbs waiting below the surface.
+    ///
+    /// A field is an aerial view of something with depth: only
+    /// `GameConfig.surfaceCapacity` orbs are on the glass at once, and as she
+    /// makes room the ones underneath crowd up into it. This is what lets a
+    /// field grow along the Path without ever looking busier — what grows is
+    /// how deep it goes.
+    private(set) var reserve: [Orb] = []
+
     /// Phase of the lateral swell, advanced per frame. Not published and not
     /// read during a draw.
     private var swellPhase: CGFloat = 0
@@ -102,18 +116,29 @@ final class GameSimulation {
         // stage's plan is exactly what she gets: two splitters means two, not
         // "two on average". A field that sometimes forgets to contain the
         // thing it just taught her is a field that reads as broken.
+        // How big this field actually is, once its place on the Path and her
+        // history with this stone are counted.
+        let total = FieldPlan.totalOrbs(base: plan.orbCount,
+                                        generation: generation,
+                                        plays: plays)
+        let surface = FieldPlan.surfaceCount(total: total)
+
         var kinds: [OrbKind] = []
         for _ in 0..<plan.splitters { kinds.append(.splitter(remaining: plan.splitDepth)) }
         for _ in 0..<plan.drifters { kinds.append(.drifter) }
-        while kinds.count < plan.orbCount { kinds.append(.plain) }
+        while kinds.count < total { kinds.append(.plain) }
         kinds.shuffle(using: &rng)
 
-        for kind in kinds.prefix(plan.orbCount) {
+        // The surface, and then the depth beneath it. Generators always start
+        // on the surface: a generator underneath would be a field making more
+        // of itself where she cannot see it happen.
+        for kind in kinds.prefix(surface) {
             orbs.append(makeOrb(kind: kind, pool: pool))
         }
         for _ in 0..<plan.generators {
             orbs.append(makeOrb(kind: .generator(makeGenerator()), pool: pool))
         }
+        reserve = kinds.dropFirst(surface).map { makeOrb(kind: $0, pool: pool) }
 
         // The fortune never rides a generator or a splitter: it should be a
         // quiet gift on an ordinary orb, not a prize attached to the busiest
@@ -182,6 +207,7 @@ final class GameSimulation {
     }
 
     func restart() {
+        reserve.removeAll()
         particles.removeAll()
         rings.removeAll()
         notes.removeAll()
@@ -195,6 +221,7 @@ final class GameSimulation {
     // random layout.
     func replaceOrbs(_ newOrbs: [Orb]) {
         orbs = newOrbs
+        reserve.removeAll()
         // Weather is part of the randomness this hook exists to remove: a
         // test that installs an exact field and then watches it move must not
         // have the air chosen for it. `layout(size:)` seeds a field on first
@@ -291,7 +318,35 @@ final class GameSimulation {
             if born > 0 { events.append(.split(from: orb, into: born)) }
         }
 
+        // WHAT WAS UNDERNEATH CROWDS IN. Surfaced at the popped orb's own
+        // position, because that is where the room just appeared — a field
+        // that refills from the edges reads as things arriving, and a field
+        // that refills where you just made space reads as depth.
+        if let risen = surfaceFromReserve(near: orb.pos) {
+            events.append(.rose(orb: risen))
+        }
+
         checkCleared(into: &events)
+    }
+
+    /// Brings one orb up from the reserve, if there is room on the surface.
+    ///
+    /// It arrives at `spawn = 0` and grows over `GameConfig.riseFrames`, which
+    /// is about a second — four times slower than the old spawn curve, and
+    /// that difference is the whole of it. Fast growth reads as something
+    /// TELEPORTING IN; slow growth from small and faint reads as something
+    /// that was always there, coming up.
+    @discardableResult
+    private func surfaceFromReserve(near p: CGPoint) -> Orb? {
+        guard !reserve.isEmpty else { return nil }
+        guard aliveCount < GameConfig.surfaceCapacity else { return nil }
+        var orb = reserve.removeLast()
+        orb.spawn = 0
+        orb.pos = clampIntoBounds(
+            CGPoint(x: p.x + rnd(-18 ... 18), y: p.y + rnd(-18 ... 18)),
+            radius: orb.baseR)
+        orbs.append(orb)
+        return orb
     }
 
     /// Opens a splitter into `GameConfig.splitChildCount` smaller orbs.
@@ -331,7 +386,9 @@ final class GameSimulation {
     /// since a generator is an orb. Called from every place that can remove
     /// the last one: a pop, a spent quota, a settle.
     private func checkCleared(into events: inout [GameEvent]) {
-        if !completed && orbs.allSatisfy({ !$0.alive }) {
+        // The reserve counts: a field with orbs still underneath is not
+        // finished, it is only momentarily empty on top.
+        if !completed && reserve.isEmpty && orbs.allSatisfy({ !$0.alive }) {
             completed = true
             events.append(.cleared(total: popCount))
         }
@@ -459,7 +516,7 @@ final class GameSimulation {
     private func stepOrbs(_ f: CGFloat) {
         for i in orbs.indices where orbs[i].alive {
             if orbs[i].spawn < 1 {
-                orbs[i].spawn = min(1, orbs[i].spawn + GameConfig.spawnGrowth * f)
+                orbs[i].spawn = min(1, orbs[i].spawn + (1 / GameConfig.riseFrames) * f)
             }
             if case .drifter = orbs[i].kind { evade(i, f) }
             applyWeather(i, f)

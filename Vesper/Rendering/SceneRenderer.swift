@@ -295,8 +295,20 @@ struct SceneRenderer {
             let paint = style.paints[min(o.variantIndex, style.paints.count - 1)]
             let fill = color(paint.fill)
             let glowColor = color(paint.glow)
-            let R = o.r
-            let pulse = style.shimmer ? 1 - 0.06 * Double(sin(o.phase * 2)) : 1
+            // DEPTH. `spawn` is how far up an orb has risen: 0 at the bottom
+            // of the field, 1 on the surface. An orb still coming up is drawn
+            // smaller and fainter — it is under something — and reaches full
+            // size and full light exactly as it surfaces.
+            //
+            // This is what separates "rising" from "appearing". A thing that
+            // fades in at full size has teleported; a thing that grows and
+            // brightens from small and dim was already there.
+            let depth = Double(min(1, max(0, o.spawn)))
+            let depthAlpha = GameConfig.depthMinAlpha
+                + (1 - GameConfig.depthMinAlpha) * depth
+            let R = o.r * (GameConfig.depthMinScale
+                           + (1 - GameConfig.depthMinScale) * CGFloat(depth))
+            let pulse = (style.shimmer ? 1 - 0.06 * Double(sin(o.phase * 2)) : 1) * depthAlpha
 
             let haloRect = CGRect(x: o.pos.x - R * 2.2, y: o.pos.y - R * 2.2,
                                   width: R * 4.4, height: R * 4.4)

@@ -95,6 +95,42 @@ enum GameConfig {
     static let wobbleSpeed: CGFloat = 0.02
     static let spawnGrowth: CGFloat = 0.05
 
+    // MARK: Depth — the field is a surface, with more underneath
+
+    /// How many orbs may be on the SURFACE at once. A field can hold far more
+    /// than this; the rest wait below and rise as room is made.
+    ///
+    /// This is what lets a field grow without ever crowding the glass, and it
+    /// is why the growth curves below can compound at all: what grows is the
+    /// field's DEPTH, not how much is in front of her at any moment.
+    static let surfaceCapacity = 14
+
+    /// Frames for an orb to rise from below to the surface. Deliberately slow
+    /// — about a second — because the whole point is that it RISES rather
+    /// than appears. `spawnGrowth` is four times faster and is what made
+    /// generated orbs read as teleporting in.
+    static let riseFrames: CGFloat = 58
+
+    /// How small and how faint an orb is at the bottom of its rise. It is
+    /// visible down there: she should be able to see that there is more.
+    static let depthMinScale: CGFloat = 0.42
+    static let depthMinAlpha: Double = 0.22
+
+    // MARK: Field growth
+
+    /// Multiplier per step along the Path. Compounds, and is capped by
+    /// `maxFieldOrbs` — an uncapped 1.2× per generation reaches 38× by
+    /// generation twenty, and a field that cannot be finished is not a
+    /// bigger field, it is a broken one.
+    static let depthGrowthPerGeneration: Double = 1.2
+
+    /// Replaying a stone she has already cleared. Second visit is twice the
+    /// field, third and beyond is three times.
+    static let replayMultipliers: [Double] = [1, 2, 3]
+
+    /// The most pops one field may hold, surface and reserve together.
+    static let maxFieldOrbs = 96
+
     // MARK: Shockwave rings
 
     static let ringBaseMaxRadius: CGFloat = 110
@@ -131,6 +167,16 @@ enum GameConfig {
     /// read rather than as long as an interruption can be tolerated.
     static let fortuneDisplayDuration: TimeInterval = 5.5
     static let doneRevealDelay: TimeInterval = 0.65
+
+    /// How long the done card is hers alone before the world rises to the
+    /// sky. Long enough to read the verse, which is the whole reason the card
+    /// exists.
+    static let onwardToSkyDelay: TimeInterval = 3.4
+
+    /// How long the sky is held before stepping onto the next stone — time
+    /// for the completion ring to land on the stone she just finished, and
+    /// for the road ahead to light.
+    static let onwardInSkyPause: TimeInterval = 2.2
     static let chainNoteThreshold = 3
     static let chainWindow: TimeInterval = 0.9
     static let chainNoteDuration: TimeInterval = 1.4

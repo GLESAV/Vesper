@@ -130,6 +130,15 @@ private struct WorldScene: View {
         // identically zero and the places crossfade instead of translating.
         .onAppear { applyReduceMotion(reduceMotion) }
         .onChange(of: reduceMotion) { _, value in applyReduceMotion(value) }
+        // THE ONWARD SEQUENCE (owner: on completion, go to the sky and
+        // auto-progress). Navigation lives here and nowhere else, so the game
+        // asks by incrementing a counter and this view is what actually
+        // moves — `go` is the same commit a whisper tap makes, so the camera,
+        // the dimming and the ground's colour all behave exactly as they do
+        // when she travels herself. Nothing about this is a special case
+        // downstream of here.
+        .onChange(of: game.skyRequest) { _, _ in go(.up) }
+        .onChange(of: game.fieldRequest) { _, _ in go(.down) }
         // Kept from v1.2: the counter answers a pop.
         .onChange(of: game.count) { _, _ in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) { pulse = true }

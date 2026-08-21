@@ -18,12 +18,23 @@ final class MapStore: ObservableObject {
     @Published private(set) var stones: [MapStone] = []
     @Published private(set) var activeStoneID: UUID?
 
+    /// How many times each stone has been cleared. Absent means never.
+    @Published private(set) var plays: [UUID: Int] = [:]
+
     private let defaults: UserDefaults
     var nowProvider: () -> Date   // injectable for tests
 
     private enum Keys {
         static let stones = "vesper.map.stones"
         static let active = "vesper.map.active"
+        // Kept in its OWN key rather than as a field on `MapStone`. Adding a
+        // property to a Codable struct makes every previously-saved map fail
+        // to decode — `JSONDecoder` throws on a missing key even when the
+        // property has a default — and `load()` swallows that failure, so the
+        // whole Path would silently vanish. W08's contract is that nothing is
+        // ever lost; a separate key that simply reads as empty on first launch
+        // keeps it true.
+        static let plays = "vesper.map.plays"
     }
 
     // The keys this store owns. See ProgressionStore.ownedDefaultsKeys for why
@@ -31,6 +42,7 @@ final class MapStore: ObservableObject {
     static let ownedDefaultsKeys: [String] = [
         Keys.stones,
         Keys.active,
+        Keys.plays,
     ]
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
@@ -73,6 +85,11 @@ final class MapStore: ObservableObject {
         save()
     }
 
+    /// The roads opening ahead of a stone — its children, oldest first.
+    func roads(from id: UUID) -> [MapStone] {
+        stones.filter { $0.parentID == id }.sorted { $0.createdAt < $1.createdAt }
+    }
+
     func setActive(_ id: UUID?) {
         activeStoneID = id
         if let id, let i = stones.firstIndex(where: { $0.id == id }) {
@@ -89,6 +106,7 @@ final class MapStore: ObservableObject {
               let i = stones.firstIndex(where: { $0.id == id }) else { return [] }
         stones[i].cleared = true
         stones[i].lastPlayedAt = nowProvider()
+        plays[id, default: 0] += 1
         var created: [MapStone] = []
         if !stones.contains(where: { $0.parentID == id }) {
             created = makeChildren(of: stones[i], unlocked: unlocked)
@@ -160,6 +178,11 @@ final class MapStore: ObservableObject {
            stones.contains(where: { $0.id == id }) {
             activeStoneID = id
         }
+        if let data = defaults.data(forKey: Keys.plays),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            plays = Dictionary(uniqueKeysWithValues:
+                decoded.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+        }
     }
 
     private func save() {
@@ -167,6 +190,10 @@ final class MapStore: ObservableObject {
             defaults.set(data, forKey: Keys.stones)
         }
         defaults.set(activeStoneID?.uuidString ?? "", forKey: Keys.active)
+        let encodable = Dictionary(uniqueKeysWithValues: plays.map { ($0.key.uuidString, $0.value) })
+        if let data = try? JSONEncoder().encode(encodable) {
+            defaults.set(data, forKey: Keys.plays)
+        }
     }
 
     // MARK: - W24: fresh install (DEBUG only)
@@ -180,6 +207,7 @@ final class MapStore: ObservableObject {
     func resetToFreshInstall() {
         stones = []
         activeStoneID = nil
+        plays = [:]
         for key in Self.ownedDefaultsKeys { defaults.removeObject(forKey: key) }
     }
     #endif

@@ -71,6 +71,11 @@ enum GameEvent {
     /// pressed it and it gave one up without closing.
     case emitted(orb: Orb, byTap: Bool)
 
+    /// An orb rose from below into room she had just made. Distinct from
+    /// `.emitted`: nothing was created here, something that was already in
+    /// the field came up into view.
+    case rose(orb: Orb)
+
     /// A generator closed on its own terms: spent, or settled. Deliberately
     /// distinct from `.popped` — nothing was popped, and nothing was lost.
     case generatorClosed(orb: Orb)
