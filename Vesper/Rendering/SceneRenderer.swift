@@ -297,6 +297,12 @@ struct SceneRenderer {
             dust.fill(Path(ellipseIn: rect), with: .color(moteColor.opacity(a)))
         }
 
+        // THE AIR, UNDER THE FIELD. Water bands, light shafts, eddies, gusts
+        // and flakes are drawn between the dust and the orbs, so the pops
+        // float IN the weather; its foam, splash, shine and fog come back over
+        // them at the end of this method. See `WeatherRenderer`.
+        WeatherRenderer.drawBehind(sim.weatherField, glow: &glow, size: size)
+
         // orbs: faint halo (additive) + flat solid disc + soft specular
         for o in sim.orbs where o.alive {
             let style = PopCatalog.definition(for: o.popNumber).style
@@ -466,6 +472,12 @@ struct SceneRenderer {
             let tint = GraphicsContext.Shading.color(color(paint.glow).opacity(Double(a)))
             drawParticle(p, shape: style.particleShape, size: s, tint: tint, into: &glow)
         }
+
+        // THE OTHER HALF OF THE AIR, OVER THE FIELD: the foam a crest closes
+        // with, the splash where it met a pop, the shine the pops pick up, and
+        // the fog — which thins where her finger is.
+        WeatherRenderer.drawFront(sim.weatherField, orbs: sim.orbs, pointer: sim.pointer,
+                                  into: &context, glow: &glow, size: size)
 
         // point whispers
         for n in sim.notes {

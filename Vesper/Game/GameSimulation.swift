@@ -53,6 +53,13 @@ final class GameSimulation {
     /// own RNG, so a seed is still a field.
     private(set) var weather: Weather = .clear
 
+    /// THE AIR AS A THING WITH A BODY: crests that sweep across the field and
+    /// carry the pops with them, eddies, gusts, flakes, shafts of light, banks
+    /// of fog. Stepped once per frame from `step(dt:)`, read by
+    /// `applyWeather` to move the orbs, and drawn by `WeatherRenderer` — see
+    /// `WeatherField`, which owns all of it and none of the drawing.
+    private(set) var weatherField = WeatherField()
+
     /// Forces a particular air, for tests whose subject is something else.
     ///
     /// The W20 storm regression and the tap baselines measure input
@@ -645,6 +652,16 @@ final class GameSimulation {
         var events: [GameEvent] = []
 
         swellPhase += weather.swellRate * f
+
+        // THE AIR MOVES BEFORE THE FIELD DOES. Its seed is drawn from a COPY
+        // of the generator, so the sky is deterministic from the field's seed
+        // while taking nothing out of the sequence the field itself is dealt
+        // from — a weather layer that consumed randomness every frame would
+        // quietly change every field that already exists.
+        var sky = rng
+        weatherField.step(f, weather: weather, bounds: bounds,
+                          reduceMotion: reduceMotion, orbs: orbs, seed: sky.next())
+
         stepOrbs(f)
         stepFireworks(f, into: &events)
         stepSmoke(f)
@@ -749,6 +766,14 @@ final class GameSimulation {
                 orbs[i].vel.dy = dx * sin(a) + dy * cos(a)
             }
         }
+
+        // THE FIELD OF THE AIR: crests, eddies, gusts, thermals. It CARRIES
+        // this orb — moving where it is, never how fast it is going — and it
+        // may only use what is left under the same ceiling once the orb's own
+        // speed is counted. So the air cannot accumulate into the velocity
+        // below it, and cannot make anything cross the glass faster than it
+        // always could. The wall clamp in `stepOrbs` still runs after this.
+        weatherField.apply(to: &orbs[i], f)
 
         // THE CEILING. Weather may change the character of the motion and may
         // not make the field faster than its own scale permits — a field that
