@@ -136,6 +136,7 @@ final class GameSimulation {
         // Shells sit ALONGSIDE the orbs rather than instead of them (owner's
         // correction), and a break sows pops — see `burst`.
         plan.fireworks = FieldPlan.fireworkCount(stage: stage, generation: generation)
+        plan.animals = FieldPlan.animalCount(stage: stage, generation: generation)
         let total = FieldPlan.totalOrbs(base: plan.orbCount,
                                         generation: generation,
                                         plays: plays)
@@ -148,6 +149,23 @@ final class GameSimulation {
         while kinds.count < total { kinds.append(.plain) }
         if kinds.count > total { kinds.removeLast(kinds.count - total) }
         kinds.shuffle(using: &rng)
+
+        // THE ANIMAL, IF THIS FIELD HAS ONE, AND ALWAYS ON THE SURFACE. It
+        // takes an ordinary orb's place rather than adding one, so the plan
+        // she was promised is still exactly the field she gets. It has to
+        // start on the glass because its shyness begins running down the
+        // moment the field opens: an animal that waited in the reserve would
+        // arrive late and still shy, which is the one ordering that could
+        // leave it awkward at the END of a field instead of the beginning.
+        if plan.animals > 0 {
+            let surfaceSlots = Array(kinds.indices.prefix(min(surface, kinds.count)))
+            let plainSlots = surfaceSlots.filter { kinds[$0] == .plain }
+            if let slot = plainSlots.randomElement(using: &rng) {
+                kinds[slot] = .animal(makeAnimal())
+            } else {
+                plan.animals = 0
+            }
+        }
 
         // The surface, and then the depth beneath it. Generators always start
         // on the surface: a generator underneath would be a field making more
@@ -218,6 +236,20 @@ final class GameSimulation {
         return Generator(closing: closing,
                          interval: rnd(GameConfig.generatorIntervalRange),
                          sinceLast: 0)
+    }
+
+    /// One balloon animal: a creature and how many touches it takes.
+    ///
+    /// Both come from the field's own RNG, so a stone is the same creature
+    /// every time she walks back to it — the eight shapes are what stop the
+    /// hundred pops reading as one sphere in a hundred paints, and a shape
+    /// that changed between visits would be a costume rather than a resident.
+    private func makeAnimal() -> AnimalPop {
+        let shape = AnimalPop.Shape.allCases.randomElement(using: &rng) ?? .cat
+        return AnimalPop(shape: shape,
+                         health: Int.random(in: GameConfig.animalHealthRange, using: &rng),
+                         shyness: 1,
+                         startle: 0)
     }
 
     private func seedMotes() {
@@ -316,8 +348,11 @@ final class GameSimulation {
         for i in stride(from: orbs.count - 1, through: 0, by: -1) where orbs[i].alive {
             let dx = p.x - orbs[i].pos.x
             let dy = p.y - orbs[i].pos.y
-            // a touch of extra tolerance so small orbs are easy to hit
-            let rr = orbs[i].r + GameConfig.tapTolerance
+            // a touch of extra tolerance so small orbs are easy to hit — and
+            // a little more for an animal, whose ears and tail reach past the
+            // body circle this radius is measured from.
+            var rr = orbs[i].r + GameConfig.tapTolerance
+            if case .animal = orbs[i].kind { rr += GameConfig.animalTapBonus }
             if dx * dx + dy * dy <= rr * rr {
                 // A `.taps` generator does not pop on every press: it GIVES.
                 // Each press yields an orb and leaves it open, and the press
@@ -336,15 +371,49 @@ final class GameSimulation {
                     }
                     break
                 }
-                detonate(index: i, chained: false, into: &events)
+                detonate(index: i, chained: false, from: p, into: &events)
                 break
             }
         }
         return events
     }
 
-    private func detonate(index: Int, chained: Bool, into events: inout [GameEvent]) {
+    /// `from` is where the touch landed, when there was one. A chain has no
+    /// finger behind it and passes nil; only the animal reads it, to know
+    /// which way to bolt.
+    private func detonate(index: Int, chained: Bool, from: CGPoint? = nil,
+                          into events: inout [GameEvent]) {
         guard orbs[index].alive else { return }
+
+        // A CREATURE TAKES A FEW TOUCHES, AND THE ONES THAT DO NOT FINISH IT
+        // STILL LAND. Handled here rather than in `tap` on purpose: a
+        // shockwave that reaches the animal counts exactly as a finger does,
+        // so there is no route by which it can be popped in one and no route
+        // by which it becomes unreachable. Nothing is lost either way — the
+        // health it has left is the only thing that changes.
+        if case .animal(let animal) = orbs[index].kind, animal.health > 1 {
+            // A SHOCKWAVE IS ONE EVENT, EVEN THOUGH IT ARRIVES OVER SEVERAL
+            // FRAMES. A ring's shell overlaps the animal for as long as it
+            // takes to sweep past, and `stepRings` calls this on every one of
+            // those frames — without a refractory a single chain would spend
+            // the whole creature in a fifth of a second. `startle` is the
+            // refractory, and it applies to chains only: a finger cannot tap
+            // faster than a creature can flinch, so a direct touch is never
+            // swallowed by it.
+            if chained && animal.startle > 0 { return }
+
+            let (next, vel) = AnimalMotion.startled(animal,
+                                                    at: orbs[index].pos,
+                                                    from: from,
+                                                    angle: rnd(0 ... .pi * 2),
+                                                    reduceMotion: reduceMotion)
+            orbs[index].kind = .animal(next)
+            orbs[index].vel = vel
+            started = true
+            events.append(.startled(orb: orbs[index]))
+            return
+        }
+
         orbs[index].alive = false
         started = true
         popCount += 1
@@ -360,8 +429,14 @@ final class GameSimulation {
 
         // Only the first ring of a direct pop arms further chains; echo
         // rings — extras, and any ring from a chained pop — are visual only.
+        // An animal's going is a larger event than an orb's: a wider ring, and
+        // more of it. It only ever helps — a bigger shockwave clears more of
+        // the field, never less.
+        var kindScale: CGFloat = 1
+        if case .animal = orb.kind { kindScale = GameConfig.animalRingScale }
+
         for k in 0..<max(1, def.chain.ringCount) {
-            let scale = 1 - 0.28 * CGFloat(k)
+            let scale = (1 - 0.28 * CGFloat(k)) * kindScale
             rings.append(Ring(
                 pos: orb.pos,
                 r: orb.baseR * 0.5 * scale,
@@ -467,6 +542,9 @@ final class GameSimulation {
     private func spawnBurst(for orb: Orb, def: PopDefinition) {
         let strength = orb.baseR / GameConfig.orbRadiusRange.upperBound
         var n = def.behavior.particleCountBase + Int(orb.baseR)
+        // The last touch on an animal is the reward the mechanic is built
+        // around, so it opens wider than an ordinary pop.
+        if case .animal = orb.kind { n = Int(CGFloat(n) * GameConfig.animalBurstScale) }
         if reduceMotion { n /= 2 }
         let overflow = particles.count + n - GameConfig.particleCap
         if overflow > 0 {
@@ -586,6 +664,25 @@ final class GameSimulation {
             }
             if case .drifter = orbs[i].kind { evade(i, f) }
             applyWeather(i, f)
+            // AFTER THE AIR, not before it, and that ordering is the whole of
+            // why the startle survives. `applyWeather` ends on a speed ceiling
+            // built from `orbMaxSpeed`, which is a seventh of the dart — an
+            // animal stepped before it would have its reaction to being
+            // touched quietly deleted by the weather on every field that is
+            // not still. It keeps its own ceiling, which it applies last.
+            if case .animal(let animal) = orbs[i].kind {
+                let (next, vel) = AnimalMotion.step(animal,
+                                                    pos: orbs[i].pos,
+                                                    vel: orbs[i].vel,
+                                                    pointer: pointer,
+                                                    bounds: bounds,
+                                                    topInset: topInset,
+                                                    bottomInset: bottomInset,
+                                                    reduceMotion: reduceMotion,
+                                                    f: f)
+                orbs[i].kind = .animal(next)
+                orbs[i].vel = vel
+            }
 
             orbs[i].pos.x += orbs[i].vel.dx * f
             orbs[i].pos.y += orbs[i].vel.dy * f

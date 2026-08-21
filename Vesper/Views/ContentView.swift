@@ -32,6 +32,18 @@ struct ContentView: View {
             // SwiftUI's gesture-arena flakiness over a Canvas/TimelineView.
             TapCatcherView { p in model.tap(at: p) }
                 .ignoresSafeArea()
+                // The field is a drawn surface, so there is no accessibility
+                // element per orb and there must not be one: an orb lives for
+                // seconds and a rotor filling with and emptying of them would
+                // make the pop a two-step activation, which is not what
+                // popping is. One direct-interaction region instead — the
+                // touch itself is the pop — and the label is the only place
+                // anything about the field can be SAID, which is where the
+                // balloon animal gets named.
+                .accessibilityElement()
+                .accessibilityLabel(Text(model.fieldAccessibilityLabel))
+                .accessibilityHint(Text(Strings.fieldDirectTouchHint))
+                .accessibilityAddTraits(.allowsDirectInteraction)
 
             // HUD text — non-interactive so it can never swallow a tap
             hud

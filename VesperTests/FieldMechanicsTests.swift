@@ -77,7 +77,7 @@ final class FieldMechanicsTests: XCTestCase {
         for stage in 0...FieldPlan.finalStage {
             let s = sim(seed: UInt64(stage) &+ 7, stage: stage)
             let plan = FieldPlan.forStage(stage)
-            var splitters = 0, drifters = 0, generators = 0
+            var splitters = 0, drifters = 0, generators = 0, animals = 0
             // SURFACE AND RESERVE TOGETHER. A field is deeper than the glass
             // now: past `surfaceCapacity` the rest of it waits below, so
             // counting only what is on screen counts a fraction of the field
@@ -87,12 +87,19 @@ final class FieldMechanicsTests: XCTestCase {
                 case .splitter: splitters += 1
                 case .drifter: drifters += 1
                 case .generator: generators += 1
+                case .animal: animals += 1
                 case .plain: break
                 }
             }
             XCTAssertEqual(splitters, plan.splitters, "stage \(stage) splitters")
             XCTAssertEqual(drifters, plan.drifters, "stage \(stage) drifters")
             XCTAssertEqual(generators, plan.generators, "stage \(stage) generators")
+            // An animal depends on the field's place on the Path as well as
+            // its stage, so the seeded plan is the authority here rather than
+            // `forStage` — and it takes an ordinary orb's place, which is why
+            // the totals below are unchanged by it.
+            XCTAssertEqual(animals, s.plan.animals, "stage \(stage) animals")
+            XCTAssertLessThanOrEqual(animals, 1, "stage \(stage) held more than one animal")
             XCTAssertEqual(s.orbs.count + s.reserve.count,
                            plan.orbCount + plan.generators, "stage \(stage) total")
         }

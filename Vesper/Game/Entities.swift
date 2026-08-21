@@ -100,4 +100,11 @@ enum GameEvent {
     /// A generator closed on its own terms: spent, or settled. Deliberately
     /// distinct from `.popped` — nothing was popped, and nothing was lost.
     case generatorClosed(orb: Orb)
+
+    /// A balloon animal was touched and did not go: one health less, and it
+    /// darted. Distinct from `.popped` because nothing popped, and distinct
+    /// from silence because something DID happen — a touch that lands has to
+    /// be answered or it reads as a missed tap, which is the one thing this
+    /// mechanic cannot afford to feel like.
+    case startled(orb: Orb)
 }

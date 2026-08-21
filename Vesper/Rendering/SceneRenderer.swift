@@ -310,6 +310,21 @@ struct SceneRenderer {
                            + (1 - GameConfig.depthMinScale) * CGFloat(depth))
             let pulse = (style.shimmer ? 1 - 0.06 * Double(sin(o.phase * 2)) : 1) * depthAlpha
 
+            // A BALLOON ANIMAL IS NOT A SPHERE, so it does not borrow the
+            // sphere's body. Everything computed above — the pop's own paint,
+            // the depth it has risen to, the pulse, the radius — is handed
+            // over unchanged and the animal is drawn in the same halo,
+            // body-and-highlight grammar; only the silhouette differs. Drawn
+            // here rather than in the kind switch below because that switch
+            // runs after the disc is already down, and the whole point of
+            // this kind is that there is no disc.
+            if case .animal(let animal) = o.kind {
+                drawAnimal(animal, orb: o, radius: R, pulse: pulse,
+                           fill: fill, glowColor: glowColor, style: style,
+                           into: &context, glow: &glow)
+                continue
+            }
+
             let haloRect = CGRect(x: o.pos.x - R * 2.2, y: o.pos.y - R * 2.2,
                                   width: R * 4.4, height: R * 4.4)
             let grad = Gradient(stops: [
@@ -345,6 +360,13 @@ struct SceneRenderer {
             // paints the orb already carries, at different radii.
             switch o.kind {
             case .plain:
+                break
+
+            // Drawn above, in its own silhouette, and the loop has already
+            // moved on by the time this switch runs. The case is here so the
+            // switch stays exhaustive and so a later reader looking for where
+            // an animal is drawn finds the answer beside the others.
+            case .animal:
                 break
 
             case .splitter:

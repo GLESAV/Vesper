@@ -38,6 +38,14 @@ enum OrbKind: Equatable {
 
     /// Makes orbs while it is open.
     case generator(Generator)
+
+    /// A balloon animal: shy for a while, and it takes a few taps.
+    ///
+    /// The only kind that is not a sphere, and the only one that answers a
+    /// touch with something other than going. See `AnimalPop` — especially the
+    /// argument at the top of that file for why "hides" and "hard to pop" are
+    /// a PHASE here and never a property.
+    case animal(AnimalPop)
 }
 
 // MARK: - Generators
@@ -105,6 +113,12 @@ struct FieldPlan: Equatable {
     /// Shells on this field. Zero on a field that is only orbs.
     var fireworks: Int = 0
 
+    /// Balloon animals on this field: 0 or 1, never more. Filled in at seed
+    /// time from `animalCount(stage:generation:)`, the same way `fireworks`
+    /// is, because both depend on where the field sits on the Path and
+    /// `forStage` only knows the stage.
+    var animals: Int = 0
+
     /// The highest stage that changes anything. Past this, fields hold steady
     /// rather than growing without end — a field that never stops arriving is
     /// a field she cannot finish, and finishing is the point.
@@ -124,6 +138,13 @@ struct FieldPlan: Equatable {
     /// | 4 | **generators** — the field makes more of itself |
     /// | 5 | splitters go two deep |
     /// | 6 | a second generator, and the field's full shape |
+    ///
+    /// **Balloon animals join the curve at stage 3** and are not in the table
+    /// above because they are not a property of the stage alone: a field
+    /// carries one or it does not, decided by `animalCount(stage:generation:)`
+    /// from its place on the Path. One idea still arrives at a time — an
+    /// animal is a drifter that answers back, so it lands on the stage that
+    /// teaches drifters and only ever on the fields a display is not on.
     static func forStage(_ stage: Int) -> FieldPlan {
         let s = max(0, min(stage, finalStage))
         switch s {
@@ -199,6 +220,30 @@ struct FieldPlan: Equatable {
     static func fireworkCount(stage: Int, generation: Int) -> Int {
         guard isDisplay(stage: stage, generation: generation) else { return 0 }
         return min(GameConfig.maxFireworksPerField, 2 + generation / 3)
+    }
+
+    /// Whether this field carries a balloon animal, and there is never more
+    /// than one.
+    ///
+    /// **Exactly the fields a display is NOT on**, which is the whole rule and
+    /// it does three things at once. It alternates, so an evening reads as a
+    /// display, then a creature, then a display — neither becomes ordinary.
+    /// It is a function of the stone rather than a roll, so a stone is the
+    /// same field every time she returns to it, the way `isDisplay` already
+    /// is. And it guarantees the two spectacles never share a field: a shy
+    /// animal keeping to the edges while shells go up in the middle is two
+    /// things asking for the same attention, and a firework's shove would be
+    /// pushing the one orb that is trying to stay put.
+    ///
+    /// Stage 3, because an animal is a drifter that answers back and the
+    /// plain drifter has to come first.
+    static func hasAnimal(stage: Int, generation: Int) -> Bool {
+        guard stage >= GameConfig.animalStartStage else { return false }
+        return !isDisplay(stage: stage, generation: generation)
+    }
+
+    static func animalCount(stage: Int, generation: Int) -> Int {
+        hasAnimal(stage: stage, generation: generation) ? 1 : 0
     }
 
     /// Stage from lifetime fields cleared. Slow on purpose: three fields at

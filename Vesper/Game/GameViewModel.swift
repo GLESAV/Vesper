@@ -271,6 +271,20 @@ final class GameViewModel: ObservableObject {
             case .rose:
                 break
 
+            // A CREATURE FLINCHING. Sounded, because the alternative is worse
+            // than silence: a tap that lands on the animal and answers with
+            // nothing is indistinguishable from a tap that missed, and "did I
+            // hit it?" is a question this game must never make her ask.
+            //
+            // Softer and higher than the pop it is not — this is contact, not
+            // completion — and it borrows the orb's own voice so the animal
+            // still sounds like the field it lives on.
+            case .startled(let orb):
+                let def = PopCatalog.definition(for: orb.popNumber)
+                PopSoundEngine.shared.playPop(profile: def.behavior.sound, pitch: 1.42)
+                HapticsEngine.shared.pop(profile: def.behavior.haptic,
+                                         sizeNorm: 0.2, chained: true)
+
             // THE WHIRR. A shell's rise is the part of a firework that is
             // actually pleasant to hear — the report is the part this game
             // cannot have — so the launch is sounded and the break is
@@ -335,7 +349,8 @@ final class GameViewModel: ObservableObject {
 
         noteChainProgress()
 
-        let earned = points(for: def, sizeNorm: sizeNorm, fortune: orb.isFortune)
+        let earned = points(for: def, sizeNorm: sizeNorm, fortune: orb.isFortune,
+                            kind: orb.kind)
         sessionPoints += earned
         progression.recordPop(popNumber: orb.popNumber, points: earned,
                               chainLength: chainStreak)
@@ -347,12 +362,36 @@ final class GameViewModel: ObservableObject {
 
     // Scoring per docs/pop_points.md: rarity base × size × chain multiplier,
     // plus the fortune bonus. Points only ever add.
-    private func points(for def: PopDefinition, sizeNorm: Double, fortune: Bool) -> Int {
+    private func points(for def: PopDefinition, sizeNorm: Double, fortune: Bool,
+                        kind: OrbKind = .plain) -> Int {
         var value = Double(def.rarity.pointValue) * (1 + 0.5 * sizeNorm)
         let multiplier = min(1 + 0.1 * Double(max(0, chainStreak - 1)), 2.0)
         value *= multiplier
+        // A creature took longer to meet, so it gives more. Additive only —
+        // nothing anywhere subtracts for the taps that did not finish it.
+        if case .animal = kind { value *= GameConfig.animalPointsMultiplier }
         if fortune { value += 50 }
         return Int(value.rounded())
+    }
+
+    // MARK: - What the field says out loud
+
+    /// The field's VoiceOver label, which names the creature when there is one.
+    ///
+    /// The field is drawn into a `Canvas`, so there is no accessibility
+    /// element per orb and there must not be one — an orb is a moving target
+    /// that lives for seconds, and a rotor filling with and emptying of them
+    /// would be worse than useless (see `WorldView`'s note on R-A11Y B1). The
+    /// field is one direct-interaction region instead, so anything that has to
+    /// be SAID about the field has to be said here, in its label.
+    ///
+    /// The animal is the one thing on the glass that earns a mention: it is
+    /// deliberately awkward to reach for a while, and someone who cannot see
+    /// it keeping to the edges should be told what is there and that it comes
+    /// out — in the same lowercase-calm voice, and never as a warning.
+    var fieldAccessibilityLabel: String {
+        guard let animal = sim.animalOnField else { return Strings.fieldA11y }
+        return "\(Strings.fieldA11y), and \(animal.accessibilityLabel)"
     }
 
     private func handleCleared() {

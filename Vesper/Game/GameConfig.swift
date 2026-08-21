@@ -240,4 +240,80 @@ enum GameConfig {
     static let chainNoteThreshold = 3
     static let chainWindow: TimeInterval = 0.9
     static let chainNoteDuration: TimeInterval = 1.4
+
+    // MARK: Animals
+
+    /// The first stage a balloon animal can appear on. Late enough that she
+    /// has met splitters and drifters — an animal is a drifter that answers
+    /// back, and it reads as one idea only if the plain version came first.
+    static let animalStartStage = 3
+
+    /// Taps it takes. Two or three, and the range stops there on purpose:
+    /// this is a creature that REACTS, not a thing with a health bar. Four
+    /// would already be a chore, and a chore is a difficulty curve wearing a
+    /// friendly face.
+    static let animalHealthRange: ClosedRange<Int> = 2...3
+
+    /// Frames for shyness to fall from 1 to 0 — about twenty-five seconds.
+    ///
+    /// THIS NUMBER IS THE SAFETY ARGUMENT, so it is chosen against the length
+    /// of a field rather than against a feeling. A field runs a minute and
+    /// more, so an animal that keeps to the edges for the first twenty-five
+    /// seconds and then comes out and waits has been shy for a third of the
+    /// time she is there and reachable for the rest of it. Anyone who simply
+    /// keeps playing meets it in the open, including someone tired and not
+    /// really trying.
+    static let animalShyFrames: CGFloat = 1500
+
+    /// How far from the nearest wall a shy animal wants to sit.
+    ///
+    /// A BAND, NOT A WALL, and that is what keeps this out of the corners.
+    /// Outside the band it drifts out; inside it, it drifts back in. It
+    /// therefore comes to rest in the margin instead of pressing the glass,
+    /// which is the failure mode that would read as the game fighting her.
+    static let animalEdgeBand: CGFloat = 66
+
+    /// Peak acceleration of that perimeter-seeking. Very small: it is a
+    /// preference, not a wind.
+    static let animalEdgeSeek: CGFloat = 0.005
+
+    /// It notices a finger inside this radius. A little wider than the
+    /// drifter's, because an animal should read as aware sooner — and it uses
+    /// the drifter's own `evadeSurrenderRadius` for where it gives up, so the
+    /// two mechanics can never quietly disagree about what "up close" means.
+    static let animalEvadeRadius: CGFloat = 120
+
+    /// Peak acceleration of the ease-away, before shyness scales it down.
+    static let animalEvadeStrength: CGFloat = 0.022
+
+    /// The fastest it may ordinarily travel: about twenty-five points a
+    /// second. A moving thumb is an order of magnitude past that, so a follow
+    /// always gains and the animal can never actually escape.
+    static let animalMaxSpeed: CGFloat = 0.42
+
+    /// The dart after a tap that did not finish it, and how long it lasts —
+    /// about 120 points a second for a quarter of a second, so roughly
+    /// twenty-six points of travel. Deliberately less than the animal's own
+    /// tap radius: a second tap in the same place still finds it.
+    static let animalStartleSpeed: CGFloat = 2.0
+    static let animalStartleFrames: CGFloat = 26
+
+    /// Reduce Motion scales the startle and the evasion, the only two things
+    /// here that move quickly enough to be worth damping.
+    static let animalReduceMotionScale: CGFloat = 0.42
+
+    /// Extra tap tolerance on an animal, because its silhouette reaches past
+    /// the body circle the tap radius is measured from. Ears must be
+    /// touchable; nothing on this field is a precision test.
+    static let animalTapBonus: CGFloat = 8
+
+    /// A creature's going is a larger event than an orb's: more particles,
+    /// and a wider shockwave. Both only ever help — a bigger ring clears more
+    /// of the field, never less.
+    static let animalBurstScale: CGFloat = 1.8
+    static let animalRingScale: CGFloat = 1.3
+
+    /// And it is worth more, because it took longer to meet. Points only ever
+    /// accrue, so this is a larger gift and never a tax on missing it.
+    static let animalPointsMultiplier: Double = 2.5
 }
