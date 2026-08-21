@@ -61,17 +61,30 @@ final class MapStoreTests: XCTestCase {
         XCTAssertTrue(store.recordClear(unlocked: Set(1...20)).isEmpty)
     }
 
-    func testRoadsCarryPopsDistinctFromTheirParent() {
+    // DELIBERATELY INVERTED. This test used to assert that a road's pops were
+    // disjoint from its parent's — that every step replaced the whole set. The
+    // owner asked for the opposite and he was right: a stone that shares
+    // nothing with the stone it came from is a shuffle, not a lineage.
+    //
+    // What must still hold is the half that was always the good half — that
+    // roads bring something NEW, and that siblings do not bring the same new
+    // things as each other. Otherwise a fork would be two names for one road.
+    func testRoadsBringNewPopsAndSiblingsBringDifferentOnes() {
         let store = freshStore()
         store.ensureGenesis(unlocked: Set(1...60))
         let genesis = store.stones[0]
         store.setActive(genesis.id)
         let roads = store.recordClear(unlocked: Set(1...60))
-        var seen = Set(genesis.popNumbers)
+        XCTAssertFalse(roads.isEmpty)
+
+        var newlySeen = Set<Int>()
         for road in roads {
-            XCTAssertTrue(seen.isDisjoint(with: road.popNumbers),
-                          "each stone's pops are unique against its parent and siblings")
-            seen.formUnion(road.popNumbers)
+            let fresh = Set(road.popNumbers).subtracting(genesis.popNumbers)
+            XCTAssertFalse(fresh.isEmpty,
+                           "road \(road.popNumbers) brought nothing its parent did not have")
+            XCTAssertTrue(newlySeen.isDisjoint(with: fresh),
+                          "two roads out of one stone introduced the same pop")
+            newlySeen.formUnion(fresh)
         }
     }
 
