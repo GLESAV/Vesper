@@ -29,6 +29,12 @@ struct Particle {
     var size: CGFloat
     var popNumber: Int
     var variantIndex: Int
+    /// Set when this star came from a shell rather than from a pop, so the
+    /// renderer takes its colour from `FireworkCatalog`. Fireworks have their
+    /// own palette — hotter and more luminous, because a thing in the air at
+    /// night IS brighter than a thing on a table — and a shell whose stars
+    /// were pop-coloured would look like an orb that learned to fly.
+    var fireworkID: Int? = nil
 }
 
 struct Ring {
@@ -75,6 +81,15 @@ enum GameEvent {
     /// `.emitted`: nothing was created here, something that was already in
     /// the field came up into view.
     case rose(orb: Orb)
+
+    /// A shell was touched and is on its way. Carries the kind so the sound
+    /// can whirr in the right register.
+    case fireworkLaunched(Firework)
+
+    /// A shell broke. Nothing was popped and nothing is owed — the field is
+    /// clear when the ORBS are gone, and a shell she never touched simply
+    /// fades with the field.
+    case fireworkBurst(Firework)
 
     /// A generator closed on its own terms: spent, or settled. Deliberately
     /// distinct from `.popped` — nothing was popped, and nothing was lost.

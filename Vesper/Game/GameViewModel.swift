@@ -270,6 +270,33 @@ final class GameViewModel: ObservableObject {
             // would turn "there is more underneath" into "something arrived".
             case .rose:
                 break
+
+            // THE WHIRR. A shell's rise is the part of a firework that is
+            // actually pleasant to hear — the report is the part this game
+            // cannot have — so the launch is sounded and the break is
+            // answered softly, and neither is ever loud.
+            case .fireworkLaunched(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playWhirr(startFreq: definition.whirr)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.22,
+                                                                intensityPerSize: 0,
+                                                                sharp: false,
+                                                                pattern: .swell),
+                                         sizeNorm: 0, chained: false)
+
+            case .fireworkBurst(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playPop(
+                    profile: SoundProfile(voice: definition.bloom,
+                                          startFreq: definition.whirr * 1.6,
+                                          freqSpread: 0, sweep: 1.04,
+                                          duration: 0.26, decay: 5.5, brightness: 0.1),
+                    pitch: 0)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.3,
+                                                                intensityPerSize: 0,
+                                                                sharp: false,
+                                                                pattern: .ripple),
+                                         sizeNorm: 0, chained: false)
             }
         }
         if !events.isEmpty { checkUnlocks() }

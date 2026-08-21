@@ -75,6 +75,11 @@ final class GameSimulation {
     /// how deep it goes.
     private(set) var reserve: [Orb] = []
 
+    /// Shells on the field, and the haze they leave. Neither is an orb and
+    /// neither gates completion — see `Firework`.
+    private(set) var fireworks: [Firework] = []
+    private(set) var smoke: [Smoke] = []
+
     /// How many orbs this field may hold on the surface at once.
     ///
     /// `GameConfig.surfaceCapacity` plus this field's generators: a generator
@@ -101,6 +106,7 @@ final class GameSimulation {
     // the moment rendering can stop entirely.
     var isQuiescent: Bool {
         completed && particles.isEmpty && rings.isEmpty && notes.isEmpty
+            && smoke.isEmpty && !fireworks.contains { $0.phase != .spent }
     }
 
     // MARK: - Setup
@@ -127,6 +133,9 @@ final class GameSimulation {
         // thing it just taught her is a field that reads as broken.
         // How big this field actually is, once its place on the Path and her
         // history with this stone are counted.
+        // Shells sit ALONGSIDE the orbs rather than instead of them (owner's
+        // correction), and a break sows pops — see `burst`.
+        plan.fireworks = FieldPlan.fireworkCount(stage: stage, generation: generation)
         let total = FieldPlan.totalOrbs(base: plan.orbCount,
                                         generation: generation,
                                         plays: plays)
@@ -137,6 +146,7 @@ final class GameSimulation {
         for _ in 0..<plan.splitters { kinds.append(.splitter(remaining: plan.splitDepth)) }
         for _ in 0..<plan.drifters { kinds.append(.drifter) }
         while kinds.count < total { kinds.append(.plain) }
+        if kinds.count > total { kinds.removeLast(kinds.count - total) }
         kinds.shuffle(using: &rng)
 
         // The surface, and then the depth beneath it. Generators always start
@@ -149,6 +159,12 @@ final class GameSimulation {
             orbs.append(makeOrb(kind: .generator(makeGenerator()), pool: pool))
         }
         reserve = kinds.dropFirst(surface).map { makeOrb(kind: $0, pool: pool) }
+
+        fireworks.removeAll()
+        smoke.removeAll()
+        for _ in 0..<plan.fireworks {
+            fireworks.append(makeFirework(pool: pool))
+        }
 
         // The fortune never rides a generator or a splitter: it should be a
         // quiet gift on an ordinary orb, not a prize attached to the busiest
@@ -218,6 +234,8 @@ final class GameSimulation {
 
     func restart() {
         reserve.removeAll()
+        fireworks.removeAll()
+        smoke.removeAll()
         particles.removeAll()
         rings.removeAll()
         notes.removeAll()
@@ -232,6 +250,8 @@ final class GameSimulation {
     func replaceOrbs(_ newOrbs: [Orb]) {
         orbs = newOrbs
         reserve.removeAll()
+        fireworks.removeAll()
+        smoke.removeAll()
         surfaceBudget = max(GameConfig.surfaceCapacity, newOrbs.count)
         // Weather is part of the randomness this hook exists to remove: a
         // test that installs an exact field and then watches it move must not
@@ -260,6 +280,22 @@ final class GameSimulation {
     func tap(at p: CGPoint) -> [GameEvent] {
         guard !completed else { return [] }
         var events: [GameEvent] = []
+
+        // SHELLS ARE CHECKED FIRST, and they are checked at all only while
+        // waiting. A shell in flight is not a target — chasing one would turn
+        // a thing you watch into a thing you must keep up with — and a spent
+        // one is smoke.
+        for i in fireworks.indices where fireworks[i].phase == .waiting {
+            let dx = p.x - fireworks[i].pos.x
+            let dy = p.y - fireworks[i].pos.y
+            let rr = GameConfig.fireworkTouchRadius
+            if dx * dx + dy * dy <= rr * rr {
+                fireworks[i].phase = .rising(progress: 0)
+                started = true
+                events.append(.fireworkLaunched(fireworks[i]))
+                return events
+            }
+        }
         for i in stride(from: orbs.count - 1, through: 0, by: -1) where orbs[i].alive {
             let dx = p.x - orbs[i].pos.x
             let dy = p.y - orbs[i].pos.y
@@ -515,6 +551,8 @@ final class GameSimulation {
 
         swellPhase += weather.swellRate * f
         stepOrbs(f)
+        stepFireworks(f, into: &events)
+        stepSmoke(f)
         stepGenerators(f, into: &events)
         stepRings(f, into: &events)
         stepParticles(f)
@@ -609,6 +647,222 @@ final class GameSimulation {
             orbs[i].vel.dx *= k
             orbs[i].vel.dy *= k
         }
+    }
+
+    // MARK: - Fireworks
+
+    /// One shell, placed and aimed.
+    ///
+    /// The heading is chosen with a strong upward bias but is free to point
+    /// anywhere: fourteen shells that all climb vertically read as a
+    /// mechanism, while the same fourteen fanning across the field read as a
+    /// display.
+    private func makeFirework(pool: [Int]) -> Firework {
+        // Drawn from the shells that suit this field's road, so a display on
+        // the ember road looks like the ember road.
+        let family = pool.first.map { PopCatalog.definition(for: $0).family }
+        let choices = FireworkCatalog.forFamily(family)
+        let definition = choices.randomElement(using: &rng) ?? FireworkCatalog.all[0]
+        let kind = definition.kind
+        let flight = kind.flight
+
+        // Shells wait low, where a rising thing has somewhere to go.
+        let inset = GameConfig.edgeInset + GameConfig.fireworkTouchRadius
+        let origin = CGPoint(
+            x: rnd(inset ... max(inset, bounds.width - inset)),
+            y: rnd(max(topInset, bounds.height - bottomInset - bounds.height * 0.34)
+                   ... max(topInset, bounds.height - bottomInset - 20)))
+
+        // Straight up, then rotated away from it by an amount the kind
+        // allows. `upwardBias` of 1 never leaves vertical; 0 goes anywhere.
+        let spread = (1 - flight.upwardBias) * .pi
+        let heading = -CGFloat.pi / 2 + rnd(-spread ... spread)
+        let distance = bounds.height * flight.rise
+        let apex = clampIntoBounds(
+            CGPoint(x: origin.x + cos(heading) * distance,
+                    y: origin.y + sin(heading) * distance),
+            radius: GameConfig.fireworkTouchRadius)
+
+        return Firework(pos: origin, origin: origin, apex: apex, kind: kind,
+                        definitionID: definition.id,
+                        variantIndex: Int.random(in: 0..<max(1, definition.paints.count),
+                                                 using: &rng),
+                        angle: rnd(0 ... .pi * 2),
+                        drift: CGVector(dx: rnd(-0.04 ... 0.04), dy: rnd(-0.03 ... 0.01)))
+    }
+
+    private func stepFireworks(_ f: CGFloat, into events: inout [GameEvent]) {
+        for i in fireworks.indices {
+            if fireworks[i].spawn < 1 {
+                fireworks[i].spawn = min(1, fireworks[i].spawn + (1 / GameConfig.riseFrames) * f)
+            }
+            let flight = fireworks[i].kind.flight
+            fireworks[i].angle += flight.spin * f
+
+            switch fireworks[i].phase {
+            case .waiting:
+                // Alive on the field, but barely: a shell that wandered would
+                // be a moving target, and it is meant to be an easy one.
+                fireworks[i].pos.x += fireworks[i].drift.dx * f
+                fireworks[i].pos.y += fireworks[i].drift.dy * f
+                fireworks[i].pos = clampIntoBounds(fireworks[i].pos,
+                                                   radius: GameConfig.fireworkTouchRadius)
+
+            case .rising(let progress):
+                // INTERPOLATED, NOT INTEGRATED. A shell that accumulates
+                // velocity drifts off its own apex, and the break has to land
+                // where the arc says it will.
+                let next = min(1, progress + (1 / GameConfig.fireworkRiseFrames) * flight.speed * f)
+                let eased = 1 - pow(1 - next, 1.7)   // fast away, slowing at the top
+                let from = fireworks[i].origin, to = fireworks[i].apex
+                let wobble = sin(next * .pi * 5 + fireworks[i].angle)
+                    * flight.wobble * GameConfig.fireworkWobbleWidth * (1 - next)
+                fireworks[i].pos = CGPoint(
+                    x: from.x + (to.x - from.x) * eased + wobble,
+                    y: from.y + (to.y - from.y) * eased)
+
+                // The trail: sparks shed on the way, which is most of what
+                // makes a rise read as a fuse rather than as a moving dot.
+                if rnd(0 ... 1) < 0.75 {
+                    addTrailSpark(at: fireworks[i].pos, for: fireworks[i])
+                }
+
+                if next >= 1 {
+                    fireworks[i].phase = .spent
+                    burst(fireworks[i])
+                    events.append(.fireworkBurst(fireworks[i]))
+                } else {
+                    fireworks[i].phase = .rising(progress: next)
+                }
+
+            case .spent:
+                break
+            }
+        }
+    }
+
+    private func addTrailSpark(at p: CGPoint, for shell: Firework) {
+        guard particles.count < GameConfig.particleCap else { return }
+        particles.append(Particle(
+            pos: CGPoint(x: p.x + rnd(-1.5 ... 1.5), y: p.y + rnd(-1.5 ... 1.5)),
+            vel: CGVector(dx: rnd(-0.25 ... 0.25), dy: rnd(0.1 ... 0.5)),
+            life: 0.7, decay: rnd(0.03 ... 0.06),
+            size: rnd(0.8 ... 1.6),
+            popNumber: PopCatalog.classic.number, variantIndex: shell.variantIndex,
+            fireworkID: shell.definitionID))
+    }
+
+    /// The break: stars, smoke, and a shove to whatever is nearby.
+    private func burst(_ shell: Firework) {
+        let spec = FireworkCatalog.definition(for: shell.definitionID).burst
+        var n = spec.stars
+        if reduceMotion { n /= 2 }
+        let overflow = particles.count + n - GameConfig.particleCap
+        if overflow > 0 { particles.removeFirst(min(overflow, particles.count)) }
+
+        for k in 0..<n {
+            let a: CGFloat
+            var speed = rnd(spec.speed)
+            var vel: CGVector
+
+            switch spec.pattern {
+            case .sphere:
+                a = rnd(0 ... .pi * 2)
+                vel = CGVector(dx: cos(a) * speed, dy: sin(a) * speed)
+            case .ring:
+                // Evenly spaced and one speed: a band, not a cloud.
+                a = (CGFloat(k) / CGFloat(max(1, n))) * .pi * 2
+                vel = CGVector(dx: cos(a) * speed, dy: sin(a) * speed * 0.42)
+            case .droop:
+                a = rnd(0 ... .pi * 2)
+                speed *= 0.85
+                vel = CGVector(dx: cos(a) * speed, dy: sin(a) * speed - 0.6)
+            case .spray:
+                a = rnd(-.pi * 0.85 ... -.pi * 0.15)
+                vel = CGVector(dx: cos(a) * speed, dy: sin(a) * speed)
+            case .spiral:
+                a = (CGFloat(k) / CGFloat(max(1, n))) * .pi * 6
+                vel = CGVector(dx: cos(a + .pi / 2) * speed, dy: sin(a + .pi / 2) * speed)
+            }
+
+            particles.append(Particle(
+                pos: shell.pos,
+                vel: vel,
+                life: spec.life,
+                decay: rnd(0.008 ... 0.02) / max(0.4, spec.life),
+                size: rnd(1.0 ... 2.2) + spec.trail * 1.4,
+                popNumber: PopCatalog.classic.number, variantIndex: shell.variantIndex,
+                fireworkID: shell.definitionID))
+        }
+
+        // SMOKE, AND IT STACKS. Puffs are additive and overlapping, they grow
+        // as they age, and they thin slowly — so a field where several shells
+        // have gone builds a haze the way a real display does. One puff is an
+        // effect; a gathering haze is a fireworks show.
+        let puffs = max(1, Int(CGFloat(GameConfig.smokePuffsPerBurst) * spec.smoke))
+        for _ in 0..<puffs {
+            guard smoke.count < GameConfig.smokeCap else { break }
+            smoke.append(Smoke(
+                pos: CGPoint(x: shell.pos.x + rnd(-14 ... 14),
+                             y: shell.pos.y + rnd(-14 ... 14)),
+                vel: CGVector(dx: rnd(-0.06 ... 0.06), dy: rnd(-0.09 ... -0.02)),
+                radius: rnd(16 ... 30) * spec.smoke,
+                life: 1,
+                decay: rnd(GameConfig.smokeDecayRange),
+                fireworkID: shell.definitionID, variantIndex: shell.variantIndex))
+        }
+
+        // A BREAK SOWS POPS. The stars scatter and some of them stay — orbs
+        // brought up from the field's own reserve at the point of the break.
+        //
+        // Taken FROM THE RESERVE rather than created, which is the whole
+        // reason this is safe. A shell that manufactured orbs would make a
+        // field longer every time she touched one, so the more she enjoyed
+        // the fireworks the further away the quiet would get — the exact
+        // shape of a treadmill. Drawing from the reserve means a display
+        // rearranges when the field arrives, never how much of it there is,
+        // and a field with every shell fired holds precisely as many pops as
+        // one where she ignored them all.
+        for _ in 0..<GameConfig.orbsSownPerBurst {
+            guard surfaceFromReserve(near: shell.pos) != nil else { break }
+        }
+
+        // THE SHOVE. It moves the field; it may not make it harder to play,
+        // so the push is clamped to the same ceiling everything else obeys.
+        for i in orbs.indices where orbs[i].alive {
+            let dx = orbs[i].pos.x - shell.pos.x
+            let dy = orbs[i].pos.y - shell.pos.y
+            let d2 = dx * dx + dy * dy
+            let reach = GameConfig.fireworkShoveRadius
+            guard d2 < reach * reach, d2 > 0.01 else { continue }
+            let d = sqrt(d2)
+            let falloff = 1 - d / reach
+            let push = GameConfig.fireworkShove * falloff * falloff
+            orbs[i].vel.dx += dx / d * push
+            orbs[i].vel.dy += dy / d * push
+            clampOrbSpeed(i)
+        }
+    }
+
+    private func clampOrbSpeed(_ i: Int) {
+        let cap = GameConfig.orbMaxSpeed * weather.speedScale * 1.6
+        let speed = sqrt(orbs[i].vel.dx * orbs[i].vel.dx + orbs[i].vel.dy * orbs[i].vel.dy)
+        if speed > cap {
+            let k = cap / speed
+            orbs[i].vel.dx *= k
+            orbs[i].vel.dy *= k
+        }
+    }
+
+    private func stepSmoke(_ f: CGFloat) {
+        for i in smoke.indices {
+            smoke[i].pos.x += smoke[i].vel.dx * f
+            smoke[i].pos.y += smoke[i].vel.dy * f
+            // It spreads as it thins, the way smoke does.
+            smoke[i].radius += GameConfig.smokeSpread * f
+            smoke[i].life -= smoke[i].decay * f
+        }
+        smoke.removeAll { $0.life <= 0 }
     }
 
     /// A drifter easing away from the finger.

@@ -14,6 +14,9 @@ final class PopSoundEngine {
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
     private let sampleRate = 44100.0
+
+    /// Whirr buffers, cached by start frequency.
+    private var whirrBank: [Int: AVAudioPCMBuffer?] = [:]
     private var players: [AVAudioPlayerNode] = []
     private var nextPlayerIndex = 0
 
@@ -79,6 +82,64 @@ final class PopSoundEngine {
         guard bucket < buckets.count, let buffer = buckets[bucket].randomElement() else { return }
         play(buffer)
     }
+
+    /// The whirr of a shell climbing.
+    ///
+    /// **The one rising pitch in the game.** Everything else was floored
+    /// against falling sweeps because a fast fall is an arcade laser — but a
+    /// firework fuse genuinely does rise, and rising is the safe direction:
+    /// it reads as something leaving, not as something firing at you. It is
+    /// also the only sound here that is deliberately noisy rather than
+    /// pitched, because a fuse is air and grit, not a note.
+    ///
+    /// Rendered on demand and cached by start frequency: there are 36 shells
+    /// and most fields hold a handful, so the bank stays small.
+    func playWhirr(startFreq: Double) {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        let key = Int(startFreq.rounded())
+        if whirrBank[key] == nil {
+            whirrBank[key] = makeWhirrBuffer(startFreq: startFreq)
+        }
+        guard let buffer = whirrBank[key] ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeWhirrBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
+        let duration = 1.05
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState = UInt64(bitPattern: Int64(key(startFreq))) | 1
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+
+        var bp1 = 0.0, bp2 = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            // Rises as it climbs, and thins as it goes away from her.
+            let freq = startFreq * (1 + 0.9 * progress)
+            let k = min(0.5, freq / sampleRate * 8)
+            let n = noise()
+            bp1 += k * (n - bp1)
+            bp2 += k * (bp1 - bp2)
+            // A quiet pitched core under the air, so it has a direction.
+            let core = sin(2.0 * .pi * freq * t) * 0.16
+            let envelope = sin(min(1, progress * 12) * .pi / 2) * (1 - progress * 0.85)
+            channel[frame] = Float(((bp1 - bp2) * 5 + core) * envelope * 0.22)
+        }
+        return buffer
+    }
+
+    private func key(_ freq: Double) -> Int { Int(freq.rounded()) }
 
     func playCompletionChime() {
         guard SettingsStore.shared.soundEnabled else { return }

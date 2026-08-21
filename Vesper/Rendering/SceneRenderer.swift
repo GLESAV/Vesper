@@ -393,10 +393,44 @@ struct SceneRenderer {
                         lineWidth: 1 + r.life * 2)
         }
 
-        // particles, shaped per pop
+        // THE SMOKE, UNDER EVERYTHING THE SHELLS THREW.
+        //
+        // Drawn before the stars and after the orbs, so a haze sits behind
+        // the field rather than over it — she must never lose an orb in it.
+        // Puffs are additive and overlapping, which is what makes them STACK:
+        // one is a wisp, six across a display build the thickening bank a
+        // real show leaves hanging.
+        for puff in sim.smoke {
+            let definition = FireworkCatalog.definition(for: puff.fireworkID)
+            let paint = definition.paints[min(puff.variantIndex, definition.paints.count - 1)]
+            let a = Double(max(0, min(1, puff.life)))
+            let r = puff.radius
+            let rect = CGRect(x: puff.pos.x - r, y: puff.pos.y - r,
+                              width: r * 2, height: r * 2)
+            let tint = color(paint.glow)
+            glow.fill(Path(ellipseIn: rect),
+                      with: .radialGradient(
+                        Gradient(stops: [
+                            .init(color: tint.opacity(a * 0.055), location: 0),
+                            .init(color: tint.opacity(a * 0.028), location: 0.55),
+                            .init(color: tint.opacity(0), location: 1),
+                        ]),
+                        center: puff.pos, startRadius: 0, endRadius: r))
+        }
+
+        // shells still on the field or in flight
+        for shell in sim.fireworks where shell.phase != .spent {
+            drawFirework(shell, into: &glow)
+        }
+
+        // particles, shaped per pop — or per shell, when a shell threw them
         for p in sim.particles {
             let style = PopCatalog.definition(for: p.popNumber).style
-            let paint = style.paints[min(p.variantIndex, style.paints.count - 1)]
+            var paint = style.paints[min(p.variantIndex, style.paints.count - 1)]
+            if let id = p.fireworkID {
+                let definition = FireworkCatalog.definition(for: id)
+                paint = definition.paints[min(p.variantIndex, definition.paints.count - 1)]
+            }
             let a = max(0, p.life)
             let s = p.size * (0.5 + a * 0.5)
             let tint = GraphicsContext.Shading.color(color(paint.glow).opacity(Double(a)))
@@ -412,6 +446,69 @@ struct SceneRenderer {
                 .foregroundColor(noteColor.opacity(a * 0.85))
             glow.draw(text, at: n.pos, anchor: .center)
         }
+    }
+
+    /// A shell: waiting on the field, or climbing.
+    ///
+    /// It is deliberately NOT a sphere. The owner's complaint that a hundred
+    /// pops look alike is a complaint about variations on a circle, and the
+    /// first job of a firework is to be unmistakably not one of them — so a
+    /// waiting shell is a small tapered body with a lit tip, and a climbing
+    /// one is that body stretched along its own heading.
+    private func drawFirework(_ shell: Firework, into glow: inout GraphicsContext) {
+        let definition = FireworkCatalog.definition(for: shell.definitionID)
+        let paint = definition.paints[min(shell.variantIndex, definition.paints.count - 1)]
+        let tint = color(paint.glow)
+        let body = color(paint.fill)
+        let grown = min(1, max(0, shell.spawn))
+        guard grown > 0.01 else { return }
+
+        var heading = -CGFloat.pi / 2
+        var stretch: CGFloat = 1
+        if case .rising = shell.phase {
+            let dx = shell.apex.x - shell.origin.x
+            let dy = shell.apex.y - shell.origin.y
+            if dx != 0 || dy != 0 { heading = atan2(dy, dx) }
+            stretch = 2.1
+        }
+
+        let h = 13 * grown * stretch
+        let w = 4.4 * grown
+
+        var path = Path()
+        path.move(to: CGPoint(x: shell.pos.x + cos(heading) * h,
+                              y: shell.pos.y + sin(heading) * h))
+        let left = heading + .pi * 0.5
+        let right = heading - .pi * 0.5
+        path.addQuadCurve(
+            to: CGPoint(x: shell.pos.x - cos(heading) * h * 0.7,
+                        y: shell.pos.y - sin(heading) * h * 0.7),
+            control: CGPoint(x: shell.pos.x + cos(left) * w,
+                             y: shell.pos.y + sin(left) * w))
+        path.addQuadCurve(
+            to: CGPoint(x: shell.pos.x + cos(heading) * h,
+                        y: shell.pos.y + sin(heading) * h),
+            control: CGPoint(x: shell.pos.x + cos(right) * w,
+                             y: shell.pos.y + sin(right) * w))
+        path.closeSubpath()
+        glow.fill(path, with: .color(body.opacity(0.72 * Double(grown))))
+
+        // The lit tip — the fuse, which is the part that says "this goes".
+        let tipR = 2.6 * grown
+        let tip = CGPoint(x: shell.pos.x + cos(heading) * h,
+                          y: shell.pos.y + sin(heading) * h)
+        let halo = CGRect(x: tip.x - tipR * 4, y: tip.y - tipR * 4,
+                          width: tipR * 8, height: tipR * 8)
+        glow.fill(Path(ellipseIn: halo),
+                  with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: tint.opacity(0.34 * Double(grown)), location: 0),
+                        .init(color: tint.opacity(0), location: 1),
+                    ]),
+                    center: tip, startRadius: 0, endRadius: tipR * 4))
+        glow.fill(Path(ellipseIn: CGRect(x: tip.x - tipR, y: tip.y - tipR,
+                                         width: tipR * 2, height: tipR * 2)),
+                  with: .color(tint.opacity(0.9 * Double(grown))))
     }
 
     private func drawParticle(_ p: Particle, shape: ParticleShape, size s: CGFloat,

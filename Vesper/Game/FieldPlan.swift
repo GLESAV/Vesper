@@ -102,6 +102,9 @@ struct FieldPlan: Equatable {
     /// 2 = children and grandchildren.
     var splitDepth: Int
 
+    /// Shells on this field. Zero on a field that is only orbs.
+    var fireworks: Int = 0
+
     /// The highest stage that changes anything. Past this, fields hold steady
     /// rather than growing without end — a field that never stops arriving is
     /// a field she cannot finish, and finishing is the point.
@@ -168,6 +171,34 @@ struct FieldPlan: Equatable {
     /// How many of those start on the surface.
     static func surfaceCount(total: Int) -> Int {
         min(total, GameConfig.surfaceCapacity)
+    }
+
+    // MARK: - Displays
+
+    /// Whether this field carries shells as well as orbs.
+    ///
+    /// **About half of fields, decided formulaically.** The owner asked for
+    /// roughly half and left the rule to me, so it is a parity check on the
+    /// stone's own place in the world rather than a roll of the dice. Two
+    /// reasons that matters. A field is deterministic from its seed and its
+    /// position, so a stone is the same field every time she returns to it —
+    /// The Path would stop meaning anything if a stone were a display on
+    /// Tuesday and not on Wednesday. And alternating guarantees she never
+    /// gets four displays running, which random selection would do about
+    /// once in sixteen and which would make the spectacle ordinary.
+    ///
+    /// Displays start at stage 2, so the first evenings are the quiet game
+    /// she came for and fireworks are something the world grows into.
+    static func isDisplay(stage: Int, generation: Int) -> Bool {
+        guard stage >= 2 else { return false }
+        return (generation + stage) % 2 == 1
+    }
+
+    /// How many shells a display carries — more as the Path deepens, capped
+    /// so a field never becomes a firing range.
+    static func fireworkCount(stage: Int, generation: Int) -> Int {
+        guard isDisplay(stage: stage, generation: generation) else { return 0 }
+        return min(GameConfig.maxFireworksPerField, 2 + generation / 3)
     }
 
     /// Stage from lifetime fields cleared. Slow on purpose: three fields at

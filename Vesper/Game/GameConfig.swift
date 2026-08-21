@@ -85,6 +85,50 @@ enum GameConfig {
     /// A generator is drawn a little larger than the orbs it makes.
     static let generatorRadiusScale: CGFloat = 1.18
 
+    // MARK: Fireworks
+
+    /// A shell's tap radius. Generous — larger than the biggest orb — because
+    /// a firework is an offer, not a test, and having to aim at one would
+    /// make it the hardest thing on a screen where nothing is hard.
+    static let fireworkTouchRadius: CGFloat = 30
+
+    /// Frames from launch to break, before the kind's speed multiplier.
+    static let fireworkRiseFrames: CGFloat = 62
+
+    /// How far a wobbling shell strays from its line, in points.
+    static let fireworkWobbleWidth: CGFloat = 26
+
+    /// How hard a break shoves the field, and how far it reaches. The shove
+    /// is clamped to the same speed ceiling everything else obeys: it may
+    /// move the field, never make it harder to play.
+    static let fireworkShove: CGFloat = 0.5
+    static let fireworkShoveRadius: CGFloat = 190
+
+    // MARK: Smoke
+
+    /// How many orbs a break brings up from the reserve. Bounded by what the
+    /// reserve actually holds, so a shell never adds to the field's total.
+    static let orbsSownPerBurst = 3
+
+    /// The most shells one field may hold. A display is a handful of things
+    /// worth watching, not a firing range.
+    static let maxFireworksPerField = 6
+
+    /// Puffs a peony leaves; other shells scale from this.
+    static let smokePuffsPerBurst = 5
+
+    /// The most smoke that may exist at once. High, because the stacking is
+    /// the point — but bounded, because a Canvas drawing a thousand soft
+    /// blobs is a dropped frame.
+    static let smokeCap = 90
+
+    /// How fast a puff thins. Slow: a haze that cleared quickly would not
+    /// gather, and gathering is what makes it read as a display.
+    static let smokeDecayRange: ClosedRange<CGFloat> = 0.0016...0.0034
+
+    /// How fast a puff spreads, in points per frame.
+    static let smokeSpread: CGFloat = 0.16
+
     // MARK: Touch
 
     static let tapTolerance: CGFloat = 12
