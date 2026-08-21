@@ -272,22 +272,43 @@ final class FireworkTests: XCTestCase {
                       "the cord was not a target")
     }
 
+    // Measured across ALL burning fuses rather than one named shell.
+    //
+    // The obvious version of this test — light one shell, tap it again, watch
+    // its own `burned` jump — fails for a correct reason: unlit shells win a
+    // touch over burning ones, so with any shell still unlit the second tap
+    // lights THAT instead. Naming a shell would mean either disabling the
+    // precedence rule for the test or pretending ropes do not overlap. So
+    // every shell is lit first, and the assertion is on the total, which is
+    // what the mechanic actually claims: a tap moves a fuse along by more
+    // than a frame of burning would.
     func testTappingABurningFuseHurriesIt() {
         let s = display()
-        guard let index = s.fireworks.firstIndex(where: { $0.phase == .waiting }) else {
+        guard let first = s.fireworks.first(where: { $0.phase == .waiting }) else {
             return XCTFail("no waiting shell")
         }
-        s.tap(at: s.fireworks[index].pos)
-        _ = run(s, frames: 2)
-        guard case .fuse(let before) = s.fireworks[index].phase else {
-            return XCTFail("the fuse is not burning")
+        let where_ = first.pos
+        lightEverythingAndRun(s, frames: 2)
+
+        func totalBurned() -> CGFloat {
+            s.fireworks.reduce(0) { sum, shell in
+                if case .fuse(let b) = shell.phase { return sum + b }
+                return sum
+            }
         }
-        s.tap(at: s.fireworks[index].pos)
-        guard case .fuse(let after) = s.fireworks[index].phase else {
-            return XCTFail("the fuse stopped burning")
-        }
-        XCTAssertGreaterThan(after, before + GameConfig.fuseTapBoost * 0.5,
-                             "tapping the cord did not hurry it")
+
+        // One frame of natural burning, to measure against.
+        let beforeIdle = totalBurned()
+        _ = run(s, frames: 1)
+        let naturalPerFrame = totalBurned() - beforeIdle
+
+        let before = totalBurned()
+        s.tap(at: where_)
+        let gained = totalBurned() - before
+        XCTAssertGreaterThan(gained, naturalPerFrame * 2,
+                             "a tap moved the fuses no more than waiting would have")
+        XCTAssertGreaterThan(gained, GameConfig.fuseTapBoost * 0.5,
+                             "the tap boost did not land")
     }
 
     // Left alone it still goes. Hurrying is an option, never a requirement —
