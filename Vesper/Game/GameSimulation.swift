@@ -288,21 +288,30 @@ final class GameSimulation {
         // THE SHELL AND ITS FUSE ARE ONE TARGET (owner): touching the shell
         // does exactly what touching the cord does. There is no wrong place
         // to tap a firework.
+        // LIGHTING BEATS HURRYING, and that ordering is not a detail.
+        //
+        // Ropes overlap. A single pass in index order let an already-burning
+        // shell whose cord happened to lie under her finger swallow a tap
+        // meant for the unlit shell right beside it — so she would touch a
+        // firework, watch a different one speed up, and touch it again to the
+        // same effect. Unlit shells are therefore offered the touch first,
+        // and only if none wants it does a burning fuse take it.
         for i in fireworks.indices {
+            guard case .waiting = fireworks[i].phase else { continue }
             guard touchesFirework(fireworks[i], at: p) else { continue }
-            if case .waiting = fireworks[i].phase {
-                fireworks[i].phase = .fuse(burned: 0)
-                started = true
-                events.append(.fuseLit(fireworks[i]))
-                return events
-            }
-            // Tapping a burning fuse hurries it along. The pacing is hers:
-            // light it and let it take its time, or chase it down the cord.
-            if case .fuse(let burned) = fireworks[i].phase {
-                fireworks[i].phase = .fuse(burned: min(0.995, burned + GameConfig.fuseTapBoost))
-                events.append(.fuseHurried(fireworks[i]))
-                return events
-            }
+            fireworks[i].phase = .fuse(burned: 0)
+            started = true
+            events.append(.fuseLit(fireworks[i]))
+            return events
+        }
+        // Tapping a burning fuse hurries it along. The pacing is hers: light
+        // it and let it take its time, or chase it down the cord.
+        for i in fireworks.indices {
+            guard case .fuse(let burned) = fireworks[i].phase else { continue }
+            guard touchesFirework(fireworks[i], at: p) else { continue }
+            fireworks[i].phase = .fuse(burned: min(0.995, burned + GameConfig.fuseTapBoost))
+            events.append(.fuseHurried(fireworks[i]))
+            return events
         }
         for i in stride(from: orbs.count - 1, through: 0, by: -1) where orbs[i].alive {
             let dx = p.x - orbs[i].pos.x

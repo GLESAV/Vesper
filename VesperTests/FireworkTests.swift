@@ -32,6 +32,28 @@ final class FireworkTests: XCTestCase {
         return sim()
     }
 
+    /// Lights every shell, then runs.
+    ///
+    /// Each is tapped at its CURRENT position and re-checked, because ropes
+    /// overlap and a snapshot of positions goes stale the moment anything
+    /// moves. The longest fuse is 165 frames and the rise adds about 60, so
+    /// the run has to be generous or the brocade is still climbing when the
+    /// assertions land.
+    @discardableResult
+    private func lightEverythingAndRun(_ s: GameSimulation, frames: Int) -> [GameEvent] {
+        for _ in 0..<40 {
+            guard let index = s.fireworks.firstIndex(where: { $0.phase == .waiting }) else { break }
+            s.tap(at: s.fireworks[index].pos)
+            if case .waiting = s.fireworks[index].phase {
+                XCTFail("a shell refused to light at its own position")
+                break
+            }
+        }
+        XCTAssertFalse(s.fireworks.contains { $0.phase == .waiting },
+                       "not every shell was lit")
+        return run(s, frames: frames)
+    }
+
     private func run(_ s: GameSimulation, frames: Int) -> [GameEvent] {
         var all: [GameEvent] = []
         for _ in 0..<frames { all += s.step(dt: 1.0 / 60) }
@@ -66,7 +88,10 @@ final class FireworkTests: XCTestCase {
         let events = s.tap(at: shell.pos)
         XCTAssertEqual(s.popCount, before, "a shell counted as a pop")
         XCTAssertFalse(events.contains { if case .popped = $0 { return true } else { return false } })
-        XCTAssertTrue(events.contains { if case .fireworkLaunched = $0 { return true } else { return false } })
+        // Since fuses landed, a touch LIGHTS rather than launches — the
+        // assertion this test exists for is unchanged: whatever a shell does,
+        // it is never a pop.
+        XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } })
     }
 
     // MARK: - It sows rather than manufactures
@@ -77,8 +102,7 @@ final class FireworkTests: XCTestCase {
     func testABreakNeverAddsToTheFieldsTotal() {
         let s = display()
         let total = s.orbs.count + s.reserve.count
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        _ = run(s, frames: 400)
+        _ = lightEverythingAndRun(s, frames: 900)
         XCTAssertLessThanOrEqual(s.orbs.count + s.reserve.count, total,
                                  "a shell manufactured orbs instead of sowing them")
     }
@@ -87,8 +111,7 @@ final class FireworkTests: XCTestCase {
         let s = sim(stage: FieldPlan.finalStage, generation: 12)
         guard !s.fireworks.isEmpty, !s.reserve.isEmpty else { return }
         let held = s.reserve.count
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        _ = run(s, frames: 400)
+        _ = lightEverythingAndRun(s, frames: 900)
         XCTAssertLessThan(s.reserve.count, held, "a break sowed nothing")
     }
 
@@ -96,8 +119,7 @@ final class FireworkTests: XCTestCase {
 
     func testAShoveNeverPushesAnOrbPastTheSpeedCeiling() {
         let s = display()
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        _ = run(s, frames: 300)
+        _ = lightEverythingAndRun(s, frames: 700)
         let cap = GameConfig.orbMaxSpeed * Weather.clear.speedScale * 1.6
         for orb in s.orbs where orb.alive {
             let speed = (orb.vel.dx * orb.vel.dx + orb.vel.dy * orb.vel.dy).squareRoot()
@@ -125,8 +147,7 @@ final class FireworkTests: XCTestCase {
 
     func testEveryShellBreaksAndLeavesSmoke() {
         let s = display()
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        let events = run(s, frames: 400)
+        let events = lightEverythingAndRun(s, frames: 900)
         XCTAssertTrue(events.contains { if case .fireworkBurst = $0 { return true } else { return false } })
         XCTAssertFalse(s.smoke.isEmpty, "a break left no smoke")
         XCTAssertTrue(s.fireworks.allSatisfy { $0.phase == .spent }, "a shell never broke")
@@ -135,8 +156,7 @@ final class FireworkTests: XCTestCase {
     // Smoke has to accumulate, or it is an effect rather than a display.
     func testSmokeStacksAndThenClears() {
         let s = display()
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        _ = run(s, frames: 300)
+        _ = lightEverythingAndRun(s, frames: 700)
         let gathered = s.smoke.count
         XCTAssertGreaterThan(gathered, GameConfig.smokePuffsPerBurst,
                              "smoke from several shells did not gather")
@@ -309,8 +329,7 @@ final class FireworkTests: XCTestCase {
 
     func testTheRopeStaysTogetherUnderAShove() {
         let s = display()
-        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
-        _ = run(s, frames: 600)
+        _ = lightEverythingAndRun(s, frames: 900)
         for shell in s.fireworks where shell.fuseNodes.count > 1 {
             for k in 0..<(shell.fuseNodes.count - 1) {
                 let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
@@ -320,5 +339,23 @@ final class FireworkTests: XCTestCase {
                 XCTAssertFalse(d.isNaN, "the rope went unstable")
             }
         }
+    }
+
+    // Ropes overlap, so a single pass in index order let an already-burning
+    // shell swallow a tap meant for the unlit one beside it: she would touch
+    // a firework, watch a different one speed up, and touch it again to the
+    // same effect. Lighting beats hurrying.
+    func testAnUnlitShellWinsATouchOverABurningOne() {
+        let s = display()
+        guard s.fireworks.count > 1 else { return }
+        _ = run(s, frames: 4)
+
+        // Light the first, then touch the second where it stands.
+        s.tap(at: s.fireworks[0].pos)
+        guard case .fuse = s.fireworks[0].phase else { return XCTFail("the first did not light") }
+
+        let events = s.tap(at: s.fireworks[1].pos)
+        XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } },
+                      "a burning fuse stole a touch meant for an unlit shell")
     }
 }
