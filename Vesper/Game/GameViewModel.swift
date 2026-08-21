@@ -14,6 +14,37 @@ final class GameViewModel: ObservableObject {
     /// Where the fortune orb was, so the words rise from it.
     @Published private(set) var fortuneAnchor: CGPoint = .zero
 
+    // MARK: - Onward
+
+    // AFTER A FIELD IS CLEAR, THE WORLD GOES UP TO THE SKY BY ITSELF, and if
+    // there is exactly one road ahead it takes it (owner's request).
+    //
+    // THE TWO CONDITIONS THAT KEEP THIS FROM BEING A SHOVE. This game's whole
+    // claim is that it never moves her anywhere she did not ask to go, and an
+    // auto-advance is the single most likely feature to break that.
+    //
+    //   1. **A touch cancels it, instantly and permanently for that field.**
+    //      If her thumb is anywhere near the glass while this is pending, it
+    //      stops and she stays exactly where she is. Sitting in the quiet
+    //      after clearing a field is a thing people do, and it must always
+    //      win over the animation.
+    //   2. **A FORK STOPS IT.** When `recordClear` opens more than one road,
+    //      the sequence halts in the sky with the roads lit and tappable.
+    //      Choosing for her would be taking the one decision The Path exists
+    //      to offer, and doing it while she is watching.
+    //
+    // Signalled as a counter rather than a Bool so two consecutive fields
+    // each fire, and read by `WorldView`, which owns navigation.
+    @Published private(set) var skyRequest = 0
+    @Published private(set) var fieldRequest = 0
+    private var onwardWork: DispatchWorkItem?
+
+    /// Stops any pending travel. Called on the first touch after a clear.
+    func cancelOnward() {
+        onwardWork?.cancel()
+        onwardWork = nil
+    }
+
     /// The verse shown under "the field is quiet now." on the done card.
     /// Drawn once per completed field, without repeats until the set is
     /// exhausted — a repeat inside one evening turns a small gift into a slot
@@ -75,6 +106,11 @@ final class GameViewModel: ObservableObject {
         // with her rather than with anything she has to choose. Set before
         // every seed, because `seedField` reads it once and builds to it.
         sim.stage = FieldPlan.stage(forFieldsCleared: progression.fieldsCleared)
+        // Where this field sits on the Path, and how often she has been here.
+        // Both grow the field's depth: further along is a longer field, and
+        // returning to a stone she has cleared gives her more of it.
+        sim.generation = map.activeStone?.generation ?? 0
+        sim.plays = map.activeStone.map { map.plays[$0.id] ?? 0 } ?? 0
         PopSoundEngine.shared.prepare(pops.map {
             PopCatalog.definition(for: $0).behavior.sound
         })
@@ -183,6 +219,9 @@ final class GameViewModel: ObservableObject {
     /// a second (ruling 7).
     func pointerMoved(to p: CGPoint?) {
         sim.pointer = p
+        // Her hand is on the glass: whatever the world was about to do on its
+        // own, it does not. Condition 1 of the onward sequence.
+        if p != nil { cancelOnward() }
     }
 
     // MARK: - Events
@@ -224,6 +263,60 @@ final class GameViewModel: ObservableObject {
             // missed it", which is the exact feeling this game does not have.
             case .generatorClosed:
                 break
+
+            // Something came up from below. DELIBERATELY SILENT — it makes no
+            // sound and no haptic, because nothing happened TO her: the field
+            // simply has depth, and she is seeing more of it. A note here
+            // would turn "there is more underneath" into "something arrived".
+            case .rose:
+                break
+
+            // THE WHIRR. A shell's rise is the part of a firework that is
+            // actually pleasant to hear — the report is the part this game
+            // cannot have — so the launch is sounded and the break is
+            // answered softly, and neither is ever loud.
+            // THE SOUND FLOW, IN THE ORDER A REAL FIREWORK MAKES IT (owner):
+            // the fuse catches, the cord hisses as it is hurried, the mortar
+            // goes THOOMF, the shell whirrs up, and the bloom opens. Five
+            // sounds for one firework, and only the thoomf has any weight in
+            // it — the report at the top, which is what a real display is
+            // actually loud with, is the one this game cannot have.
+            case .fuseLit(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playFuseTick(startFreq: definition.whirr * 0.8)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.18,
+                                                                intensityPerSize: 0,
+                                                                sharp: true,
+                                                                pattern: .single),
+                                         sizeNorm: 0, chained: false)
+
+            case .fuseHurried(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playFuseTick(startFreq: definition.whirr)
+
+            case .fireworkLaunched(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playThoomf()
+                PopSoundEngine.shared.playWhirr(startFreq: definition.whirr)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.22,
+                                                                intensityPerSize: 0,
+                                                                sharp: false,
+                                                                pattern: .swell),
+                                         sizeNorm: 0, chained: false)
+
+            case .fireworkBurst(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playPop(
+                    profile: SoundProfile(voice: definition.bloom,
+                                          startFreq: definition.whirr * 1.6,
+                                          freqSpread: 0, sweep: 1.04,
+                                          duration: 0.26, decay: 5.5, brightness: 0.1),
+                    pitch: 0)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.3,
+                                                                intensityPerSize: 0,
+                                                                sharp: false,
+                                                                pattern: .ripple),
+                                         sizeNorm: 0, chained: false)
             }
         }
         if !events.isEmpty { checkUnlocks() }
@@ -285,6 +378,40 @@ final class GameViewModel: ObservableObject {
         }
         doneRevealWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + GameConfig.doneRevealDelay, execute: work)
+
+        scheduleOnward()
+    }
+
+    /// Travels up to the sky a beat after the done card, then — only if the
+    /// way ahead is unambiguous — steps onto the next stone and back down.
+    private func scheduleOnward() {
+        onwardWork?.cancel()
+        let rise = DispatchWorkItem { [weak self] in
+            guard let self, self.sim.completed else { return }
+            self.skyRequest += 1
+            self.scheduleStepOnward()
+        }
+        onwardWork = rise
+        DispatchQueue.main.asyncAfter(deadline: .now() + GameConfig.onwardToSkyDelay,
+                                      execute: rise)
+    }
+
+    private func scheduleStepOnward() {
+        guard let here = map.activeStone else { return }
+        let ahead = map.roads(from: here.id)
+        // A fork is hers. The sequence ends here, in the sky, with the roads
+        // lit — which is exactly the moment the map is worth looking at.
+        guard ahead.count == 1, let next = ahead.first else { return }
+
+        let step = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.map.setActive(next.id)
+            self.restart()
+            self.fieldRequest += 1
+        }
+        onwardWork = step
+        DispatchQueue.main.asyncAfter(deadline: .now() + GameConfig.onwardInSkyPause,
+                                      execute: step)
     }
 
     // MARK: - Unlocks

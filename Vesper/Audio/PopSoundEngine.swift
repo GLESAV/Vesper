@@ -14,6 +14,11 @@ final class PopSoundEngine {
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
     private let sampleRate = 44100.0
+
+    /// Whirr buffers, cached by start frequency.
+    private var whirrBank: [Int: AVAudioPCMBuffer?] = [:]
+    private var fuseBank: [Int: AVAudioPCMBuffer?] = [:]
+    private var thoomfBuffer: AVAudioPCMBuffer??
     private var players: [AVAudioPlayerNode] = []
     private var nextPlayerIndex = 0
 
@@ -78,6 +83,153 @@ final class PopSoundEngine {
         let bucket = Int((clamped * Double(pitchBuckets - 1)).rounded())
         guard bucket < buckets.count, let buffer = buckets[bucket].randomElement() else { return }
         play(buffer)
+    }
+
+    /// The whirr of a shell climbing.
+    ///
+    /// **The one rising pitch in the game.** Everything else was floored
+    /// against falling sweeps because a fast fall is an arcade laser — but a
+    /// firework fuse genuinely does rise, and rising is the safe direction:
+    /// it reads as something leaving, not as something firing at you. It is
+    /// also the only sound here that is deliberately noisy rather than
+    /// pitched, because a fuse is air and grit, not a note.
+    ///
+    /// Rendered on demand and cached by start frequency: there are 36 shells
+    /// and most fields hold a handful, so the bank stays small.
+    func playWhirr(startFreq: Double) {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        let key = Int(startFreq.rounded())
+        if whirrBank[key] == nil {
+            whirrBank[key] = makeWhirrBuffer(startFreq: startFreq)
+        }
+        guard let buffer = whirrBank[key] ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeWhirrBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
+        let duration = 1.05
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState = UInt64(bitPattern: Int64(key(startFreq))) | 1
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+
+        var bp1 = 0.0, bp2 = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            // Rises as it climbs, and thins as it goes away from her.
+            let freq = startFreq * (1 + 0.9 * progress)
+            let k = min(0.5, freq / sampleRate * 8)
+            let n = noise()
+            bp1 += k * (n - bp1)
+            bp2 += k * (bp1 - bp2)
+            // A quiet pitched core under the air, so it has a direction.
+            let core = sin(2.0 * .pi * freq * t) * 0.16
+            let envelope = sin(min(1, progress * 12) * .pi / 2) * (1 - progress * 0.85)
+            channel[frame] = Float(((bp1 - bp2) * 5 + core) * envelope * 0.22)
+        }
+        return buffer
+    }
+
+    private func key(_ freq: Double) -> Int { Int(freq.rounded()) }
+
+    /// THE THOOMF: the mortar, the moment it leaves the tube.
+    ///
+    /// The one sound in this game with weight in it, and the reason it is
+    /// allowed is that it is a departure rather than an impact. A firework's
+    /// report — the bang at the top — is percussive and arrives AT you, which
+    /// is why this game cannot have one. A launch is the opposite: low, soft,
+    /// pitched downward, and going away. It is the difference between being
+    /// startled and watching something leave.
+    ///
+    /// Built as a low sine that falls fast under a burst of filtered noise —
+    /// the same shape a real mortar has, which is mostly air being displaced.
+    func playThoomf() {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        if thoomfBuffer == nil { thoomfBuffer = makeThoomfBuffer() }
+        guard let buffer = thoomfBuffer ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeThoomfBuffer() -> AVAudioPCMBuffer? {
+        let duration = 0.34
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState: UInt64 = 0x7000_D00F_1234_5678
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+        var lp = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            // 96 Hz down to about 58: a departure, not a hit.
+            let freq = 96 * (1 - 0.4 * progress)
+            let body = sin(2.0 * .pi * freq * t)
+            lp += 0.06 * (noise() - lp)
+            let air = lp * 2.2 * exp(-progress * 9)
+            let attack = sin(min(1, progress * 26) * .pi / 2)
+            let decay = exp(-progress * 5.2)
+            channel[frame] = Float((body * 0.7 + air) * attack * decay * 0.34)
+        }
+        return buffer
+    }
+
+    /// A single tick of fuse: short, dry, and barely pitched.
+    func playFuseTick(startFreq: Double) {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        let k = Int(startFreq.rounded())
+        if fuseBank[k] == nil { fuseBank[k] = makeFuseTickBuffer(startFreq: startFreq) }
+        guard let buffer = fuseBank[k] ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeFuseTickBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
+        let duration = 0.09
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState = UInt64(Int(startFreq.rounded())) | 1
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+        var bp1 = 0.0, bp2 = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            let k = min(0.5, startFreq / sampleRate * 10)
+            let n = noise()
+            bp1 += k * (n - bp1)
+            bp2 += k * (bp1 - bp2)
+            let decay = exp(-progress * 22)
+            channel[frame] = Float((bp1 - bp2) * 4 * decay * 0.3)
+        }
+        return buffer
     }
 
     func playCompletionChime() {
@@ -351,23 +503,47 @@ final class PopSoundEngine {
 
     // A soft C5–E5–G5 arpeggio for clearing the field: quiet, round, brief.
     private func makeChimeBuffer() -> AVAudioPCMBuffer? {
-        let duration = 1.8
+        // SHORT. It was 1.8 seconds — a C–E–G arpeggio spread over more than
+        // half a second of onsets and then left to ring — and the owner heard
+        // it for what it had become: an announcement.
+        //
+        // The failure was one of GRAMMAR rather than length. A rising
+        // arpeggio that resolves is a fanfare, and a fanfare says "well
+        // done", which is the one thing the end of a field must never say
+        // (05 §6, and the whole argument behind the done card's rewrite).
+        // The field going quiet is not an achievement, it is a room settling.
+        //
+        // So: 0.62 s, the three notes nearly together rather than in
+        // sequence, and the top note quietest — the shape of a small bell
+        // being touched once, not a phrase being played. Still the same three
+        // pitches, so it is recognisably the sound she already knows.
+        let duration = 0.62
         let frameCount = AVAudioFrameCount(sampleRate * duration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
         buffer.frameLength = frameCount
         let channel = buffer.floatChannelData![0]
 
-        let notes: [(freq: Double, start: Double)] = [
-            (523.25, 0.0), (659.25, 0.28), (783.99, 0.56)
+        // Onsets 40 ms apart, so they arrive as one struck thing rather than
+        // as a tune. Amplitude falls with pitch: the top note is a highlight
+        // on the chord, never the point of it.
+        let notes: [(freq: Double, start: Double, gain: Double)] = [
+            (523.25, 0.00, 0.13), (659.25, 0.04, 0.10), (783.99, 0.08, 0.07)
         ]
         for frame in 0..<Int(frameCount) {
             let t = Double(frame) / sampleRate
             var sample = 0.0
             for note in notes where t >= note.start {
                 let nt = t - note.start
-                let attack = min(1, nt * 30)
-                let decay = exp(-nt * 2.6)
-                sample += sin(2.0 * .pi * note.freq * nt) * attack * decay * 0.12
+                let attack = min(1, nt * 60)
+                let decay = exp(-nt * 7.5)
+                sample += sin(2.0 * .pi * note.freq * nt) * attack * decay * note.gain
+            }
+            // A short raised-cosine tail so the buffer cannot end on a
+            // non-zero sample and click — at 0.62 s the decay has not quite
+            // reached silence on its own.
+            let fadeStart = duration - 0.06
+            if t > fadeStart {
+                sample *= 0.5 * (1 + cos(.pi * (t - fadeStart) / 0.06))
             }
             channel[frame] = Float(sample)
         }

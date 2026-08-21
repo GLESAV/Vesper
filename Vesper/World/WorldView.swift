@@ -130,6 +130,15 @@ private struct WorldScene: View {
         // identically zero and the places crossfade instead of translating.
         .onAppear { applyReduceMotion(reduceMotion) }
         .onChange(of: reduceMotion) { _, value in applyReduceMotion(value) }
+        // THE ONWARD SEQUENCE (owner: on completion, go to the sky and
+        // auto-progress). Navigation lives here and nowhere else, so the game
+        // asks by incrementing a counter and this view is what actually
+        // moves — `go` is the same commit a whisper tap makes, so the camera,
+        // the dimming and the ground's colour all behave exactly as they do
+        // when she travels herself. Nothing about this is a special case
+        // downstream of here.
+        .onChange(of: game.skyRequest) { _, _ in go(.up) }
+        .onChange(of: game.fieldRequest) { _, _ in go(.down) }
         // Kept from v1.2: the counter answers a pop.
         .onChange(of: game.count) { _, _ in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) { pulse = true }
@@ -719,9 +728,13 @@ private struct WorldScene: View {
             //     top of the field can only ever hold two things.
             VStack(spacing: 6) {
                 Text("\(game.count)")
-                    .font(.system(size: 40, weight: .light, design: .serif))
+                    .font(.system(size: 30, weight: .light, design: .serif))
                     .monospacedDigit()
-                    .foregroundColor(Palette.bright.opacity(0.92))
+                    .foregroundColor(Palette.bright.opacity(0.9))
+                    // Orbs may pass behind the counter now (see
+                    // `FieldLayout.orbCeiling`), so it carries its own
+                    // separation rather than taking a band of the field for it.
+                    .shadow(color: .black.opacity(0.55), radius: 6)
                     .scaleEffect(pulse ? 1.08 : 1)
                     .accessibilityLabel("\(game.count) \(Strings.setFreeA11y)")
 

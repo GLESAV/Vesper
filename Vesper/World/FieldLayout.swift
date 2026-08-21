@@ -56,14 +56,14 @@ struct FieldLayout: Equatable {
     // MARK: The constants of the contract
 
     /// Breathing room between two things that must not touch.
-    static let gap: CGFloat = 14
+    static let gap: CGFloat = 10
     /// How far signage sits from the safe edge.
     static let edgeGap: CGFloat = 8
-    /// The counter's line box at its 40 pt face.
-    static let counterHeight: CGFloat = 48
+    /// The counter's line box at its 30 pt face.
+    static let counterHeight: CGFloat = 36
     /// The one transient-note slot beneath the counter.
     static let noteHeight: CGFloat = 18
-    static let hudSpacing: CGFloat = 6
+    static let hudSpacing: CGFloat = 4
 
     // MARK: The bands, top down
 
@@ -76,10 +76,24 @@ struct FieldLayout: Equatable {
     var hudHeight: CGFloat { Self.counterHeight + Self.hudSpacing + Self.noteHeight }
     var hudBottom: CGFloat { hudTop + hudHeight }
 
-    /// **No orb may go above this.** Keeps the field clear of both the
-    /// signage (which would steal its tap) and the counter (which would be
-    /// unreadable behind it).
-    var orbCeiling: CGFloat { hudBottom + Self.gap }
+    /// **No orb may go above this** — and it clears the SIGNAGE ONLY.
+    ///
+    /// It used to clear the counter as well, which cost the field about 70 pt
+    /// at the top of every screen: on a Dynamic Island phone the header was
+    /// eating a quarter of the glass before a single orb could exist. The
+    /// owner is right that it was too much, and the reason it was too much is
+    /// that two very different things were being treated as one.
+    ///
+    /// The whisper's target MUST be kept clear: it is a Button in a layer
+    /// above the input layer, so an orb underneath it has its tap taken and
+    /// the world travels when she meant to pop. That is a real collision and
+    /// it is the reason this contract exists.
+    ///
+    /// The counter is not interactive at all — the whole field layer is
+    /// `allowsHitTesting(false)` — so an orb drifting behind it costs nothing
+    /// but a moment's overlap on one number, and buys back the top of the
+    /// field. It is drawn with a shadow so it stays readable when one does.
+    var orbCeiling: CGFloat { headWhisperBottom + Self.gap }
 
     /// Bottom of the journal whisper's tap target, and the top of it.
     var footWhisperBottom: CGFloat { size.height - safeBottom - Self.edgeGap }
