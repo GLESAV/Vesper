@@ -727,7 +727,13 @@ private struct WorldScene: View {
         // and an impact from `HapticsEngine` per pop, success on clear — so
         // once the touch can land, the loop is conveyed.
         .accessibilityElement()
-        .accessibilityLabel(Text(Strings.fieldA11y))
+        // NAMES THE ANIMAL WHEN THERE IS ONE. A balloon creature that hides
+        // is the one thing on this field a VoiceOver user could not otherwise
+        // know about at all: it is drawn rather than spoken, it does not pop
+        // on the first touch, and the field will not finish without it. So
+        // the field's own label says it is there and whether it is still
+        // keeping to the edges — the same two facts sight gives everyone else.
+        .accessibilityLabel(Text(game.fieldAccessibilityLabel))
         .accessibilityHint(Text(Strings.fieldDirectTouchHint))
         .accessibilityAddTraits(.allowsDirectInteraction)
     }
