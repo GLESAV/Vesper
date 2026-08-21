@@ -103,9 +103,27 @@ struct SkyLayout {
     /// tapped, however prettily it is drawn.
     static let minimumSeparation: CGFloat = WhisperPresentation.minimumHitEdge
 
-    /// The widest a generation gap is allowed to be drawn, so a two-stone map
-    /// does not stretch one road across the whole screen.
+    /// The gap between two generations. It is a CONSTANT now, not a fitted
+    /// value: the sky scrolls (see `SkyScroll.swift`), so a tree that is
+    /// taller than the screen is looked through rather than squashed into it.
+    ///
+    /// What this replaced: the gap was `usable / (rows - 1)`, compressed until
+    /// it hit the touch target and then windowed. That is a reasonable thing
+    /// to do to a map two stones tall and the wrong thing to do to one that
+    /// accrues forever — the tree either became a ladder or her history was
+    /// unreachable, and which of the two she got depended on how long she had
+    /// been playing.
     static let maximumSeparation: CGFloat = 118
+
+    /// How far back along the path the sky will scroll, in points.
+    ///
+    /// A path of 200 generations is ~23,000 pt of trace, and a scroll with no
+    /// bottom turns "look back at where I've been" into a chore. This is what
+    /// makes "the road disappears behind" true in the sky without W08's
+    /// contract being broken to achieve it: the store keeps every stone, the
+    /// sky simply stops drawing the oldest of them. Three screenfuls on a
+    /// phone is ~2,500 pt, or about twenty generations.
+    static let maximumHistory: CGFloat = 2_600
 
     /// Room at the top for the status bar and the sky's own darkness, and at
     /// the foot for the world's `the field` whisper — its 44 pt target sits
@@ -129,7 +147,8 @@ struct SkyLayout {
          activeID: UUID?,
          anchorID: UUID?,
          now: Date,
-         size: CGSize) {
+         size: CGSize,
+         scroll: CGFloat = 0) {
 
         guard !stones.isEmpty, size.width > 0, size.height > 0 else {
             stars = []
@@ -141,79 +160,63 @@ struct SkyLayout {
         let generations = stones.map(\.generation)
         let newest = generations.max() ?? 0
         let oldest = generations.min() ?? 0
-        let rows = newest - oldest + 1
 
-        // The sky does not scroll: vertical is the world's own axis and means
-        // nothing else inside a place (04 §4). So the generations are fitted
-        // into one screenful, compressed no further than the touch target.
-        let usable = max(0, size.height - Self.topInset - Self.bottomInset)
-        if rows > 1 {
-            let even = usable / CGFloat(rows - 1)
-            rowSpacing = min(Self.maximumSeparation, max(Self.minimumSeparation, even))
-        } else {
-            rowSpacing = Self.maximumSeparation
-        }
+        // ONE CONSTANT GAP AT EVERY DEPTH. See `maximumSeparation`.
+        rowSpacing = Self.maximumSeparation
 
-        // THE TREE HANGS FROM THE TOP AND GROWS DOWN (owner: "the sky should
-        // be top to bottom, as a tree grows" — axis flip).
+        // WHERE THE TREE HANGS FROM, before scrolling.
         //
-        // What this replaces: the NEWEST stone was pinned to the bottom edge
-        // and everything older climbed away above it, so the whole map slid
-        // upward as she played and the beginning of her journey drifted off
-        // the ceiling. Progression moved up and away — the opposite of growth.
+        // Two rules in one line, and it is worth reading it as two:
         //
-        // Now the OLDEST VISIBLE generation is pinned to the top and each
-        // generation after it sits one row lower, so the map extends downward
-        // as she plays. A young map is a sapling hanging from the top of the
-        // screen with room beneath it to grow into, rather than two stones
-        // huddled at the bottom of an empty sky.
+        //   * a tree SHORTER than the screen hangs from the ceiling, with the
+        //     empty room beneath it that it is going to grow into. A young map
+        //     must be a sapling at the top, not two stones huddled at the
+        //     bottom of an empty sky.
+        //   * a tree TALLER than the screen is pinned by its TIP to the foot,
+        //     because the tip is the only interactive part of the sky — the
+        //     stones she can choose next hang off it — and a place opens on
+        //     the thing she came for. Its root is then above the ceiling, and
+        //     how far above is exactly how much history there is to scroll
+        //     back through (`SkyScrollMetrics.history`).
         //
-        // The window still follows her: `visibleOldest` is chosen so the
-        // newest generation is always on screen (see `maxRows`), which means
-        // the growing tip stays in view and the oldest growth passes quietly
-        // off the top. Nothing is removed from the map — W08's contract is
-        // untouched, this is only which screenful is drawn.
-        // How many generations fit between the insets at this row spacing.
-        let usableRows = max(1, Int(usable / max(rowSpacing, 1)) + 1)
-        // The top row of this screenful: far enough back that the newest
-        // generation still lands inside the field below.
-        let visibleOldest = max(oldest, newest - usableRows + 1)
+        // `min` picks whichever of the two applies without a branch, and the
+        // two agree exactly at the height where the tree just fits.
+        let span = CGFloat(newest - oldest) * rowSpacing
+        let rootY = min(Self.topInset, (size.height - Self.bottomInset) - span)
+
+        // The scroll pushes the whole tree DOWN, which is what reveals the
+        // older generations above it. Clamped here as well as in
+        // `SkyScrollState` — this initialiser is public to previews and tests
+        // and must not be able to draw a sky nobody could have scrolled to.
+        let offset = Self.metrics(stones: stones, size: size).clamped(scroll)
 
         var centers: [UUID: CGPoint] = [:]
         let byGeneration = Dictionary(grouping: stones, by: \.generation)
         for (generation, row) in byGeneration {
-            let y = Self.topInset + CGFloat(generation - visibleOldest) * rowSpacing
+            let y = rootY + CGFloat(generation - oldest) * rowSpacing + offset
             for (id, x) in Self.rowPositions(row, width: size.width) {
                 centers[id] = CGPoint(x: x, y: y)
             }
         }
 
-        // Anything whose centre has climbed off the top of this screenful is
-        // simply not on this screenful. It is not removed from the map and
-        // nothing about it changes — reaching it is the sky's own upward
-        // drift, which is not built yet.
+        // WHAT IS ON THIS SCREENFUL. Anything whose centre is above the
+        // ceiling or below the foot is simply not drawn on this screenful. It
+        // is not removed from the map and nothing about it changes — W08's
+        // contract is untouched, this is only which screenful is drawn, and
+        // now she can move the screenful.
         //
-        // SINCE W08 THIS IS THE ONLY THING BOUNDING THE SKY, and it is the
-        // right one. The map now accrues forever, so this window is what
-        // makes "the road disappears behind" true without anything being
-        // destroyed to achieve it: the newest generations sit at the
-        // baseline, the walked path climbs away, and the oldest of it passes
-        // quietly out of the top of the screenful while staying on the map.
-        // W08: THE CEILING IS `topInset`, NOT A STAR'S RADIUS. It was the
-        // radius, which let a star be drawn anywhere from ~11 pt upward —
-        // that is under the status bar and behind the Dynamic Island, where a
-        // 44 pt target is not reliably tappable. It barely showed while the
-        // prune pass kept every map two generations tall; now that history
-        // accrues it would show constantly, and `topInset` exists precisely to
-        // say where the sky's drawable ceiling is.
+        // THE CEILING IS `topInset`, NOT A STAR'S RADIUS. It was the radius,
+        // which let a star be drawn anywhere from ~11 pt upward — under the
+        // status bar and behind the Dynamic Island, where a 44 pt target is
+        // not reliably tappable.
+        //
+        // THE FLOOR MATTERS JUST AS MUCH, because the tree grows downward: a
+        // star under the foot whisper would have its tap taken by it.
         let ceiling = Self.topInset
         let floor = size.height - Self.bottomInset
         let visible = stones
             .filter { stone in
                 guard let y = centers[stone.id]?.y else { return false }
-                // Both ends now: the tree grows downward, so a generation can
-                // fall off the FOOT as well as climb off the ceiling, and a
-                // star under the foot whisper would have its tap taken by it.
                 return y >= ceiling && y <= floor
             }
             .sorted { left, right in
@@ -233,6 +236,14 @@ struct SkyLayout {
         }
         stars = placed
 
+        // The taper is measured against WHAT IS ON SCREEN, not against the
+        // whole map: it is a depth cue for the branch she is looking at, so a
+        // tree scrolled back to its root must still read as thick at the
+        // trunk and fine at the tips rather than as one uniform thickness a
+        // thousand points down a very long taper.
+        let shallowest = placed.map(\.stone.generation).min() ?? oldest
+        let deepest = placed.map(\.stone.generation).max() ?? newest
+
         var lines: [SkyRoad] = []
         for star in placed {
             guard let parentID = star.stone.parentID,
@@ -245,16 +256,35 @@ struct SkyLayout {
             } else {
                 tier = .open
             }
-            // Depth below the top of this screenful, normalised. The trunk
-            // is at the top, so 0 is thickest.
-            let depth = CGFloat(star.stone.generation - visibleOldest)
-            let span = max(1, CGFloat(newest - visibleOldest))
-            let taper = 1 - min(1, depth / span) * 0.55
+            let depth = CGFloat(star.stone.generation - shallowest)
+            let visibleSpan = max(1, CGFloat(deepest - shallowest))
+            let taper = 1 - min(1, depth / visibleSpan) * 0.55
             lines.append(SkyRoad(from: from, to: star.center, tier: tier,
                                  width: (1.2 + 2.4 * taper),
                                  solid: star.stone.cleared || star.isAnchor))
         }
         roads = lines
+    }
+
+    // MARK: - How much sky there is
+
+    /// How far this map may be scrolled back, for this screen.
+    ///
+    /// PURE, STATIC, AND THE ONLY DEFINITION. `SkyScrollState` measures itself
+    /// from this and `init` clamps with it, so the amount of history the input
+    /// layer offers and the amount the drawing can actually show are the same
+    /// number by construction rather than by two files agreeing.
+    static func metrics(stones: [MapStone], size: CGSize) -> SkyScrollMetrics {
+        guard !stones.isEmpty, size.height > 0 else { return SkyScrollMetrics() }
+        let generations = stones.map(\.generation)
+        let newest = generations.max() ?? 0
+        let oldest = generations.min() ?? 0
+        let span = CGFloat(newest - oldest) * Self.maximumSeparation
+        let rootY = min(Self.topInset, (size.height - Self.bottomInset) - span)
+        // How far the root sits above the ceiling when the tip is at rest.
+        // Zero for any tree short enough to fit, which is every map for its
+        // first several generations.
+        return SkyScrollMetrics(history: Self.topInset - rootY)
     }
 
     /// Settling is read from the stone's own dates, never written back: this
@@ -608,6 +638,7 @@ struct SkyView: View {
 
     init(model: WorldModel) {
         self.model = model
+        self.scroll = model.skyScroll
     }
 
     // The map is read, never written: nothing in this view calls
@@ -615,6 +646,13 @@ struct SkyView: View {
     // pass left to call. `GameViewModel` already guarantees the first stone
     // exists before any of this is on screen.
     @ObservedObject private var map = MapStore.shared
+
+    /// The sky's scroll position. Observed HERE and nowhere else — that is the
+    /// whole reason it is its own object rather than a `@Published` on
+    /// `WorldModel` (see `SkyScrollState`, and ruling 8). Redrawing the stars
+    /// while she scrolls is unavoidable; redrawing the input layer is not, and
+    /// would cancel the touch that is doing the scrolling.
+    @ObservedObject private var scroll: SkyScrollState
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -640,8 +678,26 @@ struct SkyView: View {
                                             activeID: map.activeStoneID,
                                             anchorID: map.anchorStone?.id,
                                             now: map.nowProvider(),
-                                            size: geo.size),
+                                            size: geo.size,
+                                            scroll: scroll.offset),
                           size: geo.size)
+                // HOW MUCH SKY THERE IS, told to the scroll state whenever the
+                // map or the screen changes — never from inside the body,
+                // where a write is SwiftUI's publishing-during-view-update
+                // hazard. `measure` is idempotent and returns early when
+                // nothing changed, so a repeated call costs a comparison.
+                //
+                // `SkyLayout.metrics` is the SAME function the layout clamps
+                // with, so what the input layer offers her and what the
+                // drawing can actually show are one number rather than two
+                // files agreeing.
+                .onAppear { scroll.measure(SkyLayout.metrics(stones: map.stones, size: geo.size)) }
+                .onChange(of: geo.size) { _, size in
+                    scroll.measure(SkyLayout.metrics(stones: map.stones, size: size))
+                }
+                .onChange(of: map.stones.count) { _, _ in
+                    scroll.measure(SkyLayout.metrics(stones: map.stones, size: geo.size))
+                }
         }
         // Two-finger Z from anywhere in the sky (04 §10). She is never held
         // here by having chosen nothing.

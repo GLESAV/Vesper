@@ -1155,6 +1155,21 @@ final class WorldCamera {
             // independent lives, and the camera is the pan's half.
             break
 
+        case .scrollBegan, .scrollChanged, .scrollEnded:
+            // Nor with a place's own scroll, and for the same reason it is
+            // written out rather than left to a `default`. The sky's tree is
+            // taller than one screenful and looking back along it is a
+            // vertical drag; the arbiter gives the place first refusal and
+            // hands this camera only the leftover, as `.panChanged`. If the
+            // camera also moved on these the world would travel by the full
+            // length of every scroll — twice the distance her finger asked
+            // for, in two different coordinate systems.
+            //
+            // There is deliberately no `default:` in this switch. A new
+            // outcome should stop the build here and be given an answer, not
+            // silently inherit "do nothing" from a catch-all.
+            break
+
         case .panBegan:
             // Invariant B: this is the whole of interruptibility. Whatever the
             // camera was doing, it is hers now, from exactly where it is.

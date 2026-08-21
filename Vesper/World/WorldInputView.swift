@@ -57,6 +57,17 @@ final class WorldInputView: UIView {
         set { arbiter.isFieldAtRest = newValue }
     }
 
+    // How much of a vertical drag the place she is standing in wants for
+    // itself. A live closure for the same reason as `isFieldAtRest`, and read
+    // by the arbiter exactly once per gesture — see `InputArbiter.scrollRoom`.
+    // Its default answers "nothing", which is the correct answer for the
+    // field, for the journal, and for any sky short enough to fit on one
+    // screen.
+    var scrollRoom: () -> ScrollRoom {
+        get { arbiter.scrollRoom }
+        set { arbiter.scrollRoom = newValue }
+    }
+
     // Outcomes are delivered synchronously on the main thread, in order,
     // once per UIEvent (see `flush`).
     var onOutcome: ([InputOutcome]) -> Void = { _ in }
@@ -246,6 +257,7 @@ final class WorldInputView: UIView {
 // body, which is not ordered against the touch that is about to arrive.
 struct WorldInputLayer: UIViewRepresentable {
     var isFieldAtRest: () -> Bool
+    var scrollRoom: () -> ScrollRoom = { .none }
     var onPointer: (CGPoint?) -> Void = { _ in }
     var onSafeArea: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onOutcome: ([InputOutcome]) -> Void
@@ -253,6 +265,7 @@ struct WorldInputLayer: UIViewRepresentable {
     func makeUIView(context: Context) -> WorldInputView {
         let view = WorldInputView(frame: .zero)
         view.isFieldAtRest = isFieldAtRest
+        view.scrollRoom = scrollRoom
         view.onPointer = onPointer
         view.onSafeArea = onSafeArea
         view.onOutcome = onOutcome
@@ -261,6 +274,7 @@ struct WorldInputLayer: UIViewRepresentable {
 
     func updateUIView(_ uiView: WorldInputView, context: Context) {
         uiView.isFieldAtRest = isFieldAtRest
+        uiView.scrollRoom = scrollRoom
         uiView.onPointer = onPointer
         uiView.onSafeArea = onSafeArea
         uiView.onOutcome = onOutcome

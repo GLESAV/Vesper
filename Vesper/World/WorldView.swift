@@ -219,6 +219,13 @@ private struct WorldScene: View {
             // alone — otherwise a touch-down while resting at the sky pops an
             // orb on a field she cannot see.
             WorldInputLayer(isFieldAtRest: { model.simActive },
+                            // A LIVE CLOSURE, for the same reason
+                            // `isFieldAtRest` is one: the arbiter reads it
+                            // inside `touchesMoved`, and a value pushed
+                            // through `updateUIView` is stale at exactly the
+                            // moments that decide whether a drag scrolls the
+                            // sky or leaves it.
+                            scrollRoom: { model.placeScrollRoom },
                             onPointer: { game.pointerMoved(to: $0) },
                             onSafeArea: { top, bottom in
                                 if safeTop != top { safeTop = top }

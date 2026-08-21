@@ -99,6 +99,26 @@ final class WorldModel: ObservableObject {
     // TimelineView closure, at the moment it needs them.
     let camera = WorldCamera()
 
+    // The sky's own scroll position. A `let` to a SEPARATE `ObservableObject`,
+    // which is ruling 7's reasoning applied to a second moving value rather
+    // than an exception to it:
+    //
+    //   * it is not a `@Published` on this model, because publishing it would
+    //     invalidate every observer of the model at digitizer rate — and one
+    //     of those observers is `WorldView`'s body, which contains
+    //     `WorldInputLayer`, whose hosted `UIView` must never be rebuilt
+    //     mid-touch (ruling 8). It would cancel the very touch doing the
+    //     scrolling;
+    //   * it is not held off-observation like the camera either, because
+    //     unlike the camera's offset this one HAS to reach SwiftUI: the stars
+    //     are `Button`s in the view tree, not marks in a `Canvas`, so their
+    //     positions come from a body evaluation and nothing else.
+    //
+    // Its own object, observed only by `SkyView`, is what satisfies both: the
+    // redraw stops at the one subtree that has to redraw. Assigning to a `let`
+    // reference does not fire this model's `objectWillChange`.
+    let skyScroll = SkyScrollState()
+
     // The v1.2 game, unchanged. The field place renders it exactly as
     // ContentView does; the only new thing the world tells it is `simActive`.
     let game = GameViewModel()
@@ -117,6 +137,28 @@ final class WorldModel: ObservableObject {
     // Computed, never stored: a stored copy is stale for about a frame at
     // each end of every settle, and being wrong there costs a pop.
     var simActive: Bool { camera.isAtRest && camera.place == .field }
+
+    // MARK: - How much of a drag the current place wants
+
+    /// Answers the input layer's one question about the place she is standing
+    /// in: how far it can move its own content before the world should move
+    /// instead. Bound as a LIVE closure, never a pushed value.
+    ///
+    /// Only the sky has an answer, and only while she is actually resting in
+    /// it. Both halves matter:
+    ///
+    ///   * `place == .sky` — a drag on the field must never scroll a sky she
+    ///     cannot see, exactly as a touch at the sky must never pop an orb on
+    ///     a field she cannot see (`simActive`);
+    ///   * `isAtRest` — a transit grab is a grab of the WORLD. She reached out
+    ///     to steady something in flight, and every point of that gesture
+    ///     belongs to the camera. The arbiter agrees independently (it holds
+    ///     `.none` for a transit grab), so this is belt and braces on the one
+    ///     decision that could quietly eat a settle.
+    var placeScrollRoom: ScrollRoom {
+        guard camera.isAtRest, camera.place == .sky else { return .none }
+        return skyScroll.room
+    }
 
     // MARK: - Private
 
@@ -144,12 +186,43 @@ final class WorldModel: ObservableObject {
             if case .pop(let p) = outcome { game.tap(at: p) }
         }
 
+        // The place's own scroll, before the camera and after the pop. The
+        // arbiter has already divided the gesture — whatever reaches the
+        // camera as `.panChanged` is the leftover — so these two loops are
+        // spending different points and cannot double-count her finger.
+        for outcome in outcomes {
+            switch outcome {
+            case .scrollBegan:
+                skyScroll.began()
+            case .scrollChanged(let translation):
+                skyScroll.scrolled(by: translation)
+            case .scrollEnded(let velocity):
+                // The glide is an animation rather than a decay on a frame
+                // clock, because the world's `TimelineView` may well be paused
+                // while she is up here (H3) and a scroll that only coasts when
+                // the field happens to be awake is not a scroll. It is owned
+                // by the scroll state, so this line spends no opinion on it.
+                skyScroll.ended(velocity: velocity)
+            default:
+                break
+            }
+        }
+
         camera.consume(outcomes)
 
         // Mirrored, not published per-frame: `camera.place` changes at most
         // once per commit. Guarded because `@Published` fires on every write,
         // equal or not.
-        if place != camera.place { place = camera.place }
+        if place != camera.place {
+            place = camera.place
+            // ARRIVING AT THE SKY OPENS IT ON THE GROWING TIP. The tip is the
+            // only interactive part of the sky — the stones she can choose
+            // next hang off it — so a sky still scrolled to wherever she was
+            // reading last time would be a place she arrived in with no star
+            // to press. Leaving it does nothing, so a glance back at her
+            // history costs nothing on the way out either.
+            if place == .sky { skyScroll.returnToTip() }
+        }
 
         // H3: set in the SAME handler that feeds the camera. Guarded for the
         // same reason — `.panChanged` arrives at digitizer rate, and an
