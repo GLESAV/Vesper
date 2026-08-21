@@ -246,11 +246,12 @@ final class MapStoreTests: XCTestCase {
     // one stone lean toward different families.
     func testTwoRoadsOutOfOneStoneDiverge() {
         var forks = 0
-        for seed in UInt64(1)...40 {
+        // Each fresh store seeds its own genesis randomly, so forty of them
+        // is forty different parents — no need to reach in and rewrite one,
+        // which `popNumbers` being a `let` rightly forbids.
+        for _ in 0..<40 {
             let store = freshStore()
             store.ensureGenesis(unlocked: Set(1...60))
-            var stone = store.stones[0]
-            stone.popNumbers = [Int(seed % 40) + 1]
             store.setActive(store.stones[0].id)
             let roads = store.recordClear(unlocked: Set(1...60))
             guard roads.count > 1 else { continue }
@@ -289,15 +290,29 @@ final class MapStoreTests: XCTestCase {
     }
 
     func testAStoneKnowsWhichFamilyItLeansToward() {
-        var stone = MapStone(id: UUID(), parentID: nil, generation: 0, lane: 0.5,
-                             popNumbers: [PopCatalog.classic.number],
-                             seed: 1, createdAt: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(stone.leaning, PopCatalog.classic.family)
+        func stone(_ pops: [Int]) -> MapStone {
+            MapStone(id: UUID(), parentID: nil, generation: 0, lane: 0.5,
+                     popNumbers: pops, seed: 1,
+                     createdAt: Date(timeIntervalSince1970: 0))
+        }
 
-        // Ties resolve to the same family every time, forever.
-        let mixed = PopCatalog.all.prefix(6).map(\.number)
-        stone.popNumbers = Array(mixed)
-        XCTAssertEqual(stone.leaning, stone.leaning)
-        XCTAssertNotNil(stone.leaning)
+        XCTAssertEqual(stone([PopCatalog.classic.number]).leaning,
+                       PopCatalog.classic.family)
+
+        // The majority family wins.
+        let ember = PopCatalog.all.filter { $0.family == .ember }.prefix(2).map(\.number)
+        let oneOther = PopCatalog.all.first { $0.family == .frost }!.number
+        if ember.count == 2 {
+            XCTAssertEqual(stone(Array(ember) + [oneOther]).leaning, .ember)
+        }
+
+        // A tie resolves the same way every time, forever — the leaning is
+        // derived on every read, so an unstable tiebreak would make a stone
+        // change family between two glances at the same map.
+        let tie = [ember.first!, oneOther]
+        let first = stone(tie).leaning
+        for _ in 0..<20 {
+            XCTAssertEqual(stone(tie).leaning, first, "the tiebreak is not stable")
+        }
     }
 }
