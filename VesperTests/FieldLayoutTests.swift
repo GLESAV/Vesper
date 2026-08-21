@@ -86,9 +86,16 @@ final class FieldLayoutTests: XCTestCase {
         everyLayout { l in
             XCTAssertGreaterThanOrEqual(l.orbCeiling, l.headWhisperBottom,
                                         "an orb can reach the sky whisper's target")
+            // Pinned against what the header is CLAIMED to cost rather than
+            // against a magic number: the signage's own target, plus the gap
+            // that keeps it off the safe edge and the gap that keeps orbs off
+            // it. Anything more than that is the header creeping back, and a
+            // fixed constant would have failed at accessibility text sizes
+            // for the honest reason that a bigger target needs more room.
             let headerCost = l.orbCeiling - l.safeTop
-            XCTAssertLessThan(headerCost, 90,
-                              "the header is eating \(headerCost) pt of field")
+            let claimed = l.whisperBand + FieldLayout.edgeGap + FieldLayout.gap
+            XCTAssertEqual(headerCost, claimed, accuracy: 0.001,
+                           "the header costs \(headerCost) pt, not the \(claimed) it claims")
         }
     }
 
@@ -102,12 +109,23 @@ final class FieldLayoutTests: XCTestCase {
 
     // MARK: - The bands are ordered, always
 
+    // THE BAND ORDER CHANGED WITH THE HEADER RECLAIM, and this test was
+    // written to the old one: it asserted `hudBottom < orbCeiling`, meaning
+    // orbs began below the counter. They begin below the SIGNAGE now, and the
+    // counter is drawn over the field rather than above it — that is the
+    // whole of what bought back 70 pt at the top of every screen.
+    //
+    // So the order below is two overlapping stacks rather than one column:
+    // the signage, then the field; and separately the HUD, which starts where
+    // the field starts and hangs over it.
     func testTheBandsNeverInvertOnAnyScreen() {
         everyLayout { l in
             XCTAssertLessThan(l.headWhisperTop, l.headWhisperBottom)
-            XCTAssertLessThan(l.headWhisperBottom, l.hudTop)
+            XCTAssertLessThan(l.headWhisperBottom, l.orbCeiling)
             XCTAssertLessThan(l.hudTop, l.hudBottom)
-            XCTAssertLessThan(l.hudBottom, l.orbCeiling)
+            XCTAssertLessThanOrEqual(l.headWhisperBottom, l.hudTop,
+                                     "the counter climbed into the signage")
+            XCTAssertLessThan(l.orbCeiling, l.orbFloor)
             XCTAssertLessThan(l.footWhisperTop, l.footWhisperBottom)
             XCTAssertLessThanOrEqual(l.footWhisperBottom, l.size.height)
         }
@@ -128,8 +146,12 @@ final class FieldLayoutTests: XCTestCase {
     func testTheLayoutStaysCoherentAtTheLargestTextSizes() {
         let l = FieldLayout(size: CGSize(width: 375, height: 667),
                             safeTop: 59, safeBottom: 34, whisperBand: 72)
-        XCTAssertGreaterThanOrEqual(l.orbCeiling, l.hudBottom)
+        XCTAssertGreaterThanOrEqual(l.orbCeiling, l.headWhisperBottom)
         XCTAssertGreaterThanOrEqual(l.playHeight, 0, "play height must never go negative")
+        // The largest text sizes cost the most header, and must still leave a
+        // field worth playing in on the smallest supported phone.
+        XCTAssertGreaterThan(l.playHeight, 240,
+                             "AX text on a small phone left only \(l.playHeight) pt")
     }
 
     // MARK: - What the simulation is handed
