@@ -215,24 +215,55 @@ final class WeatherTests: XCTestCase {
     // use what is left under the ceiling once the orb's own speed is counted
     // — so however many crests, eddies, gusts and thermals overlap, the total
     // distance covered in a frame is what it has always been.
+    //
+    // WHAT THE INVARIANT ACTUALLY SAYS, AND WHY IT IS NOT `total <= ceiling`.
+    // The first draft of this test asserted exactly that, over orb speeds
+    // drawn from a fixed ±0.22-per-axis box — up to 0.311 pt/frame. That box
+    // is above the ceiling for half the airs in the game (snow's is 0.236,
+    // fog's 0.213), so it failed on the orb's own speed before the air had
+    // contributed anything at all, in every air whose `flowCarry` is zero and
+    // whose `drift` therefore returns exactly `.zero`. It was asking the
+    // weather to answer for a speed the weather did not create and cannot
+    // remove.
+    //
+    // The guarantee `WeatherField.drift` really makes — the one the product
+    // needs — is that THE AIR NEVER ADDS TO A TOTAL THAT IS ALREADY AT OR
+    // OVER THE CEILING, and never pushes one under it past it. Written as one
+    // line: the total after carrying is no more than the greater of the
+    // ceiling and what the orb was already doing. Both halves are exercised
+    // below, because the draw deliberately spans the ceiling.
     func testTheAirCanNeverCarryAnythingPastTheCeiling() {
         var rng = SplitMix64(seed: 99)
         for weather in Weather.allCases {
             let field = air(weather, frames: 700, orbs: [floater(at: CGPoint(x: 190, y: 400))])
             let ceiling = GameConfig.orbMaxSpeed * weather.speedScale * 1.6
             XCTAssertEqual(field.ceiling, ceiling, accuracy: 0.000_001)
+
+            var sawRoom = false        // at least one sample under the ceiling
+            var sawFull = false        // and at least one already at or over it
+
             for _ in 0..<400 {
                 let p = CGPoint(x: CGFloat.random(in: 0...size.width, using: &rng),
                                 y: CGFloat.random(in: 0...size.height, using: &rng))
-                let v = CGVector(dx: CGFloat.random(in: -0.22...0.22, using: &rng),
-                                 dy: CGFloat.random(in: -0.22...0.22, using: &rng))
-                let own = speed(v)
+                // Drawn as a magnitude and a heading rather than as a box, so
+                // the range of own-speeds is the stated one instead of a
+                // corner-dependent accident of two axes.
+                let own = CGFloat.random(in: 0...(ceiling * 1.3), using: &rng)
+                if own < ceiling { sawRoom = true } else { sawFull = true }
+
                 let d = field.drift(at: p, ownSpeed: own)
-                XCTAssertLessThanOrEqual(own + speed(d), ceiling + 0.000_001,
+                XCTAssertLessThanOrEqual(own + speed(d), max(own, ceiling) + 0.000_001,
                                          "\(weather) carried a pop past the ceiling")
                 XCTAssertLessThanOrEqual(speed(d), field.carry + 0.000_001,
                                          "\(weather) moved faster than the air itself")
+                if own >= ceiling {
+                    XCTAssertEqual(speed(d), 0, accuracy: 0.000_001,
+                                   "\(weather) added to a pop with nothing left")
+                }
             }
+
+            XCTAssertTrue(sawRoom, "\(weather): the draw never left the air any room")
+            XCTAssertTrue(sawFull, "\(weather): the draw never tested a full orb")
         }
     }
 
