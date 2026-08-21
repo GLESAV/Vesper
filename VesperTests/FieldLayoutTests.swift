@@ -76,10 +76,19 @@ final class FieldLayoutTests: XCTestCase {
         }
     }
 
-    func testOrbsStayClearOfTheCounterToo() {
+    // DELIBERATELY REVERSED. Orbs used to be excluded from the counter's band
+    // as well, which cost about 70 pt at the top of every screen — a quarter
+    // of the glass on a Dynamic Island phone, before a single orb could
+    // exist. The counter is not interactive, so an orb behind it costs a
+    // moment's overlap on one number; the whisper's target is a Button and an
+    // orb under THAT loses her the pop. Only the second is a collision.
+    func testTheHeaderCostsTheFieldOnlyWhatTheSignageNeeds() {
         everyLayout { l in
-            XCTAssertGreaterThanOrEqual(l.orbCeiling, l.hudBottom,
-                                        "an orb can drift behind the counter")
+            XCTAssertGreaterThanOrEqual(l.orbCeiling, l.headWhisperBottom,
+                                        "an orb can reach the sky whisper's target")
+            let headerCost = l.orbCeiling - l.safeTop
+            XCTAssertLessThan(headerCost, 90,
+                              "the header is eating \(headerCost) pt of field")
         }
     }
 

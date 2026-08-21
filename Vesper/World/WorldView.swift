@@ -728,9 +728,13 @@ private struct WorldScene: View {
             //     top of the field can only ever hold two things.
             VStack(spacing: 6) {
                 Text("\(game.count)")
-                    .font(.system(size: 40, weight: .light, design: .serif))
+                    .font(.system(size: 30, weight: .light, design: .serif))
                     .monospacedDigit()
-                    .foregroundColor(Palette.bright.opacity(0.92))
+                    .foregroundColor(Palette.bright.opacity(0.9))
+                    // Orbs may pass behind the counter now (see
+                    // `FieldLayout.orbCeiling`), so it carries its own
+                    // separation rather than taking a band of the field for it.
+                    .shadow(color: .black.opacity(0.55), radius: 6)
                     .scaleEffect(pulse ? 1.08 : 1)
                     .accessibilityLabel("\(game.count) \(Strings.setFreeA11y)")
 
