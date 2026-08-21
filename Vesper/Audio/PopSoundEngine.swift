@@ -351,23 +351,47 @@ final class PopSoundEngine {
 
     // A soft C5–E5–G5 arpeggio for clearing the field: quiet, round, brief.
     private func makeChimeBuffer() -> AVAudioPCMBuffer? {
-        let duration = 1.8
+        // SHORT. It was 1.8 seconds — a C–E–G arpeggio spread over more than
+        // half a second of onsets and then left to ring — and the owner heard
+        // it for what it had become: an announcement.
+        //
+        // The failure was one of GRAMMAR rather than length. A rising
+        // arpeggio that resolves is a fanfare, and a fanfare says "well
+        // done", which is the one thing the end of a field must never say
+        // (05 §6, and the whole argument behind the done card's rewrite).
+        // The field going quiet is not an achievement, it is a room settling.
+        //
+        // So: 0.62 s, the three notes nearly together rather than in
+        // sequence, and the top note quietest — the shape of a small bell
+        // being touched once, not a phrase being played. Still the same three
+        // pitches, so it is recognisably the sound she already knows.
+        let duration = 0.62
         let frameCount = AVAudioFrameCount(sampleRate * duration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
         buffer.frameLength = frameCount
         let channel = buffer.floatChannelData![0]
 
-        let notes: [(freq: Double, start: Double)] = [
-            (523.25, 0.0), (659.25, 0.28), (783.99, 0.56)
+        // Onsets 40 ms apart, so they arrive as one struck thing rather than
+        // as a tune. Amplitude falls with pitch: the top note is a highlight
+        // on the chord, never the point of it.
+        let notes: [(freq: Double, start: Double, gain: Double)] = [
+            (523.25, 0.00, 0.13), (659.25, 0.04, 0.10), (783.99, 0.08, 0.07)
         ]
         for frame in 0..<Int(frameCount) {
             let t = Double(frame) / sampleRate
             var sample = 0.0
             for note in notes where t >= note.start {
                 let nt = t - note.start
-                let attack = min(1, nt * 30)
-                let decay = exp(-nt * 2.6)
-                sample += sin(2.0 * .pi * note.freq * nt) * attack * decay * 0.12
+                let attack = min(1, nt * 60)
+                let decay = exp(-nt * 7.5)
+                sample += sin(2.0 * .pi * note.freq * nt) * attack * decay * note.gain
+            }
+            // A short raised-cosine tail so the buffer cannot end on a
+            // non-zero sample and click — at 0.62 s the decay has not quite
+            // reached silence on its own.
+            let fadeStart = duration - 0.06
+            if t > fadeStart {
+                sample *= 0.5 * (1 + cos(.pi * (t - fadeStart) / 0.06))
             }
             channel[frame] = Float(sample)
         }
