@@ -463,6 +463,51 @@ struct SceneRenderer {
         let grown = min(1, max(0, shell.spawn))
         guard grown > 0.01 else { return }
 
+        // THE CORD, drawn first so the shell sits on top of it.
+        //
+        // Two tiers: the part still to burn, and the part already gone. The
+        // burnt end is drawn — dimmer and thinner, not deleted — because a
+        // fuse that vanishes as it burns loses the thing that makes waiting
+        // legible. She can see how much is left.
+        if shell.fuseNodes.count > 1, shell.phase != .spent {
+            var burned: CGFloat = 0
+            if case .fuse(let b) = shell.phase { burned = b }
+            let last = shell.fuseNodes.count - 1
+            let sparkAt = (1 - burned) * CGFloat(last)
+
+            for k in 0..<last {
+                let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
+                var line = Path()
+                line.move(to: a)
+                line.addLine(to: b)
+                // Segments beyond the spark have already burned.
+                let spent = CGFloat(k + 1) > sparkAt
+                glow.stroke(line,
+                            with: .color(tint.opacity((spent ? 0.12 : 0.34) * Double(grown))),
+                            style: StrokeStyle(lineWidth: spent ? 0.8 : 1.6, lineCap: .round))
+            }
+
+            // The spark itself, where it is burning right now.
+            if case .fuse = shell.phase {
+                let k = min(last - 1, Int(sparkAt))
+                let t = sparkAt - CGFloat(k)
+                let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
+                let sp = CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+                let sr: CGFloat = 3.2
+                glow.fill(Path(ellipseIn: CGRect(x: sp.x - sr * 3, y: sp.y - sr * 3,
+                                                 width: sr * 6, height: sr * 6)),
+                          with: .radialGradient(
+                            Gradient(stops: [
+                                .init(color: tint.opacity(0.4), location: 0),
+                                .init(color: tint.opacity(0), location: 1),
+                            ]),
+                            center: sp, startRadius: 0, endRadius: sr * 3))
+                glow.fill(Path(ellipseIn: CGRect(x: sp.x - sr, y: sp.y - sr,
+                                                 width: sr * 2, height: sr * 2)),
+                          with: .color(tint.opacity(0.95)))
+            }
+        }
+
         var heading = -CGFloat.pi / 2
         var stretch: CGFloat = 1
         if case .rising = shell.phase {

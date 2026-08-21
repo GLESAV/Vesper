@@ -275,8 +275,28 @@ final class GameViewModel: ObservableObject {
             // actually pleasant to hear — the report is the part this game
             // cannot have — so the launch is sounded and the break is
             // answered softly, and neither is ever loud.
+            // THE SOUND FLOW, IN THE ORDER A REAL FIREWORK MAKES IT (owner):
+            // the fuse catches, the cord hisses as it is hurried, the mortar
+            // goes THOOMF, the shell whirrs up, and the bloom opens. Five
+            // sounds for one firework, and only the thoomf has any weight in
+            // it — the report at the top, which is what a real display is
+            // actually loud with, is the one this game cannot have.
+            case .fuseLit(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playFuseTick(startFreq: definition.whirr * 0.8)
+                HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.18,
+                                                                intensityPerSize: 0,
+                                                                sharp: true,
+                                                                pattern: .single),
+                                         sizeNorm: 0, chained: false)
+
+            case .fuseHurried(let shell):
+                let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playFuseTick(startFreq: definition.whirr)
+
             case .fireworkLaunched(let shell):
                 let definition = FireworkCatalog.definition(for: shell.definitionID)
+                PopSoundEngine.shared.playThoomf()
                 PopSoundEngine.shared.playWhirr(startFreq: definition.whirr)
                 HapticsEngine.shared.pop(profile: HapticProfile(baseIntensity: 0.22,
                                                                 intensityPerSize: 0,

@@ -82,6 +82,12 @@ enum GameEvent {
     /// the field came up into view.
     case rose(orb: Orb)
 
+    /// She lit a fuse. The cord starts burning; nothing has flown yet.
+    case fuseLit(Firework)
+
+    /// She tapped a burning fuse and pushed it along.
+    case fuseHurried(Firework)
+
     /// A shell was touched and is on its way. Carries the kind so the sound
     /// can whirr in the right register.
     case fireworkLaunched(Firework)

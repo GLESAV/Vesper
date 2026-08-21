@@ -17,6 +17,8 @@ final class PopSoundEngine {
 
     /// Whirr buffers, cached by start frequency.
     private var whirrBank: [Int: AVAudioPCMBuffer?] = [:]
+    private var fuseBank: [Int: AVAudioPCMBuffer?] = [:]
+    private var thoomfBuffer: AVAudioPCMBuffer??
     private var players: [AVAudioPlayerNode] = []
     private var nextPlayerIndex = 0
 
@@ -140,6 +142,95 @@ final class PopSoundEngine {
     }
 
     private func key(_ freq: Double) -> Int { Int(freq.rounded()) }
+
+    /// THE THOOMF: the mortar, the moment it leaves the tube.
+    ///
+    /// The one sound in this game with weight in it, and the reason it is
+    /// allowed is that it is a departure rather than an impact. A firework's
+    /// report — the bang at the top — is percussive and arrives AT you, which
+    /// is why this game cannot have one. A launch is the opposite: low, soft,
+    /// pitched downward, and going away. It is the difference between being
+    /// startled and watching something leave.
+    ///
+    /// Built as a low sine that falls fast under a burst of filtered noise —
+    /// the same shape a real mortar has, which is mostly air being displaced.
+    func playThoomf() {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        if thoomfBuffer == nil { thoomfBuffer = makeThoomfBuffer() }
+        guard let buffer = thoomfBuffer ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeThoomfBuffer() -> AVAudioPCMBuffer? {
+        let duration = 0.34
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState: UInt64 = 0x7000_D00F_1234_5678
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+        var lp = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            // 96 Hz down to about 58: a departure, not a hit.
+            let freq = 96 * (1 - 0.4 * progress)
+            let body = sin(2.0 * .pi * freq * t)
+            lp += 0.06 * (noise() - lp)
+            let air = lp * 2.2 * exp(-progress * 9)
+            let attack = sin(min(1, progress * 26) * .pi / 2)
+            let decay = exp(-progress * 5.2)
+            channel[frame] = Float((body * 0.7 + air) * attack * decay * 0.34)
+        }
+        return buffer
+    }
+
+    /// A single tick of fuse: short, dry, and barely pitched.
+    func playFuseTick(startFreq: Double) {
+        guard SettingsStore.shared.soundEnabled else { return }
+        ensureRunning()
+        guard engine.isRunning else { return }
+        let k = Int(startFreq.rounded())
+        if fuseBank[k] == nil { fuseBank[k] = makeFuseTickBuffer(startFreq: startFreq) }
+        guard let buffer = fuseBank[k] ?? nil else { return }
+        play(buffer)
+    }
+
+    private func makeFuseTickBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
+        let duration = 0.09
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
+        buffer.frameLength = frameCount
+        let channel = buffer.floatChannelData![0]
+
+        var rngState = UInt64(Int(startFreq.rounded())) | 1
+        func noise() -> Double {
+            rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
+            return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
+        }
+        var bp1 = 0.0, bp2 = 0.0
+        for frame in 0..<Int(frameCount) {
+            let t = Double(frame) / sampleRate
+            let progress = t / duration
+            let k = min(0.5, startFreq / sampleRate * 10)
+            let n = noise()
+            bp1 += k * (n - bp1)
+            bp2 += k * (bp1 - bp2)
+            let decay = exp(-progress * 22)
+            channel[frame] = Float((bp1 - bp2) * 4 * decay * 0.3)
+        }
+        return buffer
+    }
 
     func playCompletionChime() {
         guard SettingsStore.shared.soundEnabled else { return }

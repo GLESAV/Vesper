@@ -281,18 +281,26 @@ final class GameSimulation {
         guard !completed else { return [] }
         var events: [GameEvent] = []
 
-        // SHELLS ARE CHECKED FIRST, and they are checked at all only while
-        // waiting. A shell in flight is not a target — chasing one would turn
-        // a thing you watch into a thing you must keep up with — and a spent
-        // one is smoke.
-        for i in fireworks.indices where fireworks[i].phase == .waiting {
-            let dx = p.x - fireworks[i].pos.x
-            let dy = p.y - fireworks[i].pos.y
-            let rr = GameConfig.fireworkTouchRadius
-            if dx * dx + dy * dy <= rr * rr {
-                fireworks[i].phase = .rising(progress: 0)
+        // SHELLS FIRST, and only while they are on the ground. A shell in
+        // flight is not a target — chasing one would turn a thing you watch
+        // into a thing you must keep up with — and a spent one is smoke.
+        //
+        // THE SHELL AND ITS FUSE ARE ONE TARGET (owner): touching the shell
+        // does exactly what touching the cord does. There is no wrong place
+        // to tap a firework.
+        for i in fireworks.indices {
+            guard touchesFirework(fireworks[i], at: p) else { continue }
+            if case .waiting = fireworks[i].phase {
+                fireworks[i].phase = .fuse(burned: 0)
                 started = true
-                events.append(.fireworkLaunched(fireworks[i]))
+                events.append(.fuseLit(fireworks[i]))
+                return events
+            }
+            // Tapping a burning fuse hurries it along. The pacing is hers:
+            // light it and let it take its time, or chase it down the cord.
+            if case .fuse(let burned) = fireworks[i].phase {
+                fireworks[i].phase = .fuse(burned: min(0.995, burned + GameConfig.fuseTapBoost))
+                events.append(.fuseHurried(fireworks[i]))
                 return events
             }
         }
@@ -688,7 +696,8 @@ final class GameSimulation {
                         variantIndex: Int.random(in: 0..<max(1, definition.paints.count),
                                                  using: &rng),
                         angle: rnd(0 ... .pi * 2),
-                        drift: CGVector(dx: rnd(-0.04 ... 0.04), dy: rnd(-0.03 ... 0.01)))
+                        drift: CGVector(dx: rnd(-0.04 ... 0.04), dy: rnd(-0.03 ... 0.01)),
+                        fuseFrames: definition.fuse)
     }
 
     private func stepFireworks(_ f: CGFloat, into events: inout [GameEvent]) {
@@ -698,8 +707,22 @@ final class GameSimulation {
             }
             let flight = fireworks[i].kind.flight
             fireworks[i].angle += flight.spin * f
+            stepFuseRope(i, f)
 
             switch fireworks[i].phase {
+            case .fuse(let burned):
+                let next = burned + (1 / max(1, fireworks[i].fuseFrames)) * f
+                if next >= 1 {
+                    fireworks[i].phase = .rising(progress: 0)
+                    events.append(.fireworkLaunched(fireworks[i]))
+                } else {
+                    fireworks[i].phase = .fuse(burned: next)
+                    // The cord sheds sparks where it is burning.
+                    if rnd(0 ... 1) < 0.5 {
+                        addTrailSpark(at: fuseSpark(fireworks[i]), for: fireworks[i])
+                    }
+                }
+
             case .waiting:
                 // Alive on the field, but barely: a shell that wandered would
                 // be a moving target, and it is meant to be an easy one.
@@ -739,6 +762,120 @@ final class GameSimulation {
                 break
             }
         }
+    }
+
+    // MARK: The fuse
+
+    /// Whether a touch lands on a shell or anywhere along its cord.
+    ///
+    /// The whole rope is a target, not just the shell. A fuse she can see
+    /// burning and cannot touch would be the one thing on this field that
+    /// looks interactive and is not.
+    private func touchesFirework(_ shell: Firework, at p: CGPoint) -> Bool {
+        let head = GameConfig.fireworkTouchRadius
+        let dx = p.x - shell.pos.x, dy = p.y - shell.pos.y
+        if dx * dx + dy * dy <= head * head { return true }
+
+        let cord = GameConfig.fuseTouchRadius
+        guard shell.fuseNodes.count > 1 else { return false }
+        for k in 0..<(shell.fuseNodes.count - 1) {
+            if distance(from: p, toSegment: shell.fuseNodes[k], shell.fuseNodes[k + 1]) <= cord {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let vx = b.x - a.x, vy = b.y - a.y
+        let wx = p.x - a.x, wy = p.y - a.y
+        let len2 = vx * vx + vy * vy
+        guard len2 > 0.0001 else { return sqrt(wx * wx + wy * wy) }
+        let t = min(1, max(0, (wx * vx + wy * vy) / len2))
+        let cx = a.x + vx * t, cy = a.y + vy * t
+        return sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
+    }
+
+    /// Where the fuse is currently burning, in screen space.
+    ///
+    /// `burned` runs 0 at the trailing end to 1 at the shell, so the spark
+    /// travels UP the cord toward the shell — which is the direction a real
+    /// fuse burns and the direction that makes the wait legible.
+    func fuseSpark(_ shell: Firework) -> CGPoint {
+        guard shell.fuseNodes.count > 1 else { return shell.pos }
+        guard case .fuse(let burned) = shell.phase else { return shell.pos }
+        let last = shell.fuseNodes.count - 1
+        // Node 0 is the shell, so travel from the tail toward it.
+        let along = (1 - min(1, max(0, burned))) * CGFloat(last)
+        let k = min(last - 1, Int(along))
+        let t = along - CGFloat(k)
+        let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
+        return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+    }
+
+    /// The rope, one frame.
+    ///
+    /// Verlet: each node moves by where it went last frame, damped, plus a
+    /// little gravity; then a couple of passes pull neighbours back to their
+    /// rest length. Node 0 is pinned to the shell, so when the shell drifts —
+    /// or a break shoves the field — the cord whips and keeps swinging after
+    /// the shell has stopped. That lag is the difference between a drawn line
+    /// and a thing made of string.
+    private func stepFuseRope(_ i: Int, _ f: CGFloat) {
+        guard fireworks[i].phase != .spent else { return }
+        if fireworks[i].fuseNodes.isEmpty { seedFuseRope(i) }
+
+        let count = fireworks[i].fuseNodes.count
+        guard count > 1 else { return }
+        let rest = GameConfig.fuseSegmentLength
+        let damping = GameConfig.fuseDamping
+
+        for k in 1..<count {
+            let current = fireworks[i].fuseNodes[k]
+            let previous = fireworks[i].fusePrev[k]
+            var vx = (current.x - previous.x) * damping
+            var vy = (current.y - previous.y) * damping
+            // A rising shell drags its cord behind it.
+            if case .rising = fireworks[i].phase { vy += GameConfig.fuseGravity * 0.4 * f }
+            else { vy += GameConfig.fuseGravity * f }
+            // Weather moves the cord too — a string in wind is the clearest
+            // reading of wind there is.
+            vx += sin(swellPhase + CGFloat(k)) * weather.swellAmount * 0.5 * f
+            fireworks[i].fusePrev[k] = current
+            fireworks[i].fuseNodes[k] = CGPoint(x: current.x + vx * f, y: current.y + vy * f)
+        }
+
+        for _ in 0..<GameConfig.fuseRelaxPasses {
+            fireworks[i].fuseNodes[0] = fireworks[i].pos
+            for k in 0..<(count - 1) {
+                let a = fireworks[i].fuseNodes[k]
+                let b = fireworks[i].fuseNodes[k + 1]
+                let dx = b.x - a.x, dy = b.y - a.y
+                let d = max(0.0001, sqrt(dx * dx + dy * dy))
+                let correction = (d - rest) / d * 0.5
+                let ox = dx * correction, oy = dy * correction
+                if k > 0 {
+                    fireworks[i].fuseNodes[k] = CGPoint(x: a.x + ox, y: a.y + oy)
+                }
+                fireworks[i].fuseNodes[k + 1] = CGPoint(x: b.x - ox, y: b.y - oy)
+            }
+        }
+        fireworks[i].fuseNodes[0] = fireworks[i].pos
+    }
+
+    private func seedFuseRope(_ i: Int) {
+        let count = GameConfig.fuseNodeCount
+        let rest = GameConfig.fuseSegmentLength
+        // Hangs down and away, so it is visible against the field rather than
+        // tucked under the shell.
+        let lean = rnd(-0.5 ... 0.5)
+        var nodes: [CGPoint] = []
+        for k in 0..<count {
+            nodes.append(CGPoint(x: fireworks[i].pos.x + lean * CGFloat(k) * rest,
+                                 y: fireworks[i].pos.y + CGFloat(k) * rest))
+        }
+        fireworks[i].fuseNodes = nodes
+        fireworks[i].fusePrev = nodes
     }
 
     private func addTrailSpark(at p: CGPoint, for shell: Firework) {

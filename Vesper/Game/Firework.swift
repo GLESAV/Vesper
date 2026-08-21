@@ -201,9 +201,17 @@ struct FireworkFlight: Equatable {
 
 struct Firework {
     enum Phase: Equatable {
-        /// On the field, waiting to be touched. This is the only phase in
-        /// which it can be tapped.
+        /// On the field, unlit.
         case waiting
+        /// The fuse is burning. `burned` runs 0 (the trailing end) to 1 (the
+        /// shell itself).
+        ///
+        /// **This is the phase the object exists for.** A firework you tap
+        /// and watch leave is a button; a firework whose fuse you light and
+        /// then hurry along is a thing you are doing. Tapping again while it
+        /// burns pushes it faster, so the pacing is hers — light it and let
+        /// it take its time, or chase it down the cord.
+        case fuse(burned: CGFloat)
         /// Climbing. `progress` runs 0 to 1 toward `apex`.
         case rising(progress: CGFloat)
         /// Broken. Kept for a moment so the renderer can flash the break.
@@ -226,6 +234,24 @@ struct Firework {
     /// Slow drift while it waits, so it is alive on the field.
     var drift: CGVector = .zero
     var spawn: CGFloat = 0
+
+    /// THE FUSE, AS A ROPE. Node 0 is pinned to the shell and the rest hang
+    /// and trail behind it.
+    ///
+    /// Simulated rather than drawn as a curve, because the owner asked for it
+    /// to "move like a tail — fluid like a string as it gets pushed", and a
+    /// bezier that merely follows the shell reads as a decal stuck to it. A
+    /// rope has slack: it whips when the shell is shoved, keeps swinging
+    /// after it stops, and settles at its own pace. That lag is the whole
+    /// difference between a drawn line and a thing made of string.
+    ///
+    /// Verlet integration with a couple of constraint passes — no springs, no
+    /// tuning, and stable at any frame rate the clamped `dt` allows.
+    var fuseNodes: [CGPoint] = []
+    var fusePrev: [CGPoint] = []
+
+    /// Frames this fuse takes to burn if she never touches it again.
+    var fuseFrames: CGFloat = 90
 }
 
 // MARK: - Smoke

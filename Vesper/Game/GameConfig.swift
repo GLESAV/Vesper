@@ -92,6 +92,22 @@ enum GameConfig {
     /// make it the hardest thing on a screen where nothing is hard.
     static let fireworkTouchRadius: CGFloat = 30
 
+    /// How much of the fuse one tap burns through. A long fuse takes several
+    /// taps to hurry; a short one is nearly gone at the first.
+    static let fuseTapBoost: CGFloat = 0.22
+
+    /// The cord: how many nodes, how far apart, and how it hangs.
+    static let fuseNodeCount = 8
+    static let fuseSegmentLength: CGFloat = 7
+    static let fuseGravity: CGFloat = 0.14
+    static let fuseDamping: CGFloat = 0.94
+    static let fuseRelaxPasses = 3
+
+    /// How close a touch must come to the cord to count. Generous, because a
+    /// fuse she can see burning and cannot touch would be the one thing on
+    /// this field that looks interactive and is not.
+    static let fuseTouchRadius: CGFloat = 22
+
     /// Frames from launch to break, before the kind's speed multiplier.
     static let fireworkRiseFrames: CGFloat = 62
 

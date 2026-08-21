@@ -24,6 +24,9 @@ struct FireworkDefinition: Identifiable, Equatable {
 
     /// Multiplier on the shell's hang time.
     let hang: CGFloat
+
+    /// Fuse length in frames at 60 fps. Part of a shell's character.
+    let fuse: CGFloat
     /// Pitch of the whirr as it climbs, in Hz at the start of the rise.
     let whirr: Double
     /// The voice its bloom is sounded with.
@@ -98,7 +101,22 @@ enum FireworkCatalog {
                             whirr: Double = 300, bloom: SoundVoice = .breath,
                             _ flavor: String) -> FireworkDefinition {
         FireworkDefinition(id: id, name: name, kind: kind, flavor: flavor,
-                           paints: paints, hang: hang, whirr: whirr, bloom: bloom)
+                           paints: paints, hang: hang, fuse: fuseLength(for: kind),
+                           whirr: whirr, bloom: bloom)
+    }
+
+    /// Some fuses are short and some are long (owner), and which is which
+    /// follows the shell's own character: the things that stay low are lit
+    /// and gone, and the finale shell makes you wait for it.
+    private static func fuseLength(for kind: FireworkKind) -> CGFloat {
+        switch kind {
+        case .fountain, .crackle:        return 45
+        case .comet, .serpent, .spinner: return 75
+        case .peony, .ring, .crossette:  return 95
+        case .chrysanthemum, .strobe:    return 110
+        case .willow, .palm, .horsetail: return 130
+        case .brocade:                   return 165
+        }
     }
 
     // MARK: - The entries

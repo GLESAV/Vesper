@@ -222,4 +222,103 @@ final class FireworkTests: XCTestCase {
                                         "\(family) displays would repeat")
         }
     }
+
+    // MARK: - The fuse
+
+    // A firework you tap and watch leave is a button. A firework whose fuse
+    // you light and then hurry along is a thing you are doing.
+    func testATouchLightsTheFuseRatherThanLaunchingTheShell() {
+        let s = display()
+        guard let shell = s.fireworks.first(where: { $0.phase == .waiting }) else {
+            return XCTFail("no waiting shell")
+        }
+        let events = s.tap(at: shell.pos)
+        XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } })
+        XCTAssertFalse(events.contains { if case .fireworkLaunched = $0 { return true } else { return false } },
+                       "the shell flew before its fuse burned")
+    }
+
+    func testTappingTheCordIsTheSameAsTappingTheShell() {
+        let s = display()
+        _ = run(s, frames: 4)   // let the rope settle into place
+        guard let index = s.fireworks.firstIndex(where: { $0.phase == .waiting }),
+              s.fireworks[index].fuseNodes.count > 2 else {
+            return XCTFail("no fuse to touch")
+        }
+        // The far end of the cord, as far from the shell as it gets.
+        let tail = s.fireworks[index].fuseNodes.last!
+        let events = s.tap(at: tail)
+        XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } },
+                      "the cord was not a target")
+    }
+
+    func testTappingABurningFuseHurriesIt() {
+        let s = display()
+        guard let index = s.fireworks.firstIndex(where: { $0.phase == .waiting }) else {
+            return XCTFail("no waiting shell")
+        }
+        s.tap(at: s.fireworks[index].pos)
+        _ = run(s, frames: 2)
+        guard case .fuse(let before) = s.fireworks[index].phase else {
+            return XCTFail("the fuse is not burning")
+        }
+        s.tap(at: s.fireworks[index].pos)
+        guard case .fuse(let after) = s.fireworks[index].phase else {
+            return XCTFail("the fuse stopped burning")
+        }
+        XCTAssertGreaterThan(after, before + GameConfig.fuseTapBoost * 0.5,
+                             "tapping the cord did not hurry it")
+    }
+
+    // Left alone it still goes. Hurrying is an option, never a requirement —
+    // otherwise a firework would be the one thing here that needs work.
+    func testAFuseLeftAloneBurnsDownAndLaunchesByItself() {
+        let s = display()
+        guard let index = s.fireworks.firstIndex(where: { $0.phase == .waiting }) else {
+            return XCTFail("no waiting shell")
+        }
+        s.tap(at: s.fireworks[index].pos)
+        let events = run(s, frames: 600)
+        XCTAssertTrue(events.contains { if case .fireworkLaunched = $0 { return true } else { return false } },
+                      "an untouched fuse never reached the shell")
+    }
+
+    func testShortAndLongFusesBothExist() {
+        let lengths = Set(FireworkCatalog.all.map(\.fuse))
+        XCTAssertGreaterThan(lengths.count, 3, "every fuse is the same length")
+        XCTAssertLessThan(lengths.min()!, 60, "no shell is lit-and-gone")
+        XCTAssertGreaterThan(lengths.max()!, 140, "no shell makes you wait")
+    }
+
+    // The cord is a rope, not a decal: it has slack, and it keeps moving
+    // after the shell has stopped.
+    func testTheFuseHangsAndTrailsRatherThanStickingToTheShell() {
+        let s = display()
+        _ = run(s, frames: 30)
+        guard let shell = s.fireworks.first, shell.fuseNodes.count > 2 else {
+            return XCTFail("no rope")
+        }
+        // Node 0 is pinned to the shell; the rest must not be on top of it.
+        XCTAssertEqual(shell.fuseNodes[0].x, shell.pos.x, accuracy: 0.5)
+        XCTAssertEqual(shell.fuseNodes[0].y, shell.pos.y, accuracy: 0.5)
+        let tail = shell.fuseNodes.last!
+        let dx = tail.x - shell.pos.x, dy = tail.y - shell.pos.y
+        XCTAssertGreaterThan((dx * dx + dy * dy).squareRoot(), 20,
+                             "the cord collapsed onto the shell")
+    }
+
+    func testTheRopeStaysTogetherUnderAShove() {
+        let s = display()
+        for shell in s.fireworks where shell.phase == .waiting { s.tap(at: shell.pos) }
+        _ = run(s, frames: 600)
+        for shell in s.fireworks where shell.fuseNodes.count > 1 {
+            for k in 0..<(shell.fuseNodes.count - 1) {
+                let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
+                let d = ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
+                XCTAssertLessThan(d, GameConfig.fuseSegmentLength * 3,
+                                  "the rope stretched apart")
+                XCTAssertFalse(d.isNaN, "the rope went unstable")
+            }
+        }
+    }
 }
