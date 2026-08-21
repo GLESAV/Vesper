@@ -39,6 +39,34 @@ final class FireworkTests: XCTestCase {
     /// moves. The longest fuse is 165 frames and the rise adds about 60, so
     /// the run has to be generous or the brocade is still climbing when the
     /// assertions land.
+    /// Lights everything, then runs until every shell has broken.
+    ///
+    /// Stepping a FIXED number of frames does not work for smoke: fuses run
+    /// 45 to 165 frames and a puff is gone in roughly 300 to 600, so a run
+    /// long enough for the brocade to break is also long enough for the
+    /// peony's haze to have cleared. Anything asserting about smoke has to
+    /// stop when the last shell breaks, not at some frame count that happens
+    /// to be past it.
+    ///
+    /// Returns the peak smoke seen along the way, which is the honest measure
+    /// of stacking — the haze gathers and then thins, so a single reading at
+    /// the end measures whichever moment it landed on.
+    @discardableResult
+    private func lightAndRunUntilAllSpent(_ s: GameSimulation,
+                                          cap: Int = 1_500) -> (events: [GameEvent], peakSmoke: Int) {
+        lightEverythingAndRun(s, frames: 0)
+        var all: [GameEvent] = []
+        var peak = 0
+        for _ in 0..<cap {
+            all += s.step(dt: 1.0 / 60)
+            peak = max(peak, s.smoke.count)
+            if s.fireworks.allSatisfy({ $0.phase == .spent }) { break }
+        }
+        XCTAssertTrue(s.fireworks.allSatisfy { $0.phase == .spent },
+                      "a shell never broke within \(cap) frames")
+        return (all, peak)
+    }
+
     @discardableResult
     private func lightEverythingAndRun(_ s: GameSimulation, frames: Int) -> [GameEvent] {
         for _ in 0..<40 {
@@ -102,7 +130,7 @@ final class FireworkTests: XCTestCase {
     func testABreakNeverAddsToTheFieldsTotal() {
         let s = display()
         let total = s.orbs.count + s.reserve.count
-        _ = lightEverythingAndRun(s, frames: 900)
+        _ = lightAndRunUntilAllSpent(s)
         XCTAssertLessThanOrEqual(s.orbs.count + s.reserve.count, total,
                                  "a shell manufactured orbs instead of sowing them")
     }
@@ -111,7 +139,7 @@ final class FireworkTests: XCTestCase {
         let s = sim(stage: FieldPlan.finalStage, generation: 12)
         guard !s.fireworks.isEmpty, !s.reserve.isEmpty else { return }
         let held = s.reserve.count
-        _ = lightEverythingAndRun(s, frames: 900)
+        _ = lightAndRunUntilAllSpent(s)
         XCTAssertLessThan(s.reserve.count, held, "a break sowed nothing")
     }
 
@@ -119,7 +147,8 @@ final class FireworkTests: XCTestCase {
 
     func testAShoveNeverPushesAnOrbPastTheSpeedCeiling() {
         let s = display()
-        _ = lightEverythingAndRun(s, frames: 700)
+        _ = lightAndRunUntilAllSpent(s)
+        _ = run(s, frames: 120)   // let the shoves settle
         let cap = GameConfig.orbMaxSpeed * Weather.clear.speedScale * 1.6
         for orb in s.orbs where orb.alive {
             let speed = (orb.vel.dx * orb.vel.dx + orb.vel.dy * orb.vel.dy).squareRoot()
@@ -147,20 +176,23 @@ final class FireworkTests: XCTestCase {
 
     func testEveryShellBreaksAndLeavesSmoke() {
         let s = display()
-        let events = lightEverythingAndRun(s, frames: 900)
+        let (events, peak) = lightAndRunUntilAllSpent(s)
         XCTAssertTrue(events.contains { if case .fireworkBurst = $0 { return true } else { return false } })
-        XCTAssertFalse(s.smoke.isEmpty, "a break left no smoke")
+        XCTAssertGreaterThan(peak, 0, "a break left no smoke")
         XCTAssertTrue(s.fireworks.allSatisfy { $0.phase == .spent }, "a shell never broke")
     }
 
     // Smoke has to accumulate, or it is an effect rather than a display.
     func testSmokeStacksAndThenClears() {
         let s = display()
-        _ = lightEverythingAndRun(s, frames: 700)
-        let gathered = s.smoke.count
-        XCTAssertGreaterThan(gathered, GameConfig.smokePuffsPerBurst,
+        XCTAssertGreaterThan(s.fireworks.count, 1, "one shell cannot demonstrate stacking")
+        let (_, peak) = lightAndRunUntilAllSpent(s)
+
+        // More than one shell's worth was in the air at once — which is the
+        // whole claim. One puff is an effect; a gathering haze is a display.
+        XCTAssertGreaterThan(peak, GameConfig.smokePuffsPerBurst,
                              "smoke from several shells did not gather")
-        XCTAssertLessThanOrEqual(s.smoke.count, GameConfig.smokeCap)
+        XCTAssertLessThanOrEqual(peak, GameConfig.smokeCap, "the haze blew past its cap")
 
         _ = run(s, frames: 4_000)
         XCTAssertTrue(s.smoke.isEmpty, "smoke never cleared")
@@ -350,7 +382,7 @@ final class FireworkTests: XCTestCase {
 
     func testTheRopeStaysTogetherUnderAShove() {
         let s = display()
-        _ = lightEverythingAndRun(s, frames: 900)
+        _ = lightAndRunUntilAllSpent(s)
         for shell in s.fireworks where shell.fuseNodes.count > 1 {
             for k in 0..<(shell.fuseNodes.count - 1) {
                 let a = shell.fuseNodes[k], b = shell.fuseNodes[k + 1]
