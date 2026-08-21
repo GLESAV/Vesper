@@ -381,6 +381,30 @@ private struct WorldScene: View {
                                                 travelPerPlace: camera.config.travelPerPlace,
                                                 viewHeight: h)
 
+        // THE HORIZON (the owner: "can we make the border between 'the sky'
+        // and gameplay either seamless (transitioning) or delineated"). The
+        // seamless answer, and it is read HERE with every other per-frame
+        // scalar, for exactly the reason the two above it are: ruling 7 bars
+        // mirroring a camera value into anything SwiftUI diffs, and a ground
+        // interpolated per frame in a view would invalidate that view at frame
+        // rate and undo the whole reason the camera lives outside the view
+        // system. So this goes where `parallax` goes — down into the field's
+        // `Canvas`, which may read what a view may not. Nothing published,
+        // nothing `@State`, no `withAnimation`, and `background` below still
+        // keys on `place` and nothing else.
+        //
+        // The band needs no `y` from anyone: it is drawn from the field
+        // canvas's own top edge, which IS the join, so it travels with the
+        // field at the field's exact rate. `rm` is passed through because the
+        // accessible path deserves to be a decision rather than a consequence
+        // of `offset` happening to be zero — under Reduce Motion the horizon
+        // holds its rest value and crossfades with the field, and translates
+        // by not one point. `HorizonRender` owns the rest.
+        let horizon = HorizonRender.state(offset: offset,
+                                          travelPerPlace: camera.config.travelPerPlace,
+                                          viewHeight: h,
+                                          reduceMotion: rm)
+
         // BARRIER CONDITION 14. `isTransitioning` is the single question —
         // never `flow`, never `exceedsTransitFlow` (the R-ARCH carry-forward
         // onto W05): those are derived from translation, and under Reduce
@@ -434,7 +458,8 @@ private struct WorldScene: View {
         return ZStack {
             placed(SkyView(model: model), as: .sky,
                    y: y(.sky), alpha: alpha(.sky), luminance: luminance, size: size)
-            placed(field(at: date, size: size, moteParallax: parallax), as: .field,
+            placed(field(at: date, size: size, moteParallax: parallax, horizon: horizon),
+                   as: .field,
                    y: y(.field), alpha: alpha(.field), luminance: luminance, size: size)
             placed(JournalView(model: model), as: .journal,
                    y: y(.journal), alpha: alpha(.journal), luminance: luminance, size: size)
@@ -632,7 +657,11 @@ private struct WorldScene: View {
     // passed down rather than read here: this function is inside a `Canvas`
     // draw closure, and a draw closure is the one place in the app that may
     // not go looking for state.
-    private func field(at date: Date, size: CGSize, moteParallax: CGFloat) -> some View {
+    //
+    // `horizon` travels the identical route, for the identical reason, and is
+    // the whole of what the field is told about the join above it.
+    private func field(at date: Date, size: CGSize, moteParallax: CGFloat,
+                       horizon: HorizonRender.Horizon) -> some View {
         ZStack {
             Canvas { ctx, _ in
                 // RULE 3, THE LINE IT LIVES ON. The pinned `size` from the
@@ -643,7 +672,8 @@ private struct WorldScene: View {
                 // camera position or the field is scrambled mid-play.
                 game.frame(date: date, size: size)
                 renderer.draw(game.sim, into: &ctx, size: size,
-                              moteParallax: moteParallax)
+                              moteParallax: moteParallax,
+                              horizon: horizon)
             }
 
             // The counter belongs to the FIELD, not to the app: it travels
@@ -964,6 +994,15 @@ private struct WorldScene: View {
     // reading of the request: she needs the ground to have changed when she
     // gets somewhere, not to smear continuously while she is travelling —
     // the parallax and the dimming already carry the travelling.
+    //
+    // AND THE COLOUR IS NO LONGER THE ONLY THING AT THE JOIN. What this
+    // comment used to concede — that between the sky and the field there is a
+    // colour change once you get there and nothing on the way — is answered by
+    // the HORIZON, drawn inside the field's `Canvas` (`HorizonRenderer`) where
+    // a per-frame camera value is allowed to be read. That is why this
+    // property did not have to change: the continuous half of the join lives
+    // where ruling 7 permits it, and the ground keeps doing the one thing it
+    // is good at, which is telling her where she has arrived.
     //
     // All three grounds stay dark, muted and unsaturated (guardrail 4). The
     // sky goes cooler and deeper, the way a night sky is colder than a room;

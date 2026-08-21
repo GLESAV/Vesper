@@ -267,7 +267,15 @@ struct SceneRenderer {
     // which has no camera at all — keeps calling this exactly as it always
     // has and draws exactly what it always did.
     func draw(_ sim: GameSimulation, into context: inout GraphicsContext, size: CGSize,
-              moteParallax: CGFloat = 0) {
+              moteParallax: CGFloat = 0,
+              horizon: HorizonRender.Horizon = .none) {
+        // THE HORIZON, AT THE VERY BACK OF THE DRAW ORDER — the join between
+        // the sky and the field, drawn behind every mote, orb, ring and
+        // particle so it can never compete with one. Two gradient fills, and
+        // none at all when there is no light to draw. `HorizonRenderer` owns
+        // all of it; this is the only line the field's renderer needs to know.
+        HorizonRender.draw(horizon, into: &context, size: size)
+
         var glow = context
         glow.blendMode = .plusLighter
 
