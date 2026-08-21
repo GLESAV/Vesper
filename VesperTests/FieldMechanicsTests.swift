@@ -78,7 +78,11 @@ final class FieldMechanicsTests: XCTestCase {
             let s = sim(seed: UInt64(stage) &+ 7, stage: stage)
             let plan = FieldPlan.forStage(stage)
             var splitters = 0, drifters = 0, generators = 0
-            for o in s.orbs {
+            // SURFACE AND RESERVE TOGETHER. A field is deeper than the glass
+            // now: past `surfaceCapacity` the rest of it waits below, so
+            // counting only what is on screen counts a fraction of the field
+            // and the plan looks unmet when it is not.
+            for o in s.orbs + s.reserve {
                 switch o.kind {
                 case .splitter: splitters += 1
                 case .drifter: drifters += 1
@@ -89,7 +93,8 @@ final class FieldMechanicsTests: XCTestCase {
             XCTAssertEqual(splitters, plan.splitters, "stage \(stage) splitters")
             XCTAssertEqual(drifters, plan.drifters, "stage \(stage) drifters")
             XCTAssertEqual(generators, plan.generators, "stage \(stage) generators")
-            XCTAssertEqual(s.orbs.count, plan.orbCount + plan.generators, "stage \(stage) total")
+            XCTAssertEqual(s.orbs.count + s.reserve.count,
+                           plan.orbCount + plan.generators, "stage \(stage) total")
         }
     }
 

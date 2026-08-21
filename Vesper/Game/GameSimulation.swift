@@ -75,6 +75,15 @@ final class GameSimulation {
     /// how deep it goes.
     private(set) var reserve: [Orb] = []
 
+    /// How many orbs this field may hold on the surface at once.
+    ///
+    /// `GameConfig.surfaceCapacity` plus this field's generators: a generator
+    /// always starts on the surface — a generator underneath would be the
+    /// field making more of itself where she cannot see it happen — so it
+    /// occupies a place that is not one of the capacity's. Without this the
+    /// surface was over budget from the first frame and NOTHING EVER ROSE.
+    private var surfaceBudget = GameConfig.surfaceCapacity
+
     /// Phase of the lateral swell, advanced per frame. Not published and not
     /// read during a draw.
     private var swellPhase: CGFloat = 0
@@ -122,6 +131,7 @@ final class GameSimulation {
                                         generation: generation,
                                         plays: plays)
         let surface = FieldPlan.surfaceCount(total: total)
+        surfaceBudget = surface + plan.generators
 
         var kinds: [OrbKind] = []
         for _ in 0..<plan.splitters { kinds.append(.splitter(remaining: plan.splitDepth)) }
@@ -222,6 +232,7 @@ final class GameSimulation {
     func replaceOrbs(_ newOrbs: [Orb]) {
         orbs = newOrbs
         reserve.removeAll()
+        surfaceBudget = max(GameConfig.surfaceCapacity, newOrbs.count)
         // Weather is part of the randomness this hook exists to remove: a
         // test that installs an exact field and then watches it move must not
         // have the air chosen for it. `layout(size:)` seeds a field on first
@@ -339,7 +350,7 @@ final class GameSimulation {
     @discardableResult
     private func surfaceFromReserve(near p: CGPoint) -> Orb? {
         guard !reserve.isEmpty else { return nil }
-        guard aliveCount < GameConfig.surfaceCapacity else { return nil }
+        guard aliveCount < surfaceBudget else { return nil }
         var orb = reserve.removeLast()
         orb.spawn = 0
         orb.pos = clampIntoBounds(

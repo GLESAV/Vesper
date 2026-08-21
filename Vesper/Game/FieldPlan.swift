@@ -154,8 +154,15 @@ struct FieldPlan: Equatable {
         let depth = pow(GameConfig.depthGrowthPerGeneration, Double(max(0, generation)))
         let replayIndex = min(max(0, plays), GameConfig.replayMultipliers.count - 1)
         let replay = GameConfig.replayMultipliers[replayIndex]
+        // CLAMPED IN DOUBLE SPACE, BEFORE THE CONVERSION, and that is not a
+        // style choice. 1.2^400 is about 1e31; `Int(1e32)` is not
+        // representable and converting it traps — so a Path deep enough would
+        // not have produced a huge field, it would have crashed the app on
+        // seeding. The cap has to be applied while the number is still a
+        // Double.
         let grown = Double(base) * depth * replay
-        return max(base, min(GameConfig.maxFieldOrbs, Int(grown.rounded())))
+        let capped = min(Double(GameConfig.maxFieldOrbs), max(Double(base), grown))
+        return Int(capped.rounded())
     }
 
     /// How many of those start on the surface.

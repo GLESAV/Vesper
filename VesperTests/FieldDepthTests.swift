@@ -55,6 +55,17 @@ final class FieldDepthTests: XCTestCase {
     // Compounding growth has to stop somewhere. 1.2x per generation reaches
     // 38x by generation twenty and 5,000x by fifty; a field that cannot be
     // finished in an evening is not a bigger field, it is a broken one.
+    // The cap must be applied while the number is still a Double. 1.2^400 is
+    // about 1e31; `Int(1e32)` is not representable and converting it traps, so
+    // this is a crash test wearing a bounds test's clothes.
+    func testAnAbsurdlyDeepPathDoesNotTrapOnConversion() {
+        for generation in [200, 400, 1_000, 10_000] {
+            let total = FieldPlan.totalOrbs(base: 16, generation: generation, plays: 2)
+            XCTAssertEqual(total, GameConfig.maxFieldOrbs,
+                           "generation \(generation) should sit at the cap")
+        }
+    }
+
     func testGrowthIsCappedSoAFieldStaysFinishable() {
         for generation in [30, 80, 400] {
             let total = FieldPlan.totalOrbs(base: 16, generation: generation, plays: 2)
