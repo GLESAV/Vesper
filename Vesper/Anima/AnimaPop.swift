@@ -289,16 +289,30 @@ extension PopFamily {
 
         // LANTERN — a body with a handle. The only boxy one.
         case .lantern:
+            // `count` TAKES THE SIDES AND `trait` BECOMES A SIZE.
+            //
+            // The first version drove sides from `trait` and roundness from
+            // `accent`, and neither of those is an extent: every lantern
+            // measured exactly 1.160, because the handle sits at a fixed
+            // offset and dominates. A family with no size axis has ten members
+            // differing only in facet count, which reads at a glance as one
+            // object drawn ten times.
+            //
+            // Sides belong on `count` in any case — it is the knob for "how
+            // many of something", and lantern was the only family not using
+            // it.
+            let scale = 0.72 + 0.26 * v.trait
             return [
-                root(.polygon(sides: 5 + Int(v.trait * 3), roundness: 0.4 + 0.4 * v.accent),
-                     scale: 0.80),
+                root(.polygon(sides: min(max(v.count, 4), 9),
+                              roundness: 0.25 + 0.55 * v.accent),
+                     scale: scale),
                 AnimaPart("light", .disc, parent: "body",
                           rest: AnimaTransform(offset: CGPoint(x: 0, y: 0.05),
-                                               scale: 0.62),
+                                               scale: 0.60),
                           paint: accent, depth: 2),
                 AnimaPart("handle", .arc(sweep: 2.6, thickness: 0.16), parent: "body",
-                          rest: AnimaTransform(offset: CGPoint(x: 0, y: -0.95),
-                                               rotation: -.pi / 2, scale: 0.5),
+                          rest: AnimaTransform(offset: CGPoint(x: 0, y: -1.05),
+                                               rotation: -.pi / 2, scale: 0.42),
                           paint: accent, depth: 8, lag: 0.04)
             ]
 
@@ -601,7 +615,43 @@ enum AnimaPop {
         59: AnimaVariation(trait: 0.95, accent: 0.05, count: 2, tilt: 0.26),
         // "It counts to twelve and lets you rest." — the rare one: the
         // longest bar, and the most turned.
-        60: AnimaVariation(trait: 1.00, accent: 0.60, count: 2, tilt: -0.40)
+        60: AnimaVariation(trait: 1.00, accent: 0.60, count: 2, tilt: -0.40),
+
+        // ── 061–070 · LANTERN — light you can hold ──────────────────────
+        //
+        // A body with a handle and a light inside it. `trait` is HOW BIG,
+        // `accent` is HOW ROUND (a hard-edged case against a paper balloon),
+        // `count` is the number of sides, `tilt` is the hang.
+
+        // "Light you can hold is light you can share." — the reference, level.
+        61: AnimaVariation(trait: 0.45, accent: 0.50, count: 6, tilt: 0.00),
+        // "Proof that small things can be seen." — the smallest of the
+        // hundred so far, and round. Smallness is the entire claim.
+        62: AnimaVariation(trait: 0.00, accent: 0.85, count: 5, tilt: 0.18),
+        // "It rises because it is mostly hope." — large and almost a balloon:
+        // the roundest thing in the family, barely a case at all.
+        63: AnimaVariation(trait: 0.85, accent: 1.00, count: 5, tilt: -0.10),
+        // "A thread's whole job is to hold a flame." — small, hard-edged and
+        // tipping. Four sides is as close to a line as this family gets.
+        64: AnimaVariation(trait: 0.12, accent: 0.05, count: 4, tilt: 0.30),
+        // "Someone left it on for you." — boxy, four-square, level. A porch
+        // fixture is a box, and it is exactly where you left it.
+        65: AnimaVariation(trait: 0.62, accent: 0.15, count: 4, tilt: 0.00),
+        // "Underground, and still it bothers to shine." — small, round, and
+        // the most turned: awkwardly placed, and shining anyway.
+        66: AnimaVariation(trait: 0.20, accent: 0.72, count: 7, tilt: 0.42),
+        // "A hundred lights, none of them in a hurry." — the most facets in
+        // the family. A hundred lights is a count.
+        67: AnimaVariation(trait: 0.50, accent: 0.62, count: 9, tilt: -0.25),
+        // "The afternoon, preserved in resin." — large and very round, like
+        // something set in amber.
+        68: AnimaVariation(trait: 0.70, accent: 0.90, count: 8, tilt: 0.10),
+        // "Warm noise, good smells, nowhere to be." — large and leaning; the
+        // posture of having nowhere to be.
+        69: AnimaVariation(trait: 0.92, accent: 0.40, count: 7, tilt: -0.35),
+        // "It doesn't chase ships. It just stays lit." — the largest, the
+        // hardest-edged, and dead level. Staying put is the whole line.
+        70: AnimaVariation(trait: 1.00, accent: 0.10, count: 6, tilt: 0.00)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {
