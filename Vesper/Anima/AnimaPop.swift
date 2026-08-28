@@ -350,7 +350,45 @@ enum AnimaPop {
         9:  AnimaVariation(trait: 0.80, accent: 0.45, count: 2, tilt: -0.20),
         // "It stays a moment longer than it must." — the rare one: the
         // companion nearly rivals the body and will not leave.
-        10: AnimaVariation(trait: 0.10, accent: 1.00, count: 2, tilt: -0.08)
+        10: AnimaVariation(trait: 0.10, accent: 1.00, count: 2, tilt: -0.08),
+
+        // ── 011–020 · EMBER — warm, not burning ─────────────────────────
+        //
+        // A flame with sparks leaving it. `trait` is HOW POINTED the flame is,
+        // `accent` is HOW FAR AND LARGE the sparks fly, `count` is how many,
+        // `tilt` is the lean.
+        //
+        // The family's own line — "warm, not burning" — is a constraint on the
+        // whole batch, not just on #011: nothing here is a blaze. The largest
+        // reach in the family is Bonfire at 1.37, against Vesper's 1.33.
+
+        // "Warm, not burning. There is a difference." — blunt, sparks close.
+        // The bluntness IS the difference.
+        11: AnimaVariation(trait: 0.15, accent: 0.20, count: 3, tilt: 0.00),
+        // "Small fires ask for small breaths." — sharp and tight.
+        12: AnimaVariation(trait: 0.55, accent: 0.10, count: 3, tilt: -0.10),
+        // "The center of a house that loves you." — upright and evenly
+        // ringed. A hearth is level; nothing about it leans.
+        13: AnimaVariation(trait: 0.25, accent: 0.35, count: 5, tilt: 0.00),
+        // "What is finished can still glow." — blunt, fallen over, sparks
+        // scattered wide. Spent, and still going.
+        14: AnimaVariation(trait: 0.05, accent: 0.55, count: 4, tilt: 0.25),
+        // "Carried in pockets, given away free." — many sparks, held close.
+        15: AnimaVariation(trait: 0.30, accent: 0.15, count: 5, tilt: -0.18),
+        // "Nothing worth keeping happens fast." — long and tight; the flame
+        // that is going nowhere.
+        16: AnimaVariation(trait: 0.85, accent: 0.05, count: 3, tilt: 0.08),
+        // "A flower doing an impression of the sun." — radial and even, so it
+        // reads as petals rather than sparks.
+        17: AnimaVariation(trait: 0.40, accent: 0.62, count: 5, tilt: 0.00),
+        // "Gather round. Let the night be long." — the widest reach here.
+        18: AnimaVariation(trait: 0.50, accent: 1.00, count: 5, tilt: -0.05),
+        // "Something quick and russet in the hedgerow." — sharpest and
+        // leaning hardest; quickness drawn as a lean.
+        19: AnimaVariation(trait: 0.95, accent: 0.30, count: 3, tilt: 0.42),
+        // "The longest light. It turns here." — the longest flame, and the
+        // most turned of the ten. The line names its own tilt.
+        20: AnimaVariation(trait: 1.00, accent: 0.78, count: 5, tilt: -0.35)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {

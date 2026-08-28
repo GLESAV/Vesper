@@ -229,7 +229,10 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       spread is a gradient, and a gradient is not ten things. Reach spans
       1.00–1.33; closest pair in the variation plane 0.13. **#001 is pinned at
       exactly 1.00**, the most orb-like of the hundred (guardrail 5), by a test.
-- [ ] A2 — **ember** 011–020
+- [x] A2 — **ember** 011–020. `trait` = flame sharpness, `accent` = spark
+      reach and size, `count` = how many. The family line "warm, not burning"
+      constrains the whole batch, not just #011 — nothing here is a blaze.
+      Reach 1.05–1.37; closest pair 0.16.
 - [ ] A3 — **tide** 021–030
 - [ ] A4 — **bloom** 031–040
 - [ ] A5 — **frost** 041–050
