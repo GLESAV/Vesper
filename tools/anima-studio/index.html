@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anima Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27%23d9d5e4%27/%3E%3C/svg%3E">
 <!--
   ANIMA STUDIO — the previewer.
 
@@ -309,8 +310,10 @@ function applyFilters() {
     h.style.display = any ? "" : "none";
     grid.style.display = any ? "" : "none";
   });
+  const voices = Object.keys(LIB.voices).length;
   sub.textContent = shown + " of " + LIB.objects.length + " objects · " +
-    Object.keys(LIB.voices).length + " instruments · audio at " + LIB.sampleRate + " Hz";
+    voices + (voices === 1 ? " instrument" : " instruments") +
+    " · audio at " + LIB.sampleRate + " Hz";
 }
 
 // ── Build ─────────────────────────────────────────────────────────────────

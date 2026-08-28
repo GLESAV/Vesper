@@ -78,8 +78,20 @@ Scrub any performance, hear any voice, read the authoring note. If the browser
 refuses `fetch()` on `file://`, serve the folder:
 `python3 -m http.server -d tools/anima-studio 8000`.
 
-The export is opt-in through `ANIMA_EXPORT_DIR`, so **CI never writes
-anything**.
+The export is opt-in through `TEST_RUNNER_ANIMA_EXPORT_DIR`, so **CI never
+writes anything** on an ordinary run.
+
+### Checking the page itself
+
+The gallery is JavaScript, so no Swift test reaches it. CI syntax-checks it
+(`node --check` over the extracted `<script>` — a syntax error there ships a
+blank gallery rather than failing anything). Beyond that it is driven in
+headless Chromium against a fixture: 100 cards, family grouping, search,
+family and rarity filters, the Reduce Motion toggle, and zero console errors.
+
+That is deliberately **not** wired into CI, because it would mean adding
+Playwright to a repository whose first rule is zero dependencies. It is a
+procedure to re-run when the page changes, not a gate.
 
 ### Why the previewer cannot lie
 

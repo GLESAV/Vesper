@@ -126,6 +126,26 @@ jobs:
             exit 1
           fi
 
+      # THE PAGE IS JAVASCRIPT AND NO SWIFT TEST CAN PARSE IT. A syntax error
+      # here does not fail anything upstream -- it ships a blank gallery, to
+      # an author with no way to tell a broken page from an empty library.
+      # `node --check` is free (the runner already has node) and catches
+      # exactly that class of error.
+      - name: Syntax-check the previewer
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import re, sys
+          html = open('tools/anima-studio/index.html').read()
+          m = re.search(r'<script>\n(.*?)\n</script>', html, re.S)
+          if not m:
+              print('::error::no <script> block found in the previewer'); sys.exit(1)
+          open('/tmp/anima-page.js', 'w').write(m.group(1))
+          print(f'extracted {len(m.group(1).splitlines())} lines')
+          EOF
+          node --check /tmp/anima-page.js
+          echo "previewer JavaScript parses"
+
       - uses: actions/upload-artifact@v4
         with:
           name: anima-studio

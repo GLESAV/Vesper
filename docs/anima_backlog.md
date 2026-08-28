@@ -167,12 +167,52 @@ gate.
 
 ### E5 — Publish it
 
-- [ ] E5
+- [x] E5 — **built and verified as far as it can be from here.** Two things
+      remain outside the loop's reach; both are named below rather than
+      quietly ticked.
 
-`.github/workflows/anima-pages.yml` runs the export on the macOS runner (the
-only place with a toolchain) and publishes. Verify the deployed page loads and
-plays. Until GitHub Pages is enabled for the repository the workflow still
-uploads the export as a build artifact, so nothing is blocked on a setting.
+The workflow runs the export on the macOS runner — the only toolchain in this
+picture — and uploads it unconditionally as a build artifact. Measured on the
+full gallery: **673,791 bytes zipped** (`index.html` + `library.json`), 106
+objects.
+
+**The page itself is verified**, which no Swift test can do, because the page
+is JavaScript. Driven in headless Chromium against a hand-built revision-3
+fixture:
+
+| check | result |
+|---|---|
+| cards rendered | 100 |
+| family groups / buttons | 10 / 10 |
+| canvases actually painted | 16 — the `IntersectionObserver` working; only visible tiles animate |
+| search `pop 042` | 1 card |
+| family filter `frost` | 10 cards |
+| Reduce Motion toggle | all 100 switch to a `(reduced)` clip |
+| console errors | none |
+
+That run found two real defects, both fixed: a missing favicon (the browser
+requests `/favicon.ico`, gets a 404, and logs a console error on a page whose
+whole job is to be trusted) and "1 instruments".
+
+CI now also runs `node --check` over the page's extracted `<script>`. A syntax
+error there fails nothing upstream — it ships a **blank gallery**, to an
+author with no way to tell a broken page from an empty library. Free, since
+the runner already has node, and no new repository dependency.
+
+#### Still blocked, and not by anything the loop can do
+
+1. **GitHub Pages is not enabled.** Settings → Pages → Source: *GitHub
+   Actions*. The `Publish to Pages` job is written to skip rather than fail
+   without it, so nothing else is held up — but there is no public URL until
+   this is flipped.
+2. **The publish job only runs on `main`**, which is correct (a PR branch must
+   not overwrite the live site) and means the deploy path itself is unproven
+   until this branch merges.
+
+The full-fidelity check — the real export, in the real page, on the real URL —
+is one command once Pages is on:
+`python3 -m http.server -d tools/anima-studio 8000` against a downloaded
+artifact, or simply the deployed page.
 
 ---
 
