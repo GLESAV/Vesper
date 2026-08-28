@@ -174,6 +174,14 @@ and a channel swinging symmetrically about zero returns to exactly its rest
 shape. With two independent channels it does not, and an object bouncing in a
 loop slowly shrinks with nobody able to see why.
 
+**Every performance has a Reduce Motion variant, and nobody authors it.**
+`AnimaClip.reduced` is computed, so it cannot go stale when a clip is retimed
+and an author cannot forget to write one. A looping idle reduces to stillness
+(no tracks at all); a one-shot damps its movement to 35%, flattens the three
+direction-reversing easings, and keeps its **opacity exactly** — because in a
+one-shot the opacity is the information, and 04 §11 asks that a reduced
+variant lose none.
+
 **Follow-through is one number.** `AnimaPart.lag` delays a part — *and
 everything above it in the hierarchy* — by some seconds, so when the head
 stops the ear is still arriving. It is the cheapest thing that separates a
@@ -258,6 +266,5 @@ The adoption path, cheapest first:
 4. **Pops.** Last, and only with a measured before-and-after. Pop #001 is the
    reference implementation of the game's feel and must not move at all.
 
-Also not done: a Reduce Motion variant per clip (04 §11 requires every motion
-to have one), and haptics — `HapticPattern` is a rhythm, which is a timeline,
+Also not done: haptics — `HapticPattern` is a rhythm, which is a timeline,
 and belongs in this engine eventually rather than beside it.

@@ -192,6 +192,82 @@ struct AnimaClip: Equatable {
     static func still(_ name: String = "still") -> AnimaClip {
         AnimaClip(name, duration: 1, loops: true, tracks: [])
     }
+
+    // MARK: - Reduce Motion
+
+    /// How much of a one-shot's movement survives when the system has been
+    /// asked for less motion.
+    ///
+    /// Not zero, and that is the whole judgement. A one-shot accompanies a
+    /// state change — something arrived, something was released — and deleting
+    /// it entirely deletes the feedback along with the motion, which trades an
+    /// accessibility problem for a usability one. Damped and de-sprung, it
+    /// still says "that happened" without swinging anything across the glass.
+    static let reducedScale = 0.35
+
+    /// This performance, for someone who has asked for less motion.
+    ///
+    /// 04 §11 REQUIRES ONE FOR EVERY MOTION, AND REQUIRES THAT NONE OF THEM
+    /// CARRIES INFORMATION. Both halves are load-bearing and they pull in
+    /// opposite directions, which is why the two kinds of clip reduce
+    /// differently:
+    ///
+    ///   * A LOOPING IDLE REDUCES TO STILLNESS. A breath, a flutter, a drift
+    ///     is an affordance — it says "this is alive and you may touch it" —
+    ///     and it repeats forever, which is precisely the kind of motion
+    ///     Reduce Motion exists to stop. It reduces to no tracks at all.
+    ///
+    ///     Its opacity goes with it. `SkyView` already settled this one for
+    ///     the stars: "the breath is an affordance, never information, so
+    ///     removing it may not also dim them". A reduced idle is therefore
+    ///     fully lit and still, not held at some mid-pulse dimness.
+    ///
+    ///   * A ONE-SHOT KEEPS ITS OPACITY EXACTLY AND DAMPS EVERYTHING ELSE.
+    ///     Here the opacity IS the information — a part fading to nothing in
+    ///     `release` is the whole message — so damping it would lose meaning,
+    ///     which is the second half of §11. Position, rotation, scale and
+    ///     squash are scaled toward their rest values, and the three
+    ///     direction-reversing easings are flattened.
+    ///
+    /// Computed rather than authored, so it cannot go stale when a clip is
+    /// retimed, and so an author cannot forget to write one.
+    var reduced: AnimaClip {
+        // A looping idle becomes literally nothing. Structural rather than
+        // damped-to-almost-nothing, so "a reduced idle is still" is true by
+        // construction instead of true to within a tolerance.
+        guard !loops else {
+            return AnimaClip(name, duration: duration, loops: true, tracks: [])
+        }
+
+        let scale = Self.reducedScale
+        return AnimaClip(name, duration: duration, loops: false,
+                         tracks: tracks.map { track in
+            let keys = track.curve.keys.map { key in
+                AnimaKey(key.time,
+                         Self.damp(key.value, on: track.channel, by: scale),
+                         key.ease.reduced)
+            }
+            return AnimaTrack(track.part, track.channel,
+                              AnimaCurve(keys, loops: track.curve.loops))
+        })
+    }
+
+    /// Pulls one channel's value toward its own neutral.
+    ///
+    /// The neutral differs per channel because the channels compose
+    /// differently — additive ones rest at 0, multiplicative ones at 1 — and
+    /// getting that backwards would make a damped scale shrink a part to
+    /// nothing rather than leave it alone.
+    private static func damp(_ value: Double, on channel: AnimaChannel, by scale: Double) -> Double {
+        switch channel {
+        case .opacity:
+            return value                      // information; never damped
+        case .scale:
+            return 1 + (value - 1) * scale    // multiplicative: neutral is 1
+        case .x, .y, .rotation, .squash:
+            return value * scale              // additive: neutral is 0
+        }
+    }
 }
 
 // MARK: - Sampling for export

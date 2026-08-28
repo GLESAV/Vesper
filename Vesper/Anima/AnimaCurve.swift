@@ -85,6 +85,23 @@ enum AnimaEase: Equatable {
     /// facing flip.
     case hold
 
+    /// This easing with its vestibular character removed.
+    ///
+    /// `anticipate`, `overshoot` and `settle` are exactly the three that
+    /// REVERSE DIRECTION — they are what make motion read as performed, and
+    /// they are also what makes it uncomfortable for someone who has asked
+    /// the system for less of it. A direction change is the thing the
+    /// vestibular system objects to, far more than distance travelled.
+    ///
+    /// Everything else is already monotone and passes through unchanged. In
+    /// particular `hold` is kept: a step is not motion.
+    var reduced: AnimaEase {
+        switch self {
+        case .anticipate, .overshoot, .settle: return .easeInOut
+        case .linear, .easeIn, .easeOut, .easeInOut, .hold: return self
+        }
+    }
+
     /// Shapes a normalised 0...1 progress.
     ///
     /// TOTAL, INCLUDING FOR NaN — and the guard below is why, because clamping

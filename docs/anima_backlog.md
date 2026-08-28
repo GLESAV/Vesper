@@ -73,13 +73,31 @@ of 0.002 — which is the 4dp rounding, not slack.
 
 ### E2 — Reduce Motion variants
 
-- [ ] E2
+- [x] E2 — **done.** `AnimaClip.reduced`, computed rather than authored so an
+      author cannot forget to write one and it cannot go stale when a clip is
+      retimed.
 
 04 §11: every motion needs a defined reduced variant, and none may carry
-information. Add `AnimaClip.reduced` — the same performance with amplitude
-scaled toward rest and loops held at their rest frame — and a test that every
-clip in the library has one and that it never moves more than the original.
-This is a **shipping blocker** for any adoption, so it comes before assets.
+information. The two clauses pull in opposite directions, so the two kinds of
+clip reduce differently:
+
+- **A looping idle reduces to stillness** — structurally, by carrying no
+  tracks at all, so "a reduced idle is still" holds exactly rather than to
+  within a tolerance. Its opacity goes with it: `SkyView` already settled this
+  for the stars ("the breath is an affordance, never information, so removing
+  it may not also dim them"), so a reduced idle is fully lit and still.
+- **A one-shot keeps its opacity exactly and damps everything else** (×0.35).
+  Here the opacity *is* the information — a part fading to nothing in
+  `release` is the whole message — and damping it would lose meaning, which is
+  §11's second clause. Not damped to zero either: deleting the motion deletes
+  the feedback, trading an accessibility problem for a usability one.
+
+The three direction-reversing easings (`anticipate`, `overshoot`, `settle`)
+are flattened to `easeInOut`. A reversal is what a vestibular system objects
+to, far more than distance travelled.
+
+Five tests, all measuring **peak travel from rest** rather than inspecting
+curve values — which would only prove the arithmetic, not the result.
 
 ### E3 — The pop-paradigm bridge
 

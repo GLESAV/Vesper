@@ -274,6 +274,125 @@ final class AnimaTests: XCTestCase {
                           "the trails move as one plate — lag is not being applied")
     }
 
+    // MARK: - Reduce Motion (04 §11)
+
+    /// The furthest any point of `part` travels from where it rests, over the
+    /// whole clip. The honest measure of "how much did this move", and the one
+    /// a vestibular system actually reacts to.
+    private func peakTravel(_ clip: AnimaClip, _ figure: AnimaFigure, part name: String) -> Double {
+        guard let rest = figure.part(named: name) else { return 0 }
+        let restOutline = rest.primitive.outline().map { figure.worldRest(of: rest).apply(to: $0) }
+        var worst = 0.0
+        for step in 0...48 {
+            let t = clip.duration * Double(step) / 48
+            let pose = clip.pose(of: figure, at: t)
+            guard let posed = pose.parts.first(where: { $0.name == name }) else { continue }
+            for (i, point) in posed.outline.enumerated() where i < restOutline.count {
+                worst = max(worst, hypot(Double(point.x - restOutline[i].x),
+                                         Double(point.y - restOutline[i].y)))
+            }
+        }
+        return worst
+    }
+
+    // §11's first clause: EVERY MOTION HAS A REDUCED VARIANT, and it really is
+    // reduced. Measured as peak travel from rest, per part, over the whole
+    // clip — not by inspecting the curve values, which would only prove the
+    // arithmetic and not the result.
+    func testEveryClipsReducedVariantMovesNoFurtherThanTheOriginal() {
+        for object in AnimaLibrary.objects {
+            for clip in object.clips {
+                let reduced = clip.reduced
+                for part in object.figure.parts {
+                    let full = peakTravel(clip, object.figure, part: part.name)
+                    let less = peakTravel(reduced, object.figure, part: part.name)
+                    XCTAssertLessThanOrEqual(less, full + 1e-9, """
+                        \(object.figure.name)/\(clip.name).\(part.name) moves FURTHER under \
+                        Reduce Motion (\(less) vs \(full)) — the variant is not a reduction.
+                        """)
+                }
+            }
+        }
+    }
+
+    // A looping idle is an affordance that repeats forever, which is exactly
+    // what Reduce Motion exists to stop. It reduces to stillness — structurally,
+    // by carrying no tracks at all, so this holds exactly rather than to within
+    // a tolerance.
+    func testALoopingIdleReducesToCompleteStillness() {
+        for object in AnimaLibrary.objects {
+            for clip in object.clips where clip.loops {
+                let reduced = clip.reduced
+                XCTAssertTrue(reduced.tracks.isEmpty,
+                              "\(clip.name) still carries tracks when reduced")
+                let first = reduced.pose(of: object.figure, at: 0)
+                for step in 1...12 {
+                    let later = reduced.pose(of: object.figure,
+                                             at: reduced.duration * Double(step) / 12)
+                    XCTAssertEqual(first, later,
+                                   "\(object.figure.name)/\(clip.name) still moves when reduced")
+                }
+            }
+        }
+    }
+
+    // §11's second clause: NO REDUCED VARIANT MAY CARRY INFORMATION THE
+    // ORIGINAL DID NOT — and, read the other way, none may LOSE information the
+    // original carried. A part fading to nothing in `release` is the whole
+    // message of that clip; damping the fade with the motion would leave
+    // someone who asked for less motion unable to tell what happened.
+    func testAOneShotsOpacityIsIdenticalWhenReduced() {
+        for object in AnimaLibrary.objects {
+            for clip in object.clips where !clip.loops {
+                let reduced = clip.reduced
+                for step in 0...24 {
+                    let t = clip.duration * Double(step) / 24
+                    let full = clip.pose(of: object.figure, at: t)
+                    let less = reduced.pose(of: object.figure, at: t)
+                    for (a, b) in zip(full.parts, less.parts) {
+                        XCTAssertEqual(a.opacity, b.opacity, accuracy: 1e-9,
+                                       "\(object.figure.name)/\(clip.name).\(a.name) lost opacity information when reduced")
+                    }
+                }
+            }
+        }
+    }
+
+    // The three direction-reversing easings are the vestibular ones, and a
+    // reduced clip must not contain any of them. Distance is uncomfortable; a
+    // reversal is much more so.
+    func testNoReducedClipContainsADirectionReversingEasing() {
+        for object in AnimaLibrary.objects {
+            for clip in object.clips {
+                for track in clip.reduced.tracks {
+                    for key in track.curve.keys {
+                        switch key.ease {
+                        case .anticipate, .overshoot, .settle:
+                            XCTFail("\(clip.name).\(track.part) keeps \(key.ease) when reduced")
+                        default:
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A one-shot must still SAY something, or the reduced variant has traded
+    // an accessibility problem for a usability one: the state change happens
+    // with no feedback at all.
+    func testAReducedOneShotStillDoesSomething() {
+        for object in AnimaLibrary.objects {
+            for clip in object.clips where !clip.loops {
+                let reduced = clip.reduced
+                let start = reduced.pose(of: object.figure, at: 0)
+                let end = reduced.pose(of: object.figure, at: reduced.duration)
+                XCTAssertNotEqual(start, end,
+                                  "\(object.figure.name)/\(clip.name) does nothing at all when reduced")
+            }
+        }
+    }
+
     // MARK: - Voices
 
     // RULE 3: NOTHING IN THIS GAME IS EVER LOUD, and no sum of partials an
