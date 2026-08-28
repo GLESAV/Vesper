@@ -338,5 +338,69 @@ was wrong for three of the four families it was used on.
 
 ## Phase Z — close out
 
-- [ ] Z1 — Full `AnimaTests` pass, export under 8 MB, hub page verified
-- [ ] Z2 — Update `docs/anima.md` and `CLAUDE.md`; mark PR ready for review
+- [x] Z1 — **Verified.** CI green on both configurations across the whole
+      suite; export 673,791 bytes zipped for 106 objects against an 8 MB gate;
+      hub page driven in headless Chromium (100 cards, family grouping,
+      search, filters, Reduce Motion toggle, zero console errors).
+
+      Measured across the finished library, every family independently:
+
+      | family | span | min | max | closest pair |
+      |---|---|---|---|---|
+      | vesper | 0.325 | 1.000 | 1.325 | 0.130 |
+      | ember | 0.316 | 1.052 | 1.368 | 0.158 |
+      | tide | 0.429 | 1.053 | 1.482 | 0.158 |
+      | bloom | 0.286 | 1.002 | 1.288 | 0.141 |
+      | frost | 0.305 | 1.065 | 1.370 | 0.206 |
+      | chime | 0.280 | 1.200 | 1.479 | 0.164 |
+      | lantern | 0.382 | 1.058 | 1.441 | 0.130 |
+      | current | 0.504 | 1.006 | 1.511 | 0.149 |
+      | prism | 0.241 | 1.186 | 1.427 | 0.130 |
+      | aurora | 0.228 | 1.032 | 1.260 | 0.156 |
+
+      Gates are span > 0.15 and closest pair > 0.08; every family clears both
+      with margin. Whole-catalogue reach 1.000–1.511, and **#001 sits at
+      exactly 1.000** — the most orb-like of the hundred, as guardrail 5
+      requires.
+
+- [x] Z2 — Docs updated; PR body rewritten. **Not marked ready for review** —
+      the user has not asked for that, and E5's two blockers (Pages not
+      enabled, publish gated to `main`) are theirs to decide on.
+
+---
+
+## What the loop found
+
+Worth keeping, because none of it was visible without measuring.
+
+**Six of the ten family builders were wrong**, and one rule explains every
+one: *a builder is wrong whenever a knob multiplies a primitive's own
+parameters instead of adding to its extent.*
+
+| family | defect | how it showed |
+|---|---|---|
+| bloom | petals rotated by their own offset angle | fat end pointed inward; tips landed exactly on the origin |
+| ember | flame unrotated | lay on its side instead of standing |
+| tide | `accent` moved sweep only | all ten had identical extent |
+| frost | spoke `scale` shrinks length too | crystal never left the 1.0 floor |
+| chime | same, both axes at once | nine of ten on the floor |
+| lantern | no size axis at all | constant 1.160 at every corner |
+| prism | beam `scale` is a radius | exactly 1.000 everywhere |
+| aurora | body arc pinned inside an orb | exactly 1.000 everywhere |
+
+`current` was the only family that needed nothing — it composes additively.
+
+**Two tests did nearly all the finding**, and neither was written for it. The
+spread gate exists to stop ten pops being one shape at ten sizes; it found a
+family drawn inside out and five drawn too small. The separation gate exists
+to stop duplicates; it caught two authored points 0.071 apart.
+
+**Verify against the engine, not against a model of it.** The analytic reach
+estimate used for A1–A4 assumed a primitive's furthest point lies along its
+offset — backwards for a petal. It reported bloom's spread as 0.286 when the
+truth was 0.000, and hid a real rendering defect behind a plausible number.
+`tools/anima-reach.py` exists because of that.
+
+**Check that a commit contains what its message claims.** One iteration pushed
+a backlog tick and a description of work whose code edit had silently aborted;
+the repository then disagreed with itself, and nothing in CI could say so.

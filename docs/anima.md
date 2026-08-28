@@ -256,6 +256,29 @@ signal.
 
 ---
 
+## 5a. The hundred assets
+
+`AnimaPop` generates a drawable object for every catalogue pop — its own
+paints, its family's silhouette, the instrument its definition asks for — and
+`AnimaPop.variations` places each of the hundred along its family's own axes.
+
+Ten silhouettes: a disc with a moon (vesper), a flame and its sparks (ember),
+a drop over a ripple (tide), petals about a heart (bloom), a radial crystal
+(frost), a hanging bar (chime), a body with a handle (lantern), a streamer
+(current), a hard shard with a beam (prism), stacked open bands (aurora). A
+test computes each family's structural fingerprint and fails if any two match:
+two families that cannot be told apart as black shapes are one family.
+
+Every variation is authored to the flavour line the catalogue already carries
+— #003 Eventide is dead level because water finds its level; #033 Clover has
+exactly three petals; #100 Morning Star is the narrowest sweep in aurora,
+which is the closest an arc comes to closing into the circle #001 is.
+
+**Adding an eleventh family, or an author's own object**, is the same job: a
+builder that reads the four knobs, and rows in `variations`. Verify with
+`tools/anima-reach.py` before spending a CI cycle — see `docs/anima_backlog.md`
+for the two gates and what they have caught.
+
 ## 6. What is **not** done
 
 **Nothing here is wired into gameplay.** This change adds an engine and an
