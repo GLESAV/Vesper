@@ -99,12 +99,12 @@ jobs:
           test -s "$file" || { echo "::error::the exporter wrote nothing"; exit 1; }
           bytes=$(wc -c < "$file")
           echo "library.json: $bytes bytes ($((bytes/1024)) KB)"
-          python3 -c "
-import json,sys
-d=json.load(open('$file'))
-print('objects:', len(d['objects']))
-print('clips:  ', sum(len(o['clips']) for o in d['objects']))
-"
+          # ONE LINE, DELIBERATELY. A multi-line `python3 -c "..."` written at
+          # column 0 terminates the YAML block scalar this `run:` is inside —
+          # the workflow then fails to parse at all, instantly, with no job to
+          # read logs from. Indenting it instead would satisfy YAML and break
+          # Python, which rejects a uniformly-indented -c script.
+          python3 -c "import json;d=json.load(open('$file'));print('objects:',len(d['objects']));print('clips:',sum(len(o['clips']) for o in d['objects']))"
           if [ "$bytes" -gt 8388608 ]; then
             echo "::error::export is over 8 MB — see docs/anima_backlog.md E1"
             exit 1
