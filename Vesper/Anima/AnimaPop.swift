@@ -151,7 +151,14 @@ extension PopFamily {
         // EMBER — a flame, and sparks leaving it. Points up; nothing else in
         // the set does.
         case .ember:
-            var parts = [root(.petal(sharpness: 0.55 + 0.35 * v.trait), scale: 0.9)]
+            // −π/2 SO THE FLAME STANDS UP. A limaçon petal's fat end is at
+            // local θ = π (its −x side), so an unrotated one lies on its
+            // side; a flame's mass is at its base and it tapers upward.
+            var parts = [AnimaPart("body", .petal(sharpness: 0.55 + 0.35 * v.trait),
+                                   rest: AnimaTransform(offset: .zero,
+                                                        rotation: v.tilt - .pi / 2,
+                                                        scale: 0.9),
+                                   paint: 0, depth: 6)]
             for i in 0..<min(n, 5) {
                 let a = Double.pi * (0.25 + 0.5 * Double(i) / Double(max(1, n - 1)))
                 parts.append(
@@ -176,7 +183,14 @@ extension PopFamily {
         // say that.
         case .tide:
             return [
-                root(.petal(sharpness: 0.30 + 0.45 * v.trait), scale: 0.78),
+                // +π/2 so the drop's fat end falls TOWARD the ripple below
+                // it. Unrotated it lies on its side, which reads as neither a
+                // drop nor anything else.
+                AnimaPart("body", .petal(sharpness: 0.30 + 0.45 * v.trait),
+                          rest: AnimaTransform(offset: .zero,
+                                               rotation: v.tilt + .pi / 2,
+                                               scale: 0.78),
+                          paint: 0, depth: 6),
                 AnimaPart("ripple", .arc(sweep: 2.0 + 1.6 * v.accent, thickness: 0.10),
                           parent: "body",
                           rest: AnimaTransform(offset: CGPoint(x: 0, y: 0.85 + 0.25 * v.accent),
@@ -192,11 +206,25 @@ extension PopFamily {
                 let a = 2 * Double.pi * Double(i) / Double(n) - Double.pi / 2
                 let reach = 1.7 + 0.6 * v.trait
                 parts.append(
+                    // `a + π`, NOT `a`. THE PETALS WERE POINTING INWARD.
+                    //
+                    // A limaçon petal's fat end sits at local θ = π — its −x
+                    // side — so rotating it by the same angle as its offset
+                    // turns the fat end back toward the centre. Every bloom
+                    // folded its petals over its own heart, and because the
+                    // offset and the scale are equal, the tips landed exactly
+                    // on the origin: the whole family drew at a fraction of
+                    // its intended size and every one of the ten measured an
+                    // identical extent.
+                    //
+                    // That is what the spread test caught. It was written to
+                    // stop ten pops being one shape at ten sizes and it found
+                    // a family drawn inside out.
                     AnimaPart("petal-\(i)", .petal(sharpness: 0.45 + 0.4 * v.accent),
                               parent: "body",
                               rest: AnimaTransform(offset: CGPoint(x: cos(a) * reach,
                                                                    y: sin(a) * reach),
-                                                   rotation: a, scale: reach),
+                                                   rotation: a + .pi, scale: reach),
                               paint: accent, depth: 3, lag: 0.02 * Double(i))
                 )
             }
