@@ -166,13 +166,22 @@ extension PopFamily {
             return parts
 
         // TIDE — a drop over a ripple.
+        //
+        // `accent` MOVES THE RIPPLE'S SIZE, not only its sweep. It changed
+        // sweep alone at first, which left all ten members of the family with
+        // an identical silhouette extent — and the spread test caught it,
+        // correctly. A wider swell genuinely reaches further, so "High Tide:
+        // everything the sea meant to say at once" must visibly out-reach
+        // "Lagoon: shallow enough to see your own feet". Sweep alone cannot
+        // say that.
         case .tide:
             return [
                 root(.petal(sharpness: 0.30 + 0.45 * v.trait), scale: 0.78),
                 AnimaPart("ripple", .arc(sweep: 2.0 + 1.6 * v.accent, thickness: 0.10),
                           parent: "body",
-                          rest: AnimaTransform(offset: CGPoint(x: 0, y: 0.95),
-                                               rotation: .pi / 2, scale: 0.62),
+                          rest: AnimaTransform(offset: CGPoint(x: 0, y: 0.85 + 0.25 * v.accent),
+                                               rotation: .pi / 2,
+                                               scale: 0.50 + 0.30 * v.accent),
                           paint: accent, depth: 3, lag: 0.07)
             ]
 
@@ -388,7 +397,41 @@ enum AnimaPop {
         19: AnimaVariation(trait: 0.95, accent: 0.30, count: 3, tilt: 0.42),
         // "The longest light. It turns here." — the longest flame, and the
         // most turned of the ten. The line names its own tilt.
-        20: AnimaVariation(trait: 1.00, accent: 0.78, count: 5, tilt: -0.35)
+        20: AnimaVariation(trait: 1.00, accent: 0.78, count: 5, tilt: -0.35),
+
+        // ── 021–030 · TIDE — it goes out, it comes back ─────────────────
+        //
+        // A drop over a ripple. `trait` is HOW SHARP the drop is, `accent` is
+        // HOW FAR THE SWELL REACHES (both its sweep and its size), `tilt` is
+        // the angle. `count` is unused here — a drop is a drop.
+
+        // "It goes out. It comes back. Trust it." — the middle of the family
+        // on both axes, and level. Trust is not dramatic.
+        21: AnimaVariation(trait: 0.35, accent: 0.45, count: 2, tilt: 0.00),
+        // "The pull beneath. Let it carry, not drag." — blunt drop over a
+        // large low swell: the ripple is the subject, not the drop.
+        22: AnimaVariation(trait: 0.10, accent: 0.72, count: 2, tilt: 0.20),
+        // "The sea keeps what you drop and softens it." — the bluntest drop
+        // in the family. Softened is the whole line.
+        23: AnimaVariation(trait: 0.00, accent: 0.35, count: 2, tilt: -0.15),
+        // "It traveled far to rest here." — come to rest at an angle, which
+        // is how driftwood actually lies.
+        24: AnimaVariation(trait: 0.55, accent: 0.55, count: 2, tilt: 0.40),
+        // "Even oceans answer to something gentle." — a small sharp drop over
+        // a very wide swell. The gentle thing is the small one.
+        25: AnimaVariation(trait: 0.75, accent: 0.85, count: 2, tilt: 0.00),
+        // "Breathe it. It asks for nothing back." — barely a swell at all.
+        26: AnimaVariation(trait: 0.45, accent: 0.12, count: 2, tilt: -0.25),
+        // "Calm is not empty. It is full and still." — the sharpest drop, and
+        // dead level. Still is not the same as slack.
+        27: AnimaVariation(trait: 1.00, accent: 0.50, count: 2, tilt: 0.00),
+        // "Shallow enough to see your own feet." — the smallest swell here.
+        28: AnimaVariation(trait: 0.20, accent: 0.00, count: 2, tilt: 0.10),
+        // "Patience, layered until it shines." — round and closed in.
+        29: AnimaVariation(trait: 0.05, accent: 0.20, count: 2, tilt: -0.05),
+        // "Everything the sea meant to say at once." — the widest swell of
+        // the hundred so far, under a sharp drop.
+        30: AnimaVariation(trait: 0.85, accent: 1.00, count: 2, tilt: -0.12)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {

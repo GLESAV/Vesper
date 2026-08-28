@@ -233,7 +233,11 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       reach and size, `count` = how many. The family line "warm, not burning"
       constrains the whole batch, not just #011 — nothing here is a blaze.
       Reach 1.05–1.37; closest pair 0.16.
-- [ ] A3 — **tide** 021–030
+- [x] A3 — **tide** 021–030. `trait` = drop sharpness, `accent` = how far the
+      swell reaches. **The spread test caught a builder defect here**: `accent`
+      moved only the ripple's sweep, so all ten had an identical silhouette
+      extent. A wider swell genuinely reaches further, so `accent` now moves
+      its size too. Reach 1.05–1.48; closest pair 0.16.
 - [ ] A4 — **bloom** 031–040
 - [ ] A5 — **frost** 041–050
 - [ ] A6 — **chime** 051–060
