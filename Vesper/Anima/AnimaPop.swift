@@ -259,12 +259,31 @@ extension PopFamily {
 
         // CHIME — a hanging bar. Vertical, plain, and struck.
         case .chime:
+            // AUTHOR A THICKNESS AND A HALF-LENGTH, THEN DERIVE `length`.
+            //
+            // For a capsule, `scale` is the RADIUS and `length` is measured in
+            // radius units — so scaling a bar down to make it thin makes it
+            // short as well, and the two ideas a chime needs to express ("long
+            // and slender", "short and thick") collapse into one. Written the
+            // naive way this family had nine of its ten members sitting on the
+            // 1.0 reach floor, indistinguishable.
+            //
+            // Choosing the two quantities the family actually varies and
+            // dividing for `length` keeps them independent.
+            let thickness = 0.15 + 0.11 * v.accent
+            let halfLength = 0.90 + 0.32 * v.trait
             return [
-                root(.capsule(length: 2.4 + 1.6 * v.trait),
-                     scale: 0.30 + 0.08 * v.accent),
+                AnimaPart("body", .capsule(length: 2 * halfLength / thickness),
+                          rest: AnimaTransform(offset: .zero, rotation: v.tilt,
+                                               scale: thickness),
+                          paint: 0, depth: 6),
+                // Sat at the bar's own end: the offset is in body-local units,
+                // so it is the half-length divided by the thickness, plus a
+                // little clearance.
                 AnimaPart("hanger", .arc(sweep: 2.4, thickness: 0.18), parent: "body",
-                          rest: AnimaTransform(offset: CGPoint(x: 0, y: -(1.5 + 0.8 * v.trait)),
-                                               rotation: -.pi / 2, scale: 0.7),
+                          rest: AnimaTransform(offset: CGPoint(x: 0,
+                                                               y: -(halfLength / thickness + 0.3)),
+                                               rotation: -.pi / 2, scale: 0.9),
                           paint: accent, depth: 8, lag: 0.05)
             ]
 
@@ -548,7 +567,41 @@ enum AnimaPop {
         49: AnimaVariation(trait: 0.62, accent: 0.42, count: 6, tilt: 0.00),
         // "The sun leaves. The sky finds other colors." — the secret one:
         // the longest spokes and the hardest turn.
-        50: AnimaVariation(trait: 1.00, accent: 0.68, count: 7, tilt: -0.35)
+        50: AnimaVariation(trait: 1.00, accent: 0.68, count: 7, tilt: -0.35),
+
+        // ── 051–060 · CHIME — struck once, heard twice ──────────────────
+        //
+        // A hanging bar. `trait` is HOW LONG, `accent` is HOW THICK, `tilt` is
+        // the swing. `count` is unused — a chime is one bar.
+        //
+        // Length and thickness are authored directly and the capsule's own
+        // `length` is derived from them; see the builder for why that matters.
+
+        // "Struck once, heard twice." — the reference bar, level.
+        51: AnimaVariation(trait: 0.35, accent: 0.45, count: 2, tilt: 0.00),
+        // "Round sound from a round thing." — the shortest and thickest here,
+        // which is as close to round as a bar gets.
+        52: AnimaVariation(trait: 0.10, accent: 0.95, count: 2, tilt: -0.08),
+        // "The breeze, learning an instrument." — thin, and swinging hardest.
+        // The breeze is the tilt.
+        53: AnimaVariation(trait: 0.55, accent: 0.15, count: 2, tilt: 0.40),
+        // "Many small bells agreeing about the hour." — small, and turned the
+        // same way as its neighbours. Agreement drawn as a shared angle.
+        54: AnimaVariation(trait: 0.25, accent: 0.30, count: 2, tilt: -0.30),
+        // "The day, sung gently to its close." — long, level, unhurried.
+        55: AnimaVariation(trait: 0.70, accent: 0.55, count: 2, tilt: 0.00),
+        // "Old metal remembers every polish." — broad and heavy.
+        56: AnimaVariation(trait: 0.45, accent: 0.80, count: 2, tilt: 0.14),
+        // "What you send out comes back rounder." — long and slender.
+        57: AnimaVariation(trait: 0.85, accent: 0.35, count: 2, tilt: -0.18),
+        // "One note, and the morning starts over." — upright and weighty.
+        58: AnimaVariation(trait: 0.60, accent: 0.68, count: 2, tilt: 0.00),
+        // "Fragile, and still it sings." — the longest and thinnest of the
+        // family. Fragility is the ratio, not the size.
+        59: AnimaVariation(trait: 0.95, accent: 0.05, count: 2, tilt: 0.26),
+        // "It counts to twelve and lets you rest." — the rare one: the
+        // longest bar, and the most turned.
+        60: AnimaVariation(trait: 1.00, accent: 0.60, count: 2, tilt: -0.40)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {

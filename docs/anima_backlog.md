@@ -262,7 +262,15 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       floor and all ten measured identically — bloom's failure by a different
       route. Length is in units of the capsule's own radius, so a long thin
       spoke needs a large `length` and a modest `scale`.
-- [ ] A6 — **chime** 051–060
+- [x] A6 — **chime** 051–060. `trait` = length, `accent` = thickness, `tilt` =
+      the swing. Reach 1.20–1.48; closest pair 0.16; nothing on the floor.
+
+      **A third sizing defect, same family of cause.** For a capsule `scale` is
+      the RADIUS and `length` is in radius units, so scaling a bar down to make
+      it thin makes it short too — "long and slender" and "short and thick"
+      collapse into one idea. Nine of the ten sat on the 1.0 floor. Now the
+      thickness and half-length are authored directly and the capsule's
+      `length` is derived by dividing.
 - [ ] A7 — **lantern** 061–070
 - [ ] A8 — **current** 071–080
 - [ ] A9 — **prism** 081–090
