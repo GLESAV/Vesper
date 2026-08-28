@@ -602,3 +602,170 @@ final class AnimaTests: XCTestCase {
         .ribbon(spine: [.zero, CGPoint(x: 0, y: 1)], width: 0.1)
     ]
 }
+
+// MARK: - The pop paradigm (E3)
+
+/// The bridge between the catalogue and the engine.
+///
+/// These are authoring invariants in the strongest sense: the hundred assets
+/// are generated from `PopCatalog`, so a defect here is a defect in all
+/// hundred at once, and none of it is visible by looking at any one of them.
+final class AnimaPopTests: XCTestCase {
+
+    // Every pop in the catalogue produces a drawable object, whether or not
+    // anyone has authored a variation for it. That is what lets the hub page
+    // show all hundred from the first day and each batch replace derivation
+    // with intent.
+    func testEveryCatalogPopProducesADrawableObject() {
+        let objects = AnimaPop.all
+        XCTAssertEqual(objects.count, PopCatalog.all.count)
+        XCTAssertEqual(objects.count, 100, "the catalogue is not a hundred pops")
+
+        for (object, definition) in zip(objects, PopCatalog.all.sorted { $0.number < $1.number }) {
+            XCTAssertFalse(object.figure.parts.isEmpty,
+                           "#\(definition.number) \(definition.name) has no parts")
+            for part in object.figure.parts {
+                XCTAssertTrue(object.figure.paints.indices.contains(part.paint),
+                              "#\(definition.number).\(part.name) paints outside its own palette")
+                XCTAssertGreaterThan(part.primitive.outline().count, 2,
+                                     "#\(definition.number).\(part.name) draws nothing")
+            }
+        }
+    }
+
+    // AN ASSET MUST BE THE POP'S OWN, not a picture of a different game. The
+    // paints come from the bound PopDefinition and are never invented here.
+    func testEveryObjectWearsItsOwnPopsPaints() {
+        for definition in PopCatalog.all {
+            let object = AnimaPop.object(for: definition)
+            XCTAssertEqual(object.figure.paints, definition.style.paints,
+                           "#\(definition.number) \(definition.name) is not wearing its own paint")
+        }
+    }
+
+    // The convention that makes the shared performances portable, held across
+    // all hundred rather than across the six hand-written reference figures.
+    func testAllHundredKeepTheOneRootNamedBodyConvention() {
+        for definition in PopCatalog.all {
+            let figure = AnimaPop.object(for: definition).figure
+            let roots = figure.parts.filter { $0.parent == nil }
+            XCTAssertEqual(roots.count, 1, "#\(definition.number) has \(roots.count) roots")
+            XCTAssertEqual(roots.first?.name, "body", "#\(definition.number)'s root is not `body`")
+            var names = Set<String>()
+            for part in figure.parts {
+                XCTAssertTrue(names.insert(part.name).inserted,
+                              "#\(definition.number) has two parts called \(part.name)")
+                if let parent = part.parent {
+                    XCTAssertNotNil(figure.part(named: parent),
+                                    "#\(definition.number).\(part.name) hangs off a part that does not exist")
+                }
+            }
+        }
+    }
+
+    // THE FAMILY IS THE INSTRUMENT AND THE SILHOUETTE. A pop's voice must be
+    // the one its own definition asks for, and the mapping must be total —
+    // `AnimaLibrary.voice(for:)` has no `default:` so a new SoundVoice case
+    // stops the build rather than silently inheriting a fallback.
+    func testEveryPopIsPlayedOnTheInstrumentItsDefinitionAsksFor() {
+        for definition in PopCatalog.all {
+            let object = AnimaPop.object(for: definition)
+            XCTAssertEqual(object.voice.name,
+                           AnimaLibrary.voice(for: definition.behavior.sound.voice).name,
+                           "#\(definition.number) is played on the wrong instrument")
+        }
+        for sound in SoundVoice.allCases {
+            XCTAssertFalse(AnimaLibrary.voice(for: sound).render(pitch: 440).isEmpty,
+                           "\(sound) maps to an instrument that renders nothing")
+        }
+    }
+
+    // TEN FAMILIES MUST BE SEPARABLE AS BLACK SHAPES. Shape reads before
+    // colour, at arm's length, in the dark — so if two families cannot be
+    // told apart by their silhouette alone, the second one is wrong.
+    //
+    // Measured rather than asserted: a family's structural fingerprint is its
+    // part count and the kinds of primitive it is built from. Two families
+    // sharing one exactly are drawing the same object in different paint.
+    func testTheTenFamiliesAreSeparableBySilhouetteAlone() {
+        func fingerprint(_ family: PopFamily) -> String {
+            let figure = family.figure("probe",
+                                       variation: AnimaVariation(),
+                                       paints: [AnimaLibrary.offWhite, AnimaLibrary.lilac])
+            let kinds = figure.parts.map { part -> String in
+                switch part.primitive {
+                case .disc:      return "disc"
+                case .capsule:   return "capsule"
+                case .petal:     return "petal"
+                case .polygon:   return "polygon"
+                case .arc:       return "arc"
+                case .blob:      return "blob"
+                case .ribbon:    return "ribbon"
+                }
+            }
+            return "\(figure.parts.count):\(kinds.joined(separator: ","))"
+        }
+        var seen: [String: PopFamily] = [:]
+        for family in PopFamily.allCases {
+            let print = fingerprint(family)
+            if let clash = seen[print] {
+                XCTFail("\(family) and \(clash) have the same silhouette structure (\(print))")
+            }
+            seen[print] = family
+        }
+    }
+
+    // Variation must actually vary. Ten pops built from one family's builder
+    // and ten different variations must not all come out identical — which is
+    // exactly what happens if a builder ignores the knobs it was handed.
+    func testAVariationChangesTheFigureItBuilds() {
+        for family in PopFamily.allCases {
+            let paints = [AnimaLibrary.offWhite, AnimaLibrary.lilac]
+            let a = family.figure("a", variation: AnimaVariation(trait: 0.05, accent: 0.05,
+                                                                 count: 3, tilt: -0.3),
+                                  paints: paints)
+            let b = family.figure("a", variation: AnimaVariation(trait: 0.95, accent: 0.95,
+                                                                 count: 8, tilt: 0.3),
+                                  paints: paints)
+            XCTAssertNotEqual(a, b, "\(family) ignores its variation — all ten would be identical")
+        }
+    }
+
+    // The default variation is DERIVED, never random: the same pop is the same
+    // shape on every device and in every run, the guarantee PopCatalog and
+    // SeededRandom already make.
+    func testTheDerivedVariationIsDeterministicAndSpread() {
+        for number in 1...100 {
+            XCTAssertEqual(AnimaVariation.derived(from: number),
+                           AnimaVariation.derived(from: number))
+        }
+        // And consecutive numbers must not sit on top of each other, or a
+        // family's ten members would be ten copies before anyone authors them.
+        for number in 1...99 {
+            XCTAssertNotEqual(AnimaVariation.derived(from: number),
+                              AnimaVariation.derived(from: number + 1),
+                              "#\(number) and #\(number + 1) derive the same variation")
+        }
+    }
+
+    // Reduce Motion still applies to a generated asset, all hundred of them.
+    func testEveryGeneratedAssetPosesFinitelyAndReduces() {
+        for definition in PopCatalog.all {
+            let object = AnimaPop.object(for: definition)
+            for clip in object.clips {
+                for step in 0...8 {
+                    let t = clip.duration * Double(step) / 8
+                    for pose in [clip.pose(of: object.figure, at: t),
+                                 clip.reduced.pose(of: object.figure, at: t)] {
+                        for part in pose.parts {
+                            for point in part.outline {
+                                XCTAssertTrue(point.x.isFinite && point.y.isFinite,
+                                              "#\(definition.number)/\(clip.name).\(part.name) went non-finite")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

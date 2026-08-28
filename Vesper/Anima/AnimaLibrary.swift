@@ -418,7 +418,79 @@ enum AnimaLibrary {
         attack: 0.09, glide: 1.0
     )
 
-    static let voices: [AnimaVoice] = [popVoice, bell, wood, glass, breath, drop, chime, hush]
+    /// A PLAIN ROUND TONE. The v1.0 shape — nothing struck, nothing swept.
+    static let tone = AnimaVoice(
+        "tone", duration: 0.15,
+        partials: [
+            AnimaPartial(1.0, gain: 0.60, decay: 14),
+            AnimaPartial(2.0, gain: 0.06, decay: 26)
+        ],
+        attack: 0.003, glide: 1.02
+    )
+
+    /// A STRING TOUCHED ONCE. The identity is the decay SPREAD, not the
+    /// attack: brightness collapsing several times faster than the body is
+    /// what "plucked" actually is, and it is why four partials with four
+    /// different decays sound like one event rather than a chord.
+    static let pluck = AnimaVoice(
+        "pluck", duration: 0.30,
+        partials: [
+            AnimaPartial(1.0, gain: 0.44, decay: 9),
+            AnimaPartial(2.0, gain: 0.20, decay: 22),
+            AnimaPartial(3.0, gain: 0.10, decay: 38),
+            AnimaPartial(4.0, gain: 0.05, decay: 60)
+        ],
+        attack: 0.0012, glide: 1.0
+    )
+
+    /// EMBERS SETTLING. Almost no pitch: a low body under fast-decaying
+    /// noise.
+    static let crackle = AnimaVoice(
+        "crackle", duration: 0.26,
+        partials: [AnimaPartial(0.5, gain: 0.16, decay: 20)],
+        noise: AnimaNoise(gain: 0.75, decay: 26, lowpass: 0.55),
+        attack: 0.002, glide: 0.99
+    )
+
+    /// BARELY A PITCH, and slower than `hush` — near-unisons beating against
+    /// one another over most of a second.
+    static let shimmer = AnimaVoice(
+        "shimmer", duration: 0.70,
+        partials: [
+            AnimaPartial(1.0, gain: 0.16, decay: 3.4, detune: 0.6),
+            AnimaPartial(2.0, gain: 0.10, decay: 4.6, detune: 0.9),
+            AnimaPartial(3.0, gain: 0.05, decay: 6.2, detune: 1.4)
+        ],
+        noise: AnimaNoise(gain: 0.08, decay: 4.0, lowpass: 0.05),
+        attack: 0.08, glide: 1.01
+    )
+
+    static let voices: [AnimaVoice] = [
+        popVoice, tone, bell, pluck, breath, glass, wood, crackle, shimmer, drop,
+        chime, hush
+    ]
+
+    /// THE INSTRUMENT FOR A CATALOGUE VOICE.
+    ///
+    /// Total over `SoundVoice`, deliberately with no `default:` — a new case
+    /// in the pop standard should stop the build here and be given an
+    /// instrument, rather than silently inheriting whatever the fallback
+    /// happened to be. That silence is how a family ends up sounding like
+    /// another one and nobody can say when it started.
+    static func voice(for sound: SoundVoice) -> AnimaVoice {
+        switch sound {
+        case .pop:      return popVoice
+        case .tone:     return tone
+        case .bell:     return bell
+        case .pluck:    return pluck
+        case .breath:   return breath
+        case .glass:    return glass
+        case .wood:     return wood
+        case .crackle:  return crackle
+        case .shimmer:  return shimmer
+        case .drop:     return drop
+        }
+    }
 
     // MARK: - Objects
     //

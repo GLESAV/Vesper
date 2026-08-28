@@ -101,7 +101,9 @@ curve values — which would only prove the arithmetic, not the result.
 
 ### E3 — The pop-paradigm bridge
 
-- [ ] E3
+- [x] E3 — **done.** `AnimaPop.object(for:)` generates a drawable object for
+      every one of the hundred catalogue pops, wearing that pop's own paints
+      and played on the instrument its own definition asks for.
 
 The 100 assets are not free-standing art; they are the visual half of the
 existing 100-pop catalog. Add `AnimaPopBinding`:
@@ -115,6 +117,28 @@ existing 100-pop catalog. Add `AnimaPopBinding`:
   matches, and that its paints are the pop's own
 
 Ten families × ten pops is the paradigm; a hundred one-offs is not.
+
+**How it came out.** The ten silhouettes are a disc with a moon (vesper), a
+flame and its sparks (ember), a drop over a ripple (tide), petals about a
+heart (bloom), a radial crystal (frost), a hanging bar (chime), a body with a
+handle (lantern), a streamer (current), a hard shard with a beam (prism), and
+stacked open bands (aurora). A test computes each family's structural
+fingerprint — part count plus primitive kinds — and fails if any two match,
+because shape reads before colour and two families that cannot be told apart
+as black shapes are one family.
+
+**The ten notes inside a family** come from `AnimaVariation`: four knobs
+(`trait`, `accent`, `count`, `tilt`) whose meaning each family's builder
+decides for itself. Deliberately not named for shapes — a knob called
+`earLength` would be meaningless in nine families out of ten. Until a pop's
+variation is authored it derives one from its own number, so all hundred are
+previewable now and each phase-A batch replaces derivation with intent.
+
+**Voice coverage** had to be completed for the mapping to be total: `tone`,
+`pluck`, `crackle` and `shimmer` were added, verified numerically against
+every voice invariant before any Swift was written. `AnimaLibrary.voice(for:)`
+has no `default:`, so a new `SoundVoice` case stops the build rather than
+silently inheriting a fallback and making two families sound alike.
 
 ### E4 — The hub page
 
