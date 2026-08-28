@@ -367,17 +367,24 @@ extension PopFamily {
 
         // AURORA — stacked bands, nested and open. Nothing else is hollow.
         case .aurora:
-            var parts = [root(.arc(sweep: 1.8 + 1.4 * v.trait, thickness: 0.14),
-                              scale: 0.9, paint: 0, depth: 6)]
+            // `trait` IS THE SIZE AND `accent` IS THE SWEEP. Written the other
+            // way round, with a fixed 0.9 scale, every aurora measured exactly
+            // 1.000 — the outer band sat inside a plain orb and the reach
+            // floor swallowed the whole family. The sixth and last of these,
+            // and the only one where the fix is simply "the object was too
+            // small" rather than a knob multiplying the wrong thing.
+            let size = 1.02 + 0.24 * v.trait
+            var parts = [root(.arc(sweep: 1.6 + 1.6 * v.accent, thickness: 0.14),
+                              scale: size, paint: 0, depth: 6)]
             for i in 1..<min(max(n - 1, 2), 4) {
                 parts.append(
                     AnimaPart("band-\(i)",
-                              .arc(sweep: 1.6 + 1.4 * v.trait - 0.2 * Double(i),
+                              .arc(sweep: max(0.3, 1.5 + 1.6 * v.accent - 0.18 * Double(i)),
                                    thickness: 0.12),
                               parent: "body",
                               rest: AnimaTransform(offset: .zero,
-                                                   rotation: 0.12 * Double(i) * (v.accent - 0.5) * 2,
-                                                   scale: 1 - 0.22 * Double(i)),
+                                                   rotation: 0.14 * Double(i) * (v.accent - 0.5) * 2,
+                                                   scale: 1 - 0.20 * Double(i)),
                               paint: accent, depth: 6 - i, lag: 0.05 * Double(i))
                 )
             }
@@ -751,7 +758,45 @@ enum AnimaPop {
         89: AnimaVariation(trait: 1.00, accent: 0.78, count: 4, tilt: 0.00),
         // "Hold it to the light. That's the trick." — large and three-sided:
         // a true prism, the shape the whole family is named for.
-        90: AnimaVariation(trait: 0.88, accent: 0.68, count: 3, tilt: 0.15)
+        90: AnimaVariation(trait: 0.88, accent: 0.68, count: 3, tilt: 0.15),
+
+        // ── 091–100 · AURORA — the sky, thinking out loud ───────────────
+        //
+        // Nested open bands, and the only hollow family in the hundred.
+        // `trait` is HOW LARGE, `accent` is HOW OPEN the sweep is, `count`
+        // gives two to four bands, `tilt` is the set of the whole curtain.
+
+        // "The sky, thinking out loud in green." — the reference, level.
+        91: AnimaVariation(trait: 0.45, accent: 0.50, count: 4, tilt: 0.00),
+        // "Cold air, warm light. Both are true." — two arcs, two truths. The
+        // count is the sentence.
+        92: AnimaVariation(trait: 0.35, accent: 0.62, count: 3, tilt: -0.15),
+        // "It traveled 93 million miles to glow here." — the widest sweep in
+        // the family, and set at an angle: still travelling.
+        93: AnimaVariation(trait: 0.72, accent: 1.00, count: 5, tilt: 0.28),
+        // "Straight up. The only direction with no map." — the narrowest
+        // sweep, tall, and dead level. Straight up is not a tilt.
+        94: AnimaVariation(trait: 0.85, accent: 0.10, count: 3, tilt: 0.00),
+        // "The crown the sun only wears in shadow." — wide and many-banded,
+        // level. A crown is worn straight.
+        95: AnimaVariation(trait: 0.60, accent: 0.90, count: 5, tilt: 0.00),
+        // "Fixed, faithful, and fine with the dark." — the smallest here, and
+        // immovable. Faithfulness drawn as not moving at all.
+        96: AnimaVariation(trait: 0.05, accent: 0.20, count: 4, tilt: 0.00),
+        // "Make a wish. Make several. They're free." — the most bands and the
+        // most turned. Several, and none of them careful.
+        97: AnimaVariation(trait: 0.50, accent: 0.35, count: 5, tilt: 0.40),
+        // "A nursery for stars. No hurry in there." — large and soft, only
+        // two bands. No hurry is drawn as very little happening.
+        98: AnimaVariation(trait: 0.90, accent: 0.72, count: 3, tilt: -0.32),
+        // "What stays when the show believes it's over." — small and wide,
+        // still going after the large ones have finished.
+        99: AnimaVariation(trait: 0.22, accent: 0.80, count: 5, tilt: 0.18),
+        // "Vesper's other name. It was you all along." — the hundredth, the
+        // secret one, and a deliberate echo of the first: the largest and
+        // narrowest sweep here, which is the closest an arc comes to closing
+        // into the circle that #001 is. The catalogue ends where it began.
+        100: AnimaVariation(trait: 1.00, accent: 0.05, count: 3, tilt: 0.00)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {

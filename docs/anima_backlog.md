@@ -17,11 +17,12 @@ commits. Nothing else carries state between iterations.
 
 ## Definition of done
 
-- [ ] 100 demo assets, one per pop number 1–100, each in its `PopFamily`
-- [ ] Every asset validated against the pop paradigm by a test
-- [ ] A hub page showing all 100, published and reachable
-- [ ] CI green on both configurations
-- [ ] Export under 8 MB and the page usable on a phone
+- [x] 100 demo assets, one per pop number 1–100, each in its `PopFamily`
+- [x] Every asset validated against the pop paradigm by a test
+- [x] A hub page showing all 100 — **built and verified; publishing needs
+      GitHub Pages enabled and this branch merged** (see E5)
+- [x] CI green on both configurations
+- [x] Export under 8 MB and the page usable on a phone (673,791 bytes zipped)
 
 ---
 
@@ -298,7 +299,18 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       itself under an orb. Same fix as chime: author the thickness and the
       half-length, derive `length`, and centre the beam half its own length
       along its heading so it emerges rather than hiding inside.
-- [ ] A10 — **aurora** 091–100
+- [x] A10 — **aurora** 091–100. `trait` = size, `accent` = sweep, `count` =
+      two to four bands. Reach 1.03–1.26; closest pair 0.16; nothing floored.
+
+      **The sixth and last builder fix, and the only one that was simply "too
+      small"** rather than a knob multiplying the wrong thing: the body arc
+      was fixed at 0.9 scale, inside a plain orb, so every aurora measured
+      1.000.
+
+      #100 Morning Star — *"Vesper's other name. It was you all along."* — is
+      the largest and narrowest sweep in the family, which is the closest an
+      arc comes to closing into the circle that #001 is. The catalogue ends
+      where it began.
 
 ### How to verify a batch
 
