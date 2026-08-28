@@ -271,7 +271,17 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       collapse into one idea. Nine of the ten sat on the 1.0 floor. Now the
       thickness and half-length are authored directly and the capsule's
       `length` is derived by dividing.
-- [ ] A7 — **lantern** 061–070
+- [x] A7 — **lantern** 061–070. `trait` = size, `accent` = roundness,
+      `count` = sides. Reach 1.06–1.44; closest pair 0.13; six distinct side
+      counts.
+
+      **A fourth defect, and a new shape of one: no size axis at all.** Sides
+      came from `trait` and roundness from `accent`, and neither is an extent —
+      every lantern measured exactly 1.160, because the handle sits at a fixed
+      offset and dominates. Ten members differing only in facet count read as
+      one object drawn ten times. Sides moved to `count` (the knob for "how
+      many of something", and lantern was the only family not using it) and
+      `trait` became a real size.
 - [ ] A8 — **current** 071–080
 - [ ] A9 — **prism** 081–090
 - [ ] A10 — **aurora** 091–100
