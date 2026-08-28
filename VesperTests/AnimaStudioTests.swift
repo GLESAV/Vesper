@@ -29,7 +29,8 @@ final class AnimaStudioTests: XCTestCase {
         XCTAssertEqual(root["sampleRate"] as? Double, AnimaStudio.previewSampleRate)
 
         let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
-        XCTAssertEqual(objects.count, AnimaLibrary.objects.count)
+        XCTAssertEqual(objects.count, AnimaStudio.galleryObjects.count,
+                       "the export is not the gallery it claims to be")
 
         for object in objects {
             XCTAssertNotNil(object["name"] as? String)
@@ -205,8 +206,18 @@ final class AnimaStudioTests: XCTestCase {
             }
             let names = try parts.map { try XCTUnwrap($0["name"] as? String) }
 
-            for (clipIndex, clip) in object.clips.enumerated() {
-                let frames = try XCTUnwrap(clipsJSON[clipIndex]["frames"] as? [[Double]])
+            // BY NAME, NOT BY INDEX. Each performance now ships its reduced
+            // variant beside it, so clip 1 is at position 2 — a positional
+            // lookup silently compares `wake` against `breathe (reduced)` and
+            // reports a drift that is really a mis-pairing.
+            for clip in object.clips {
+                guard let clipJSON = clipsJSON.first(where: {
+                    ($0["name"] as? String) == clip.name
+                }) else {
+                    XCTFail("\(object.figure.name): \(clip.name) is not in the export")
+                    continue
+                }
+                let frames = try XCTUnwrap(clipJSON["frames"] as? [[Double]])
                 let expected = clip.filmstrip(of: object.figure,
                                               frames: AnimaStudio.frameCount(for: clip))
                 XCTAssertEqual(frames.count, expected.count)
@@ -242,10 +253,17 @@ final class AnimaStudioTests: XCTestCase {
     // which is what format 2 exists to fix.
     func testTheExportIsSmallEnoughToReachAHundredAssets() {
         let bytes = AnimaStudio.export().count
-        let perObject = Double(bytes) / Double(AnimaLibrary.objects.count)
+        // Divided by the GALLERY's size, which is what was exported. Dividing
+        // by AnimaLibrary.objects.count was right when the export defaulted to
+        // the six reference figures and became a seventeen-fold overstatement
+        // the moment it defaulted to the whole gallery — the kind of stale
+        // denominator that reads as a real regression.
+        let count = AnimaStudio.galleryObjects.count
+        let perObject = Double(bytes) / Double(count)
         XCTAssertLessThan(perObject, 120_000,
-                          "at \(Int(perObject)) bytes an object, a hundred assets would be "
-                          + "\(Int(perObject * 100) / 1_048_576) MB — see docs/anima_backlog.md E1")
+                          "at \(Int(perObject)) bytes an object across \(count) objects, "
+                          + "a hundred assets would be \(Int(perObject * 100) / 1_048_576) MB "
+                          + "— see docs/anima_backlog.md E1")
     }
 
     // 16-bit PCM has to round-trip within a quantisation step, or what an
