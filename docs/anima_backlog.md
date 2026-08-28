@@ -282,7 +282,13 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       one object drawn ten times. Sides moved to `count` (the knob for "how
       many of something", and lantern was the only family not using it) and
       `trait` became a real size.
-- [ ] A8 — **current** 071–080
+- [x] A8 — **current** 071–080. `trait` = trail length, `accent` = trail
+      width and head size, `count` = two to four trails. Reach 1.01–1.51 (the
+      widest span of any family); closest pair 0.15; nothing on the floor.
+
+      First family that needed **no builder fix** — both knobs already moved
+      the extent. The only care needed was avoiding the low-trait/low-accent
+      corner, which draws shorter than a plain orb and lands on the floor.
 - [ ] A9 — **prism** 081–090
 - [ ] A10 — **aurora** 091–100
 

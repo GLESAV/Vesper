@@ -651,7 +651,52 @@ enum AnimaPop {
         69: AnimaVariation(trait: 0.92, accent: 0.40, count: 7, tilt: -0.35),
         // "It doesn't chase ships. It just stays lit." — the largest, the
         // hardest-edged, and dead level. Staying put is the whole line.
-        70: AnimaVariation(trait: 1.00, accent: 0.10, count: 6, tilt: 0.00)
+        70: AnimaVariation(trait: 1.00, accent: 0.10, count: 6, tilt: 0.00),
+
+        // ── 071–080 · CURRENT — it moves because standing still itches ──
+        //
+        // A head with trailing ribbons. `trait` is HOW LONG the trails are,
+        // `accent` is HOW WIDE they are and how large the head is, `count`
+        // gives two to four trails, `tilt` is the set of the whole thing.
+        //
+        // The family that shows off `lag` most: each trail lags a little more
+        // than the last, so one movement of the head becomes a cascade nobody
+        // authored.
+        //
+        // Nothing here sits at low trait AND low accent — that corner draws
+        // shorter than a plain orb and lands on the reach floor, where ten
+        // members stop being distinguishable.
+
+        // "It moves because standing still itches." — the reference, and
+        // never quite level. Standing still is what it does not do.
+        71: AnimaVariation(trait: 0.50, accent: 0.50, count: 5, tilt: 0.15),
+        // "The small jump between almost and done." — the shortest trails
+        // here, and only two of them. A jump, not a journey.
+        72: AnimaVariation(trait: 0.36, accent: 0.55, count: 3, tilt: 0.35),
+        // "A thin thing, asked to hold the light." — long, and the thinnest
+        // trails in the family. The thinness is the whole ask.
+        73: AnimaVariation(trait: 0.85, accent: 0.10, count: 4, tilt: -0.12),
+        // "The city, rinsed and glowing." — four trails, mid-long: rain on a
+        // lot of surfaces at once.
+        74: AnimaVariation(trait: 0.70, accent: 0.45, count: 5, tilt: 0.22),
+        // "Everything connected, nothing strained." — even and dead level.
+        // Nothing strained is drawn as nothing tilted.
+        75: AnimaVariation(trait: 0.55, accent: 0.35, count: 5, tilt: 0.00),
+        // "The storm, far enough away to enjoy." — long and soft, only two
+        // trails. Far enough away to be weather rather than an event.
+        76: AnimaVariation(trait: 0.75, accent: 0.80, count: 3, tilt: -0.30),
+        // "Charged, and choosing to be kind about it." — the widest trails of
+        // the family. Kindness drawn as softness, not as smallness.
+        77: AnimaVariation(trait: 0.60, accent: 0.92, count: 4, tilt: 0.10),
+        // "Your own steady proof of being here." — short, thick and level.
+        // Steady is the absence of tilt.
+        78: AnimaVariation(trait: 0.30, accent: 0.85, count: 3, tilt: 0.00),
+        // "A bridge of light between two quiet points." — the longest trails,
+        // and spare: a bridge is a span, not a crowd.
+        79: AnimaVariation(trait: 1.00, accent: 0.25, count: 3, tilt: -0.20),
+        // "Weather you can hold without getting wet." — the secret one:
+        // longest and widest together, the largest reach of the hundred.
+        80: AnimaVariation(trait: 0.95, accent: 1.00, count: 5, tilt: -0.38)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {
