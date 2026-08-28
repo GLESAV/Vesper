@@ -165,9 +165,11 @@ struct AnimaClip: Equatable {
         posed.reserveCapacity(figure.parts.count)
         for part in figure.parts {
             let transform = world(of: part, at: time, depth: 0)
-            let outline = part.primitive.outline().map { transform.apply(to: $0) }
+            let matrix = transform.affine
+            let outline = part.primitive.outline().map { matrix.apply(to: $0) }
             posed.append(AnimaPosedPart(name: part.name,
                                         outline: outline,
+                                        transform: matrix,
                                         paint: part.paint,
                                         opacity: min(max(transform.opacity, 0), 1),
                                         depth: part.depth))

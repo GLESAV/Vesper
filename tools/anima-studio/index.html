@@ -18,8 +18,15 @@
     * no oscillators, envelopes or filters
 
   It fills polygons and plays PCM. Everything else was computed by the Swift
-  engine and baked into library.json, so this page CANNOT drift from the app —
-  there is no second implementation here to drift. A previewer that
+  engine and baked into library.json.
+
+  Format 2 does ask this page for ONE piece of arithmetic — a 2-D affine
+  multiply, x' = a*x + c*y + tx — because shipping a transformed outline for
+  every part of every frame came to 154 MB at a hundred assets. That is a
+  deliberate, bounded concession and it is the only one: six multiplications
+  and four additions, no transcendentals, nothing with a convention to get
+  backwards. A Swift test reconstructs these same matrices against the app's
+  own posed outlines on every run. A previewer that
   reimplemented the runtime would agree with it for about a week and then
   start quietly lying to whoever was authoring against it, which is worse than
   having no previewer at all.
@@ -111,7 +118,7 @@
 
 // The one number this page checks. An old page and a new export should fail
 // loudly rather than draw something subtly wrong.
-const EXPECTED_REVISION = 1;
+const EXPECTED_REVISION = 2;
 
 const grid = document.getElementById("grid");
 const sub = document.getElementById("sub");
@@ -160,6 +167,8 @@ function css(rgb, alpha) {
          "," + Math.round(rgb[2] * 255) + "," + alpha + ")";
 }
 
+// A frame is a flat array of seven numbers per part, in object.parts order:
+// a, b, c, d, tx, ty, opacity. THE ONLY ARITHMETIC ON THIS PAGE.
 function draw(canvas, object, frame) {
   const dpr = window.devicePixelRatio || 1;
   const size = canvas.clientWidth;
@@ -186,18 +195,31 @@ function draw(canvas, object, frame) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
 
-  // The bodies, back to front — already depth-sorted by the exporter.
-  frame.forEach(function (part) {
+  // The bodies, back to front. object.parts is already in draw order — the
+  // exporter took it from a depth-sorted pose — and every frame lists its
+  // matrices in that same order, which is why the outlines could be written
+  // once instead of once per frame.
+  object.parts.forEach(function (part, index) {
     const points = part.points;
-    if (points.length < 6 || part.opacity <= 0.002) return;
+    if (points.length < 6) return;
+
+    const o = index * 7;
+    const a = frame[o], b = frame[o + 1], c = frame[o + 2];
+    const d = frame[o + 3], tx = frame[o + 4], ty = frame[o + 5];
+    const opacity = frame[o + 6];
+    if (!(opacity > 0.002)) return;
+
     const paint = object.paints[part.paint] || object.paints[0];
     ctx.beginPath();
-    ctx.moveTo(cx + points[0] * radius, cy + points[1] * radius);
-    for (let i = 2; i < points.length; i += 2) {
-      ctx.lineTo(cx + points[i] * radius, cy + points[i + 1] * radius);
+    for (let i = 0; i < points.length; i += 2) {
+      const x = points[i], y = points[i + 1];
+      // The one affine multiply. Everything else on this page is drawing.
+      const px = cx + (a * x + c * y + tx) * radius;
+      const py = cy + (b * x + d * y + ty) * radius;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = css(paint.fill, part.opacity);
+    ctx.fillStyle = css(paint.fill, opacity);
     ctx.fill();          // never stroke — see AnimaRenderer's note
   });
 }

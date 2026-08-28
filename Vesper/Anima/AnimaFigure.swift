@@ -8,6 +8,35 @@ import Foundation
 // makes a performance possible: a clip animates "the left ear", and the ear
 // exists as a nameable thing whether or not anything is animating it today.
 
+// MARK: - Affine
+
+/// A 2-D affine matrix: the resolved form of an `AnimaTransform`.
+///
+///     x' = a·x + c·y + tx
+///     y' = b·x + d·y + ty
+///
+/// Deliberately dumb, and that is its job. It is the only geometry the
+/// browser previewer is trusted with, because it is the only geometry that
+/// cannot be implemented subtly differently in two languages: six
+/// multiplications and four additions, no transcendentals, no branches, no
+/// conventions to get backwards.
+struct AnimaAffine: Equatable {
+    var a: Double
+    var b: Double
+    var c: Double
+    var d: Double
+    var tx: Double
+    var ty: Double
+
+    static let identity = AnimaAffine(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+
+    func apply(to p: CGPoint) -> CGPoint {
+        let x = Double(p.x), y = Double(p.y)
+        return CGPoint(x: a * x + c * y + tx,
+                       y: b * x + d * y + ty)
+    }
+}
+
 // MARK: - Transforms
 
 /// Where a part sits, and what has been done to it.
@@ -45,14 +74,32 @@ struct AnimaTransform: Equatable {
         return (x: scale * k, y: scale / k)
     }
 
-    /// Applies this transform to a point in the part's own space.
-    func apply(to p: CGPoint) -> CGPoint {
+    /// This transform as a plain 2-D affine matrix.
+    ///
+    /// WHY THIS EXISTS: it is what the exporter ships. Squash, scale and
+    /// rotation collapse into six numbers, so a frame costs six numbers per
+    /// part instead of a whole re-transformed outline — the ~55x that makes a
+    /// hundred assets fit in a browser (backlog E1).
+    ///
+    /// Critically it also keeps `exp` — which `axes` needs for area-preserving
+    /// squash — on THIS side of the fence. The previewer multiplies a matrix
+    /// and knows nothing about squash, so there is no transcendental function
+    /// implemented twice in two languages waiting to disagree.
+    var affine: AnimaAffine {
         let (sx, sy) = axes
-        let x = Double(p.x) * sx
-        let y = Double(p.y) * sy
         let c = cos(rotation), s = sin(rotation)
-        return CGPoint(x: x * c - y * s + Double(offset.x),
-                       y: x * s + y * c + Double(offset.y))
+        return AnimaAffine(a: sx * c, b: sx * s,
+                           c: -sy * s, d: sy * c,
+                           tx: Double(offset.x), ty: Double(offset.y))
+    }
+
+    /// Applies this transform to a point in the part's own space.
+    ///
+    /// Routed through `affine` deliberately: the app and the export must be
+    /// the same arithmetic, and the cheapest way to guarantee that is for
+    /// there to be only one copy of it.
+    func apply(to p: CGPoint) -> CGPoint {
+        affine.apply(to: p)
     }
 
     /// REST MERGED WITH ANIMATION — not composed.
@@ -228,6 +275,11 @@ struct AnimaFigure: Equatable {
 struct AnimaPosedPart: Equatable {
     var name: String
     var outline: [CGPoint]
+    /// The resolved transform that produced `outline` from the part's rest
+    /// outline. Redundant for the app, which draws `outline` directly — it is
+    /// carried so the exporter can ship six numbers per frame instead of a
+    /// whole outline, and so a test can prove the two are the same thing.
+    var transform: AnimaAffine
     var paint: Int
     var opacity: Double
     var depth: Int

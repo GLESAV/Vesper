@@ -91,16 +91,27 @@ believed.
 Two decisions make drift *structurally impossible* rather than merely
 unlikely:
 
-1. **The previewer does no animation maths.** It is handed poses — flat lists
-   of polygons, already keyed, eased, lagged, composed and depth-sorted by
-   `AnimaClip.pose`. There is no easing function in the JavaScript to disagree
-   with `AnimaEase`, because there is no easing in the JavaScript at all.
+1. **The previewer does almost no animation maths.** It is handed each part's
+   rest outline and, per frame, a *resolved* affine matrix — already keyed,
+   eased, lagged, merged, composed and depth-sorted by `AnimaClip.pose`. There
+   is no easing function in the JavaScript to disagree with `AnimaEase`,
+   because there is no easing in the JavaScript at all; likewise no keyframe
+   interpolation, no hierarchy, no `lag`, and no `exp` (which area-preserving
+   squash needs, and which therefore stays on the Swift side).
 2. **The previewer does no synthesis.** It is handed PCM rendered by
    `AnimaVoice.render` — the arithmetic that reaches the phone's speaker. It
    has no oscillator.
 
-`AnimaStudioTests.testExportedFramesAreExactlyTheApplicationsOwnPoses` pins
-this: every exported coordinate must equal the app's own pose to 1e-9.
+**The one concession, stated plainly.** Format 1 shipped a fully transformed
+outline per part per frame and contained literally no geometry in the page.
+CI measured it at 9,253,479 bytes for *six* objects — 154 MB for a hundred,
+which is not a preview anyone can open. Format 2 therefore asks the page for a
+single affine multiply, `x' = a·x + c·y + tx`: six multiplications and four
+additions, no transcendentals, no branches, nothing with a convention to get
+backwards. That is the whole of it, and
+`AnimaStudioTests.testExportedFramesReconstructTheApplicationsOwnPoses` does
+exactly what the page does and holds the result against the app's own posed
+outlines to within the 4dp rounding.
 
 The previewer's *material* (halo, fill) is an approximation of
 `SceneRenderer`'s three passes and does not claim otherwise. Shapes and timing

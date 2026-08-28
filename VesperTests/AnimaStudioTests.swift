@@ -33,18 +33,30 @@ final class AnimaStudioTests: XCTestCase {
 
         for object in objects {
             XCTAssertNotNil(object["name"] as? String)
+
+            let parts = try XCTUnwrap(object["parts"] as? [[String: Any]])
+            XCTAssertFalse(parts.isEmpty, "an object exported no parts")
+            for part in parts {
+                let points = try XCTUnwrap(part["points"] as? [Double])
+                XCTAssertGreaterThan(points.count, 6)
+                XCTAssertEqual(points.count % 2, 0,
+                               "a flattened outline has an odd number of coordinates")
+            }
+
             let clips = try XCTUnwrap(object["clips"] as? [[String: Any]])
             XCTAssertFalse(clips.isEmpty)
             for clip in clips {
-                let frames = try XCTUnwrap(clip["frames"] as? [[[String: Any]]])
+                let frames = try XCTUnwrap(clip["frames"] as? [[Double]])
                 XCTAssertFalse(frames.isEmpty, "a clip exported no frames")
                 for frame in frames {
-                    XCTAssertFalse(frame.isEmpty, "a frame exported no parts")
-                    for part in frame {
-                        let points = try XCTUnwrap(part["points"] as? [Double])
-                        XCTAssertGreaterThan(points.count, 6)
-                        XCTAssertEqual(points.count % 2, 0,
-                                       "a flattened outline has an odd number of coordinates")
+                    // Seven numbers per part — a, b, c, d, tx, ty, opacity —
+                    // in the object's own part order. A frame whose length is
+                    // not an exact multiple would silently shear every part
+                    // after the miscount.
+                    XCTAssertEqual(frame.count, parts.count * 7,
+                                   "a frame does not carry exactly seven numbers per part")
+                    for value in frame {
+                        XCTAssertTrue(value.isFinite, "a frame carries a non-finite number")
                     }
                 }
             }
@@ -61,38 +73,78 @@ final class AnimaStudioTests: XCTestCase {
         XCTAssertEqual(AnimaStudio.export(), AnimaStudio.export())
     }
 
-    // THE PREVIEWER IS ONLY WORTH HAVING IF IT CANNOT LIE. It does no
-    // animation maths — it is handed poses — so this is the test that the
-    // thing it is handed really is what the app computes, rather than a
-    // re-derivation that happens to agree today.
-    func testExportedFramesAreExactlyTheApplicationsOwnPoses() throws {
-        let object = AnimaLibrary.objects[0]
-        let clip = object.clips[0]
-        let data = AnimaStudio.export([object])
-        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
-        let clips = try XCTUnwrap(objects[0]["clips"] as? [[String: Any]])
-        let frames = try XCTUnwrap(clips[0]["frames"] as? [[[String: Any]]])
+    // THE PREVIEWER IS ONLY WORTH HAVING IF IT CANNOT LIE.
+    //
+    // Format 2 ships each part's REST outline once and a resolved affine
+    // matrix per frame, so the previewer does one multiply the app does not
+    // hand it. This test does exactly what the previewer does — matrix times
+    // rest outline — and holds the result against the app's own posed
+    // outline. If the exporter ever ships a matrix that does not reproduce
+    // the pose, this fails, which is the only thing standing between an
+    // author and a preview that quietly disagrees with the phone.
+    //
+    // The tolerance is the rounding, not slack: geometry is written to four
+    // decimal places, and a coordinate reaching ~2.5 unit radii accumulates
+    // at most a few times 1e-4 through the multiply. In app terms that is
+    // under a hundredth of a point at the largest orb in the game.
+    func testExportedFramesReconstructTheApplicationsOwnPoses() throws {
+        for object in AnimaLibrary.objects {
+            let data = AnimaStudio.export([object])
+            let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
+            let parts = try XCTUnwrap(objects[0]["parts"] as? [[String: Any]])
+            let clipsJSON = try XCTUnwrap(objects[0]["clips"] as? [[String: Any]])
 
-        let expected = clip.filmstrip(of: object.figure,
-                                      frames: AnimaStudio.frameCount(for: clip))
-        XCTAssertEqual(frames.count, expected.count)
+            // The rest outlines, in the exporter's draw order.
+            let restOutlines: [[CGPoint]] = try parts.map { part in
+                let flat = try XCTUnwrap(part["points"] as? [Double])
+                return stride(from: 0, to: flat.count, by: 2).map {
+                    CGPoint(x: flat[$0], y: flat[$0 + 1])
+                }
+            }
+            let names = try parts.map { try XCTUnwrap($0["name"] as? String) }
 
-        for (index, frame) in frames.enumerated() {
-            let pose = expected[index]
-            XCTAssertEqual(frame.count, pose.parts.count)
-            for (partIndex, part) in frame.enumerated() {
-                let points = try XCTUnwrap(part["points"] as? [Double])
-                let outline = pose.parts[partIndex].outline
-                XCTAssertEqual(points.count, outline.count * 2)
-                for (i, point) in outline.enumerated() {
-                    XCTAssertEqual(points[i * 2], Double(point.x), accuracy: 1e-9,
-                                   "frame \(index) part \(partIndex) drifted in x")
-                    XCTAssertEqual(points[i * 2 + 1], Double(point.y), accuracy: 1e-9,
-                                   "frame \(index) part \(partIndex) drifted in y")
+            for (clipIndex, clip) in object.clips.enumerated() {
+                let frames = try XCTUnwrap(clipsJSON[clipIndex]["frames"] as? [[Double]])
+                let expected = clip.filmstrip(of: object.figure,
+                                              frames: AnimaStudio.frameCount(for: clip))
+                XCTAssertEqual(frames.count, expected.count)
+
+                for (frameIndex, frame) in frames.enumerated() {
+                    let pose = expected[frameIndex]
+                    for (partIndex, name) in names.enumerated() {
+                        guard let posed = pose.parts.first(where: { $0.name == name }) else {
+                            return XCTFail("\(object.figure.name): exported part \(name) is not in the pose")
+                        }
+                        let o = partIndex * 7
+                        // Exactly the previewer's arithmetic, in Swift.
+                        let a = frame[o], b = frame[o + 1], c = frame[o + 2]
+                        let d = frame[o + 3], tx = frame[o + 4], ty = frame[o + 5]
+
+                        for (i, rest) in restOutlines[partIndex].enumerated() {
+                            let x = a * Double(rest.x) + c * Double(rest.y) + tx
+                            let y = b * Double(rest.x) + d * Double(rest.y) + ty
+                            XCTAssertEqual(x, Double(posed.outline[i].x), accuracy: 0.002,
+                                           "\(object.figure.name)/\(clip.name) frame \(frameIndex) \(name) drifted in x")
+                            XCTAssertEqual(y, Double(posed.outline[i].y), accuracy: 0.002,
+                                           "\(object.figure.name)/\(clip.name) frame \(frameIndex) \(name) drifted in y")
+                        }
+                        XCTAssertEqual(frame[o + 6], posed.opacity, accuracy: 0.002)
+                    }
                 }
             }
         }
+    }
+
+    // The size gate, in the tests as well as in CI. CI measured format 1 at
+    // 9,253,479 bytes for SIX objects — 1.54 MB each, 154 MB for a hundred —
+    // which is what format 2 exists to fix.
+    func testTheExportIsSmallEnoughToReachAHundredAssets() {
+        let bytes = AnimaStudio.export().count
+        let perObject = Double(bytes) / Double(AnimaLibrary.objects.count)
+        XCTAssertLessThan(perObject, 120_000,
+                          "at \(Int(perObject)) bytes an object, a hundred assets would be "
+                          + "\(Int(perObject * 100) / 1_048_576) MB — see docs/anima_backlog.md E1")
     }
 
     // 16-bit PCM has to round-trip within a quantisation step, or what an

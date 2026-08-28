@@ -55,11 +55,12 @@ enum AnimaStudio {
 
     /// How many poses a performance is sampled into.
     ///
-    /// 30 per second of clip, floored and capped. Thirty is enough to scrub
-    /// smoothly and to see a wind-up; sampling at 120 would quadruple the
-    /// file to show an author nothing they could act on.
+    /// 24 per second, hard-capped at 32 frames. Twenty-four is enough to
+    /// scrub smoothly and to see a wind-up; the cap is what keeps a long idle
+    /// (the four-second `breathe`) from costing four times what a reaction
+    /// does to show the same amount of information.
     static func frameCount(for clip: AnimaClip) -> Int {
-        min(180, max(8, Int((clip.duration * 30).rounded())))
+        min(32, max(8, Int((clip.duration * 24).rounded())))
     }
 
     /// The sample rate the previewer plays at.
@@ -71,15 +72,45 @@ enum AnimaStudio {
     /// their character. The app still renders at 44.1.
     static let previewSampleRate: Double = 22_050
 
+    /// Decimal places kept for geometry.
+    ///
+    /// In unit space 1e-4 is 0.0034 pt at the largest orb in the game — three
+    /// orders of magnitude below one device pixel — and it roughly halves the
+    /// text of every number.
+    static let places = 4
+
     // MARK: - The export
 
     /// The whole library as JSON.
+    ///
+    /// ─────────────────────────────────────────────────────────────────────
+    /// FORMAT 2: MATRICES, NOT OUTLINES. (backlog E1)
+    ///
+    /// Format 1 wrote a full transformed outline per part PER FRAME. CI
+    /// measured the result at 9,253,479 bytes for six objects — 1.54 MB each,
+    /// so 154 MB for a hundred. Un-openable, and it blew the size gate on the
+    /// sixth asset rather than the hundredth.
+    ///
+    /// Now each part's REST outline is written once, and each frame carries
+    /// only the resolved affine matrix and opacity: seven numbers per part
+    /// per frame instead of a hundred and twenty-eight. About 30 KB an
+    /// object, so a hundred fits in roughly 3 MB.
+    ///
+    /// THE DRIFT RULE SURVIVES, BUT IT IS NOW A SMALLER CLAIM AND IS WORTH
+    /// STATING HONESTLY. The previewer does one affine multiply per point
+    /// that it did not do before. It still contains no easing, no keyframe
+    /// interpolation, no hierarchy composition, no lag and no `exp` — every
+    /// one of which is a place two implementations could plausibly disagree.
+    /// What is left is `x' = a·x + c·y + tx`, which is arithmetic a reviewer
+    /// can check by eye, and which
+    /// `testExportedFramesReconstructTheApplicationsOwnPoses` pins against
+    /// the app's own posed outlines to within the rounding.
     static func export(_ objects: [AnimaObject] = AnimaLibrary.objects) -> Data {
         var root: [String: Any] = [:]
-        root["format"] = "anima-studio/1"
+        root["format"] = "anima-studio/2"
         // A number the previewer checks, so an old page and a new export fail
         // loudly instead of drawing something subtly wrong.
-        root["revision"] = 1
+        root["revision"] = 2
         root["sampleRate"] = previewSampleRate
         // A closure rather than `objects.map(encode)`: `encode` is overloaded
         // three ways and a bare function reference makes overload resolution
@@ -93,36 +124,73 @@ enum AnimaStudio {
         return (try? JSONSerialization.data(withJSONObject: root, options: options)) ?? Data()
     }
 
+    /// The order parts are written in, and therefore the order every frame's
+    /// matrices are written in.
+    ///
+    /// Taken from a pose rather than from the figure, because `AnimaClip.pose`
+    /// depth-sorts and the previewer draws the list in the order it is given.
+    /// The sort is stable and depth is static, so this order is the same at
+    /// every time — which is what lets the outlines be written once.
+    private static func drawOrder(of object: AnimaObject) -> [AnimaPosedPart] {
+        let clip = object.clips.first ?? AnimaClip.still()
+        return clip.pose(of: object.figure, at: 0).parts
+    }
+
     private static func encode(_ object: AnimaObject) -> [String: Any] {
-        [
+        let order = drawOrder(of: object)
+        return [
             "name": object.figure.name,
             "note": object.note,
             "paints": object.figure.paints.map { paint in
                 ["fill": rgb(paint.fill), "glow": rgb(paint.glow)]
             },
-            "reach": object.figure.restReach,
-            "clips": object.clips.map { encode($0, of: object.figure) },
+            "reach": round(object.figure.restReach),
+            "parts": order.map { posed -> [String: Any] in
+                // The REST outline — untransformed, written once. Looked up on
+                // the figure by name, because the posed part carries the
+                // transformed one.
+                let outline = object.figure.part(named: posed.name)?
+                    .primitive.outline() ?? []
+                return [
+                    "name": posed.name,
+                    "paint": posed.paint,
+                    "depth": posed.depth,
+                    // Flattened to [x, y, x, y, …]: a list of pairs roughly
+                    // doubles the file for no gain, since the previewer walks
+                    // it two at a time either way.
+                    "points": outline.flatMap { [round(Double($0.x)), round(Double($0.y))] }
+                ]
+            },
+            "clips": object.clips.map { encode($0, of: object.figure, order: order) },
             "voice": encode(object.voice)
         ]
     }
 
-    private static func encode(_ clip: AnimaClip, of figure: AnimaFigure) -> [String: Any] {
+    private static func encode(_ clip: AnimaClip,
+                               of figure: AnimaFigure,
+                               order: [AnimaPosedPart]) -> [String: Any] {
         let frames = frameCount(for: clip)
+        let names = order.map(\.name)
         return [
             "name": clip.name,
             "duration": clip.duration,
             "loops": clip.loops,
-            "frames": clip.filmstrip(of: figure, frames: frames).map { pose in
-                pose.parts.map { part -> [String: Any] in
-                    [
-                        "paint": part.paint,
-                        "opacity": part.opacity,
-                        // Flattened to [x, y, x, y, …]. A list of pairs would
-                        // roughly double the file for no gain: the previewer
-                        // walks it two at a time either way.
-                        "points": part.outline.flatMap { [Double($0.x), Double($0.y)] }
-                    ]
+            // One flat array per frame: seven numbers per part —
+            // a, b, c, d, tx, ty, opacity — in `order`.
+            "frames": clip.filmstrip(of: figure, frames: frames).map { pose -> [Double] in
+                var row: [Double] = []
+                row.reserveCapacity(names.count * 7)
+                for name in names {
+                    guard let part = pose.parts.first(where: { $0.name == name }) else {
+                        row.append(contentsOf: [1, 0, 0, 1, 0, 0, 0])
+                        continue
+                    }
+                    let m = part.transform
+                    row.append(contentsOf: [round(m.a), round(m.b), round(m.c),
+                                            round(m.d), round(m.tx), round(m.ty),
+                                            round(part.opacity)])
                 }
+                return row
             }
         ]
     }
@@ -135,6 +203,19 @@ enum AnimaStudio {
             "partials": voice.partials.count,
             "pcm": base64Int16(samples)
         ]
+    }
+
+    /// Geometry rounded to `places`.
+    ///
+    /// `-0` is normalised to `0`: JSONSerialization writes negative zero as
+    /// `-0`, which is valid JSON and reads back identically, but it makes two
+    /// otherwise-identical exports differ in text and defeats the diffability
+    /// `.sortedKeys` exists to give.
+    static func round(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        let scale = pow(10.0, Double(places))
+        let r = (value * scale).rounded() / scale
+        return r == 0 ? 0 : r
     }
 
     private static func rgb(_ c: PopColor) -> [Double] { [c.r, c.g, c.b] }

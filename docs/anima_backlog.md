@@ -31,7 +31,11 @@ Assets cannot be authored until these are done, and the order matters.
 
 ### E1 — Shrink the export by ~55×  ⟵ **blocks everything**
 
-- [ ] E1
+- [x] E1 — **done.** CI measured format 1 at **9,253,479 bytes for six
+      objects** (1.54 MB each → 154 MB for a hundred), confirming the estimate
+      below almost exactly. Format 2 ships each part's rest outline once and a
+      resolved affine matrix plus opacity per frame — seven numbers per part
+      per frame instead of a hundred and twenty-eight.
 
 Measured, not estimated. The exporter currently writes a full 64-point outline
 per part **per frame**:
@@ -62,9 +66,10 @@ lag and parentage by `AnimaClip.pose` — so the previewer's only arithmetic is
 JavaScript; that would put `exp` on both sides of the fence.
 
 Keep `AnimaPose` itself unchanged for the app. Add the matrix to
-`AnimaPosedPart`, and keep `testExportedFramesAreExactlyTheApplicationsOwnPoses`
-honest by having it reconstruct the outline from matrix × rest-outline and
-compare to the app's posed outline at 1e-6.
+`AnimaPosedPart`, and keep the verification honest by having it reconstruct
+the outline from matrix × rest-outline and compare to the app's posed outline.
+Done as `testExportedFramesReconstructTheApplicationsOwnPoses`, at a tolerance
+of 0.002 — which is the 4dp rounding, not slack.
 
 ### E2 — Reduce Motion variants
 
