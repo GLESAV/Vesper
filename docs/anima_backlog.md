@@ -289,7 +289,15 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       First family that needed **no builder fix** — both knobs already moved
       the extent. The only care needed was avoiding the low-trait/low-accent
       corner, which draws shorter than a plain orb and lands on the floor.
-- [ ] A9 — **prism** 081–090
+- [x] A9 — **prism** 081–090. `trait` = shard size, `accent` = beam throw,
+      `count` = sides (3–6). Reach 1.19–1.43; closest pair 0.13; four distinct
+      side counts.
+
+      **A fifth defect, the capsule trap again** — measured exactly 1.000 at
+      every corner: the beam never reached past the body and the body was
+      itself under an orb. Same fix as chime: author the thickness and the
+      half-length, derive `length`, and centre the beam half its own length
+      along its heading so it emerges rather than hiding inside.
 - [ ] A10 — **aurora** 091–100
 
 ### How to verify a batch

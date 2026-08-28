@@ -342,11 +342,26 @@ extension PopFamily {
         // PRISM — a hard shard with a beam. The lowest roundness in the set;
         // it should look cut rather than grown.
         case .prism:
+            // The capsule trap again, and by now it has a name: a beam's
+            // `scale` is its RADIUS, so a thin beam authored by scaling down
+            // is also a short one. Written the naive way this family measured
+            // exactly 1.000 at every corner of its knob range — the beam never
+            // reached past the body, and the body itself was under an orb.
+            //
+            // Author the thickness and the half-length; derive `length`.
+            let size = 0.94 + 0.13 * v.trait
+            let beamHalf = 0.50 + 0.15 * v.accent
+            let beamThickness = 0.10
+            let heading = -0.7
             return [
-                root(.polygon(sides: 3 + Int(v.trait * 2), roundness: 0.05), scale: 0.86),
-                AnimaPart("beam", .capsule(length: 3.0 + 2.0 * v.accent), parent: "body",
-                          rest: AnimaTransform(offset: CGPoint(x: 0.2, y: -0.2),
-                                               rotation: -0.7, scale: 0.10),
+                root(.polygon(sides: min(max(v.count, 3), 6), roundness: 0.05), scale: size),
+                // Centred half its own length along its heading, so it emerges
+                // from the body rather than sitting inside it.
+                AnimaPart("beam", .capsule(length: 2 * beamHalf / beamThickness),
+                          parent: "body",
+                          rest: AnimaTransform(offset: CGPoint(x: cos(heading) * beamHalf,
+                                                               y: sin(heading) * beamHalf),
+                                               rotation: heading, scale: beamThickness),
                           paint: accent, depth: 9, lag: 0.03)
             ]
 
@@ -696,7 +711,47 @@ enum AnimaPop {
         79: AnimaVariation(trait: 1.00, accent: 0.25, count: 3, tilt: -0.20),
         // "Weather you can hold without getting wet." — the secret one:
         // longest and widest together, the largest reach of the hundred.
-        80: AnimaVariation(trait: 0.95, accent: 1.00, count: 5, tilt: -0.38)
+        80: AnimaVariation(trait: 0.95, accent: 1.00, count: 5, tilt: -0.38),
+
+        // ── 081–090 · PRISM — white light was carrying all of this ──────
+        //
+        // A hard shard with a beam leaving it. `trait` is HOW LARGE the shard
+        // is, `accent` is HOW FAR the beam throws, `count` is the number of
+        // sides (three to six), `tilt` is the turn.
+        //
+        // The lowest roundness in the set, on purpose: everything else in the
+        // hundred is grown or poured, and this one should look cut.
+
+        // "White light was carrying all of this." — three sides, the classic
+        // prism, level. Everything after it is a variation on this shape.
+        81: AnimaVariation(trait: 0.45, accent: 0.50, count: 3, tilt: 0.00),
+        // "Bent, not broken. Prettier for it." — the hardest turn in the
+        // family. Bending is the whole line, so it is the whole difference.
+        82: AnimaVariation(trait: 0.40, accent: 0.62, count: 4, tilt: 0.45),
+        // "A stone that dreams in color." — a large body and barely a beam.
+        // It is a stone first; the colour is what it does inside.
+        83: AnimaVariation(trait: 0.80, accent: 0.12, count: 6, tilt: -0.15),
+        // "Ordinary light, told a better story." — many sides, a long throw,
+        // and level. The story is the length.
+        84: AnimaVariation(trait: 0.55, accent: 0.85, count: 6, tilt: 0.00),
+        // "It shifts every time you soften your gaze." — small, and turned
+        // just enough to be unsettled.
+        85: AnimaVariation(trait: 0.30, accent: 0.40, count: 5, tilt: 0.22),
+        // "A rainbow that works the night shift." — the smallest body and the
+        // longest beam: almost all throw, almost no stone.
+        86: AnimaVariation(trait: 0.10, accent: 1.00, count: 4, tilt: -0.30),
+        // "Every side of you catches some light." — the most sides. The line
+        // is a count and it is drawn as one.
+        87: AnimaVariation(trait: 0.62, accent: 0.35, count: 6, tilt: 0.10),
+        // "Turn slightly. The pattern forgives you." — the most turned of the
+        // ten. The instruction is the shape.
+        88: AnimaVariation(trait: 0.70, accent: 0.55, count: 5, tilt: -0.42),
+        // "The whole range, and room for more." — the largest body here, with
+        // a long throw. Room for more is drawn as room.
+        89: AnimaVariation(trait: 1.00, accent: 0.78, count: 4, tilt: 0.00),
+        // "Hold it to the light. That's the trick." — large and three-sided:
+        // a true prism, the shape the whole family is named for.
+        90: AnimaVariation(trait: 0.88, accent: 0.68, count: 3, tilt: 0.15)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {
