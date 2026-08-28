@@ -242,12 +242,40 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       `count` = how many. **`count` leads in this family** — three petals and
       nine are different objects at a glance in a way a length change is not —
       so the ten span seven distinct counts. Reach 1.00–1.29; closest pair 0.14.
-- [ ] A5 — **frost** 041–050
+
+      **The spread test caught a rendering defect here, not a content one.** A
+      limaçon petal's fat end sits at local θ = π, so rotating each petal by
+      the same angle as its offset turned that fat end back toward the centre:
+      every bloom folded its petals over its own heart, and since offset and
+      scale are equal the tips landed exactly on the origin. The family drew at
+      a fraction of its intended size and all ten measured an identical extent.
+      Fixed to `a + π`. The same class of error had ember's flame and tide's
+      drop lying on their sides; both now stand up.
+- [x] A5 — **frost** 041–050. `trait` = spoke length, `accent` = spoke
+      thickness — independent here in a way they are not elsewhere, which lets
+      frost say "needle-thin and long" and "short and thick" as separate ideas.
+      Reach 1.07–1.37; closest pair 0.21; nothing on the floor.
+
+      **A second sizing defect, caught before pushing.** A spoke's `scale`
+      shrinks its LENGTH as well as its thickness, so a scale of 0.13 on a
+      length-3 capsule is a 0.2-unit stub: the crystal never left the 1.0 reach
+      floor and all ten measured identically — bloom's failure by a different
+      route. Length is in units of the capsule's own radius, so a long thin
+      spoke needs a large `length` and a modest `scale`.
 - [ ] A6 — **chime** 051–060
 - [ ] A7 — **lantern** 061–070
 - [ ] A8 — **current** 071–080
 - [ ] A9 — **prism** 081–090
 - [ ] A10 — **aurora** 091–100
+
+### How to verify a batch
+
+**Use the faithful port of `restReach`** (`tools/anima-reach.py`) — outline
+sampling, the transform stack, the parent chain — so it computes what Swift
+computes. Do **not** use an analytic estimate. The one used for A1–A4 assumed
+a primitive's furthest point lies along its offset, which is backwards for a
+petal; it reported bloom's spread as 0.286 when the truth was 0.000, and it
+was wrong for three of the four families it was used on.
 
 ### Standing rules for every asset
 

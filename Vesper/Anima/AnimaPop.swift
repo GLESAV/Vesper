@@ -232,16 +232,26 @@ extension PopFamily {
 
         // FROST — a radial crystal. Spokes, not petals: hard and thin.
         case .frost:
-            var parts = [root(.polygon(sides: 6, roundness: 0.15), scale: 0.30)]
+            // A SPOKE'S `scale` SHRINKS ITS LENGTH AS WELL AS ITS THICKNESS,
+            // and the first numbers here forgot it: a scale of 0.13 on a
+            // length-3 capsule is a 0.2-unit stub, so the "radial crystal"
+            // never left the 1.0 reach floor and all ten members measured
+            // identically — the same failure bloom had, arriving by a
+            // different route.
+            //
+            // Length is in units of the capsule's OWN radius, so a long thin
+            // spoke needs a large `length` and a modest `scale`, not a small
+            // scale on a short one.
+            var parts = [root(.polygon(sides: 6, roundness: 0.15), scale: 0.42)]
             for i in 0..<n {
                 let a = 2 * Double.pi * Double(i) / Double(n)
                 parts.append(
-                    AnimaPart("spoke-\(i)", .capsule(length: 2.2 + 2.0 * v.trait),
+                    AnimaPart("spoke-\(i)", .capsule(length: 4.0 + 2.4 * v.trait),
                               parent: "body",
                               rest: AnimaTransform(offset: CGPoint(x: cos(a) * 1.5,
                                                                    y: sin(a) * 1.5),
                                                    rotation: a,
-                                                   scale: 0.13 + 0.06 * v.accent),
+                                                   scale: 0.32 + 0.12 * v.accent),
                               paint: accent, depth: 4, lag: 0.012 * Double(i % 3))
                 )
             }
@@ -499,7 +509,46 @@ enum AnimaPop {
         39: AnimaVariation(trait: 0.60, accent: 0.25, count: 9, tilt: 0.00),
         // "Rooted in mud, untroubled by it." — broad, round, perfectly level.
         // Untroubled is drawn as level.
-        40: AnimaVariation(trait: 0.70, accent: 0.15, count: 6, tilt: 0.00)
+        40: AnimaVariation(trait: 0.70, accent: 0.15, count: 6, tilt: 0.00),
+
+        // ── 041–050 · FROST — the world edited down to its edges ────────
+        //
+        // A radial crystal. `trait` is SPOKE LENGTH, `accent` is SPOKE
+        // THICKNESS, `count` is how many, `tilt` is the turn.
+        //
+        // Length and thickness are independent here in a way they are not in
+        // any other family, which is what lets frost say "needle-thin and
+        // long" and "short and thick" as separate ideas.
+
+        // "The world, edited down to its edges." — the reference crystal:
+        // six spokes, middling on both axes, level.
+        41: AnimaVariation(trait: 0.35, accent: 0.40, count: 6, tilt: 0.00),
+        // "It changes everything and harms nothing." — the shortest and
+        // finest in the family. Harmlessness drawn as slightness.
+        42: AnimaVariation(trait: 0.10, accent: 0.10, count: 6, tilt: -0.10),
+        // "Overnight, every branch was decorated." — the most spokes here.
+        43: AnimaVariation(trait: 0.45, accent: 0.62, count: 9, tilt: 0.12),
+        // "Moving all the time. Never rushing." — longest and thickest, and
+        // only four of them. Mass, not speed.
+        44: AnimaVariation(trait: 0.95, accent: 0.88, count: 4, tilt: 0.05),
+        // "Even the coldest things loosen eventually." — short and thick, and
+        // tipping over. Loosening drawn as thickening.
+        45: AnimaVariation(trait: 0.15, accent: 0.72, count: 5, tilt: 0.30),
+        // "Cold enough to make light look sharpened." — long and needle-thin.
+        // The thinnest spokes of the hundred.
+        46: AnimaVariation(trait: 0.80, accent: 0.05, count: 8, tilt: -0.22),
+        // "Look through it. Everything is still there." — three broad panes,
+        // level. Broad enough to be a window rather than a lattice.
+        47: AnimaVariation(trait: 0.55, accent: 0.95, count: 3, tilt: 0.00),
+        // "A small commotion of soft white." — many fine spokes, knocked
+        // off-axis. Commotion is the tilt, small is the thickness.
+        48: AnimaVariation(trait: 0.30, accent: 0.18, count: 9, tilt: 0.38),
+        // "The snow's real gift is the quiet after." — dead level, perfectly
+        // even, six. The rare one, and the stillest thing in the family.
+        49: AnimaVariation(trait: 0.62, accent: 0.42, count: 6, tilt: 0.00),
+        // "The sun leaves. The sky finds other colors." — the secret one:
+        // the longest spokes and the hardest turn.
+        50: AnimaVariation(trait: 1.00, accent: 0.68, count: 7, tilt: -0.35)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {
