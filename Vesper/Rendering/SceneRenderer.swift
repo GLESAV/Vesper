@@ -643,7 +643,12 @@ struct SceneRenderer {
                 y: origin.y + sin(angle) * distance)
     }
 
-    private func color(_ c: PopColor) -> Color {
+    // INTERNAL, NOT PRIVATE, AND ONLY JUST. `AnimaRenderer` is an extension
+    // of this type in another file, so it cannot see a `private` member — and
+    // it must not carry a second copy of this conversion. There is exactly
+    // one place a `PopColor` becomes a `Color` in this app; two would be two
+    // places to apply a palette change and one place to forget.
+    func color(_ c: PopColor) -> Color {
         Color(red: c.r, green: c.g, blue: c.b)
     }
 }

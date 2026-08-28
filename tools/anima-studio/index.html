@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anima Studio</title>
+<!--
+  ANIMA STUDIO — the previewer.
+
+  Open this file. It loads library.json from beside it and plays every object
+  in the library: scrub a performance, hear the voice, read the note.
+
+  WHAT THIS PAGE DELIBERATELY DOES NOT CONTAIN, and why it is the whole point:
+
+    * no easing functions
+    * no keyframe interpolation
+    * no hierarchy or transform maths
+    * no oscillators, envelopes or filters
+
+  It fills polygons and plays PCM. Everything else was computed by the Swift
+  engine and baked into library.json, so this page CANNOT drift from the app —
+  there is no second implementation here to drift. A previewer that
+  reimplemented the runtime would agree with it for about a week and then
+  start quietly lying to whoever was authoring against it, which is worse than
+  having no previewer at all.
+
+  Regenerate library.json with:
+
+    ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
+      xcodebuild test -project Vesper.xcodeproj -scheme Vesper \
+      -destination 'platform=iOS Simulator,name=iPhone 16' \
+      CODE_SIGNING_ALLOWED=NO \
+      -only-testing:VesperTests/AnimaStudioTests/testWriteTheStudioExport
+
+  Some browsers refuse fetch() on file:// URLs. If the page says it cannot
+  load the library, serve the folder instead:
+
+    python3 -m http.server -d tools/anima-studio 8000
+-->
+<style>
+  :root {
+    --ground: #14121b;
+    --panel: #1c1a25;
+    --line: #2b2836;
+    --ink: #d9d5e4;
+    --dim: #8e88a3;
+    --accent: #b9a8d8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    padding: 22px 26px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 {
+    margin: 0;
+    font: 400 22px/1.2 ui-serif, Georgia, "Times New Roman", serif;
+    letter-spacing: 0.01em;
+  }
+  .sub { color: var(--dim); margin-top: 6px; font-size: 13px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 18px;
+    padding: 22px 26px 60px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .card h2 {
+    margin: 0 0 2px;
+    font: 400 16px/1.3 ui-serif, Georgia, serif;
+  }
+  .note { color: var(--dim); font-size: 12px; min-height: 2.4em; margin-bottom: 8px; }
+  canvas { width: 100%; aspect-ratio: 1; display: block; border-radius: 8px; background: #100e17; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  select, button {
+    background: #262233;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .meta { color: var(--dim); font-size: 11px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .error { padding: 26px; color: #e0b4b4; max-width: 62ch; }
+  code { background: #262233; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Anima Studio</h1>
+  <div class="sub" id="sub">loading the library…</div>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+"use strict";
+
+// The one number this page checks. An old page and a new export should fail
+// loudly rather than draw something subtly wrong.
+const EXPECTED_REVISION = 1;
+
+const grid = document.getElementById("grid");
+const sub = document.getElementById("sub");
+
+function fail(message, detail) {
+  document.body.innerHTML =
+    '<div class="error"><h1>Anima Studio</h1><p>' + message + "</p>" +
+    (detail ? "<p><code>" + detail + "</code></p>" : "") +
+    '<p>Some browsers refuse <code>fetch()</code> on <code>file://</code>. ' +
+    'Serve the folder instead:</p>' +
+    "<p><code>python3 -m http.server -d tools/anima-studio 8000</code></p></div>";
+}
+
+fetch("library.json")
+  .then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  })
+  .then(build)
+  .catch(function (e) { fail("Could not load <code>library.json</code>.", e.message); });
+
+function build(library) {
+  if (library.revision !== EXPECTED_REVISION) {
+    fail("This page is revision " + EXPECTED_REVISION +
+         " and the export is revision " + library.revision +
+         ". Re-export, or check out the matching version of this page.");
+    return;
+  }
+  sub.textContent = library.objects.length + " objects · " +
+    library.objects.reduce(function (n, o) { return n + o.clips.length; }, 0) +
+    " performances · audio at " + library.sampleRate + " Hz";
+  library.objects.forEach(function (object) { grid.appendChild(card(object, library)); });
+}
+
+// ── Drawing ───────────────────────────────────────────────────────────────
+//
+// This is the whole renderer. It mirrors the three passes the app draws in —
+// an additive halo, flat bodies, no strokes anywhere — closely enough to
+// judge a silhouette and a performance by. It is NOT pixel-identical to the
+// app and is not trying to be: the shapes and the timing are exact (they were
+// computed in Swift), the material is an approximation, and the material is
+// the part an author is not iterating on here.
+
+function css(rgb, alpha) {
+  return "rgba(" + Math.round(rgb[0] * 255) + "," + Math.round(rgb[1] * 255) +
+         "," + Math.round(rgb[2] * 255) + "," + alpha + ")";
+}
+
+function draw(canvas, object, frame) {
+  const dpr = window.devicePixelRatio || 1;
+  const size = canvas.clientWidth;
+  if (canvas.width !== size * dpr) {
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+
+  const cx = size / 2;
+  const cy = size / 2;
+  // Sized so the figure's rest reach fills a comfortable share of the tile;
+  // the app scales by an orb radius instead.
+  const radius = (size * 0.30) / Math.max(1, object.reach);
+
+  // The halo.
+  const glow = object.paints[0] ? object.paints[0].glow : [1, 1, 1];
+  const haloR = radius * object.reach * 1.8;
+  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.5, cx, cy, haloR);
+  gradient.addColorStop(0, css(glow, 0.20));
+  gradient.addColorStop(1, css(glow, 0));
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  // The bodies, back to front — already depth-sorted by the exporter.
+  frame.forEach(function (part) {
+    const points = part.points;
+    if (points.length < 6 || part.opacity <= 0.002) return;
+    const paint = object.paints[part.paint] || object.paints[0];
+    ctx.beginPath();
+    ctx.moveTo(cx + points[0] * radius, cy + points[1] * radius);
+    for (let i = 2; i < points.length; i += 2) {
+      ctx.lineTo(cx + points[i] * radius, cy + points[i + 1] * radius);
+    }
+    ctx.closePath();
+    ctx.fillStyle = css(paint.fill, part.opacity);
+    ctx.fill();          // never stroke — see AnimaRenderer's note
+  });
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────
+//
+// Decodes the base64 Int16 the exporter wrote and plays it. No synthesis: the
+// samples are the ones AnimaVoice.render produced, so what is heard here is
+// the arithmetic that reaches the phone.
+
+let audio = null;
+function context() {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  return audio;
+}
+
+function decode(base64, sampleRate) {
+  const binary = atob(base64);
+  const count = binary.length >> 1;
+  const view = new DataView(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) view.setUint8(i, binary.charCodeAt(i));
+  const ctx = context();
+  const buffer = ctx.createBuffer(1, count, sampleRate);
+  const channel = buffer.getChannelData(0);
+  for (let i = 0; i < count; i++) {
+    // Little-endian, matching AnimaStudio.base64Int16. Stating the
+    // endianness in both places is cheaper than debugging the one time it
+    // is wrong.
+    channel[i] = view.getInt16(i * 2, true) / 32767;
+  }
+  return buffer;
+}
+
+function play(buffer) {
+  const ctx = context();
+  if (ctx.state === "suspended") ctx.resume();
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start();
+}
+
+// ── A card ────────────────────────────────────────────────────────────────
+
+function card(object, library) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML =
+    "<h2>" + object.name + "</h2>" +
+    '<div class="note">' + (object.note || "") + "</div>" +
+    "<canvas></canvas>" +
+    '<div class="row">' +
+      "<select></select>" +
+      '<button data-role="playpause">pause</button>' +
+      '<button data-role="hear">hear</button>' +
+    "</div>" +
+    '<div class="row"><input type="range" min="0" max="1000" value="0"></div>' +
+    '<div class="meta"></div>';
+
+  const canvas = el.querySelector("canvas");
+  const select = el.querySelector("select");
+  const playPause = el.querySelector('[data-role="playpause"]');
+  const hear = el.querySelector('[data-role="hear"]');
+  const scrub = el.querySelector("input");
+  const meta = el.querySelector(".meta");
+
+  object.clips.forEach(function (clip, i) {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = clip.name + (clip.loops ? " ↻" : "");
+    select.appendChild(option);
+  });
+
+  let clipIndex = 0;
+  let playing = true;
+  let frameIndex = 0;
+  let last = performance.now();
+  let accumulated = 0;
+  let voiceBuffer = null;
+
+  function clip() { return object.clips[clipIndex]; }
+
+  function show(index) {
+    const c = clip();
+    frameIndex = Math.max(0, Math.min(c.frames.length - 1, index));
+    draw(canvas, object, c.frames[frameIndex]);
+    scrub.value = String(Math.round(frameIndex / Math.max(1, c.frames.length - 1) * 1000));
+    const seconds = (frameIndex / c.frames.length) * c.duration;
+    meta.textContent = c.name + " · " + c.duration.toFixed(2) + "s · frame " +
+      (frameIndex + 1) + "/" + c.frames.length + " · t=" + seconds.toFixed(3) + "s" +
+      " · voice: " + object.voice.name;
+  }
+
+  select.addEventListener("change", function () {
+    clipIndex = Number(select.value);
+    accumulated = 0;
+    show(0);
+  });
+
+  playPause.addEventListener("click", function () {
+    playing = !playing;
+    playPause.textContent = playing ? "pause" : "play";
+  });
+
+  scrub.addEventListener("input", function () {
+    playing = false;
+    playPause.textContent = "play";
+    const c = clip();
+    show(Math.round(Number(scrub.value) / 1000 * (c.frames.length - 1)));
+  });
+
+  hear.addEventListener("click", function () {
+    if (!voiceBuffer) voiceBuffer = decode(object.voice.pcm, library.sampleRate);
+    play(voiceBuffer);
+  });
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (playing) {
+      const c = clip();
+      accumulated += dt;
+      const frames = c.frames.length;
+      const perFrame = c.duration / frames;
+      let index = Math.floor(accumulated / perFrame);
+      if (c.loops) {
+        index = index % frames;
+      } else if (index >= frames) {
+        // A one-shot holds its last frame for a moment, then replays, so an
+        // author can watch a reaction repeatedly without clicking.
+        if (accumulated > c.duration + 0.6) { accumulated = 0; index = 0; }
+        else index = frames - 1;
+      }
+      show(index);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  show(0);
+  return el;
+}
+</script>
+</body>
+</html>
