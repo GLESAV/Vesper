@@ -1,0 +1,152 @@
+# Anima — the build loop
+
+The ordered plan an autonomous loop works through. **This file is the loop's
+memory.** Each iteration reads it, does the first unchecked item, ticks it, and
+commits. Nothing else carries state between iterations.
+
+## The iteration contract
+
+1. `git pull` the working branch.
+2. **Check CI on the open PR first.** If it is red, fixing it *is* this
+   iteration — stop after pushing the fix. Assets are never authored against
+   an engine that does not compile.
+3. If CI is green, do the **first unchecked item** below. One item per
+   iteration, no skipping ahead.
+4. Tick it, commit with a message that says what was learned, push.
+5. If every item is ticked and CI is green, the loop is done.
+
+## Definition of done
+
+- [ ] 100 demo assets, one per pop number 1–100, each in its `PopFamily`
+- [ ] Every asset validated against the pop paradigm by a test
+- [ ] A hub page showing all 100, published and reachable
+- [ ] CI green on both configurations
+- [ ] Export under 8 MB and the page usable on a phone
+
+---
+
+## Phase E — finish the engine
+
+Assets cannot be authored until these are done, and the order matters.
+
+### E1 — Shrink the export by ~55×  ⟵ **blocks everything**
+
+- [ ] E1
+
+Measured, not estimated. The exporter currently writes a full 64-point outline
+per part **per frame**:
+
+| | |
+|---|---|
+| average parts per object | 4.8 |
+| bytes per object | 1.50 MB |
+| **100 objects** | **150 MB** |
+
+That is unshippable, un-openable in a browser, and would blow the 12 MB test
+cap on roughly the ninth asset. Four changes, together ~55×:
+
+1. **Export a resolved affine matrix per part per frame, and each part's
+   outline exactly once.** Six numbers instead of 128. This is the big one.
+2. **Round coordinates to 4 decimal places.** In unit space 1e-4 is 0.0034 pt
+   at the largest orb — three orders of magnitude below a pixel.
+3. **32-point outlines for export** (the app keeps 64). The previewer draws at
+   ~200 px; the sagitta at 32 points is well under one CSS pixel there.
+4. **24 fps, not 30.**
+
+**The drift rule still holds, and it is worth restating because this change is
+exactly where it could be lost.** The previewer must still contain no easing,
+no interpolation, no hierarchy composition and no `exp`. Export the final
+**affine matrix** (a, b, c, d, e, f) — already resolved through rest, merge,
+lag and parentage by `AnimaClip.pose` — so the previewer's only arithmetic is
+`x' = a·x + c·y + e`. Do **not** export `squash` and recompute the axes in
+JavaScript; that would put `exp` on both sides of the fence.
+
+Keep `AnimaPose` itself unchanged for the app. Add the matrix to
+`AnimaPosedPart`, and keep `testExportedFramesAreExactlyTheApplicationsOwnPoses`
+honest by having it reconstruct the outline from matrix × rest-outline and
+compare to the app's posed outline at 1e-6.
+
+### E2 — Reduce Motion variants
+
+- [ ] E2
+
+04 §11: every motion needs a defined reduced variant, and none may carry
+information. Add `AnimaClip.reduced` — the same performance with amplitude
+scaled toward rest and loops held at their rest frame — and a test that every
+clip in the library has one and that it never moves more than the original.
+This is a **shipping blocker** for any adoption, so it comes before assets.
+
+### E3 — The pop-paradigm bridge
+
+- [ ] E3
+
+The 100 assets are not free-standing art; they are the visual half of the
+existing 100-pop catalog. Add `AnimaPopBinding`:
+
+- keyed by `PopDefinition.number` (1–100, stable forever)
+- a **family shape signature** on `PopFamily`, exactly parallel to the `voice`
+  / `burst` / `haptic` signatures it already carries — the family is the
+  silhouette vocabulary, the ten pops in it are variations on it
+- paints drawn from the bound `PopDefinition.style.paints`, never invented
+- a test that every binding's number exists in `PopCatalog`, that its family
+  matches, and that its paints are the pop's own
+
+Ten families × ten pops is the paradigm; a hundred one-offs is not.
+
+### E4 — The hub page
+
+- [ ] E4
+
+Rebuild `tools/anima-studio/index.html` as a gallery of all 100: grouped by
+family, filterable, searchable by name and number, each tile showing the pop
+number, name, family, rarity and flavour line beside the animation. Must stay
+dependency-free and must still do no animation maths.
+
+### E5 — Publish it
+
+- [ ] E5
+
+`.github/workflows/anima-pages.yml` runs the export on the macOS runner (the
+only place with a toolchain) and publishes. Verify the deployed page loads and
+plays. Until GitHub Pages is enabled for the repository the workflow still
+uploads the export as a build artifact, so nothing is blocked on a setting.
+
+---
+
+## Phase A — the 100 assets
+
+One family per iteration, ten assets each, in catalog order. Each asset is an
+`AnimaObject` bound to its pop number, using its family's shape signature, its
+pop's own paints, and one authored performance beyond the shared `wake` /
+`release`.
+
+- [ ] A1 — **vesper** 001–010 · the original dusk
+- [ ] A2 — **ember** 011–020
+- [ ] A3 — **tide** 021–030
+- [ ] A4 — **bloom** 031–040
+- [ ] A5 — **frost** 041–050
+- [ ] A6 — **chime** 051–060
+- [ ] A7 — **lantern** 061–070
+- [ ] A8 — **current** 071–080
+- [ ] A9 — **prism** 081–090
+- [ ] A10 — **aurora** 091–100
+
+### Standing rules for every asset
+
+- **Silhouette first.** A family must be recognisable at arm's length in the
+  dark, before colour is read. If two families would be confused as black
+  shapes, the second one is wrong.
+- **Reuse the shared performances.** `wake` and `release` work on every figure
+  because of the one-root-named-`body` convention. An asset that needs its own
+  copy of a generic performance is a signal the convention was broken.
+- **Muted palette, no pure white, no outlines** — guardrail 4, enforced by
+  `AnimaTests`.
+- **Nothing is wired into gameplay.** These are demo assets and a preview.
+  Guardrail 5 holds; adoption is a separate change with its own before/after.
+
+---
+
+## Phase Z — close out
+
+- [ ] Z1 — Full `AnimaTests` pass, export under 8 MB, hub page verified
+- [ ] Z2 — Update `docs/anima.md` and `CLAUDE.md`; mark PR ready for review
