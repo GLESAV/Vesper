@@ -223,7 +223,12 @@ One family per iteration, ten assets each, in catalog order. Each asset is an
 pop's own paints, and one authored performance beyond the shared `wake` /
 `release`.
 
-- [ ] A1 — **vesper** 001–010 · the original dusk
+- [x] A1 — **vesper** 001–010 · the original dusk. `trait` = how far the
+      companion sits, `accent` = how large and high, `tilt` = the angle of the
+      pair. Authored to each flavour line rather than spread evenly — an even
+      spread is a gradient, and a gradient is not ten things. Reach spans
+      1.00–1.33; closest pair in the variation plane 0.13. **#001 is pinned at
+      exactly 1.00**, the most orb-like of the hundred (guardrail 5), by a test.
 - [ ] A2 — **ember** 011–020
 - [ ] A3 — **tide** 021–030
 - [ ] A4 — **bloom** 031–040

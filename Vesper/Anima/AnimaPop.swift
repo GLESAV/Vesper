@@ -311,7 +311,47 @@ enum AnimaPop {
     /// A `let`, not a `var`: this is a catalogue, and a mutable global that
     /// anything could write to at runtime would make an asset's appearance
     /// depend on what had run before it.
-    static let variations: [Int: AnimaVariation] = [:]
+    static let variations: [Int: AnimaVariation] = [
+
+        // ── 001–010 · VESPER — the original dusk ────────────────────────
+        //
+        // The family's silhouette is a body with a companion beside it, so
+        // `trait` is HOW FAR the companion sits, `accent` is HOW LARGE AND
+        // HIGH, and `tilt` is the angle of the pair. Each of the ten is
+        // authored to its own flavour line rather than spread evenly, because
+        // an even spread is a gradient and a gradient is not ten things.
+        //
+        // #001 IS THE REFERENCE IMPLEMENTATION OF THE GAME'S LOOK and it is
+        // pinned as the most orb-like of the hundred: companion tucked in and
+        // small, reach exactly 1.0. Guardrail 5 — pop #001 does not move. A
+        // test holds it there.
+
+        // "The first one. It was always enough."
+        1:  AnimaVariation(trait: 0.00, accent: 0.05, count: 2, tilt: 0.00),
+        // "The hour that asks nothing of you." — close, unhurried.
+        2:  AnimaVariation(trait: 0.15, accent: 0.30, count: 2, tilt: -0.12),
+        // "Water-colored, like the end of a good day." — dead level; water
+        // finds its level and that is the whole line.
+        3:  AnimaVariation(trait: 0.35, accent: 0.35, count: 2, tilt: 0.00),
+        // "Neither day nor night. Both forgave you." — the exact midpoint of
+        // the family, on both axes. Being exactly between IS the flavour.
+        4:  AnimaVariation(trait: 0.50, accent: 0.50, count: 2, tilt: 0.00),
+        // "Somewhere a kettle is on." — small, domestic, set down at an angle.
+        5:  AnimaVariation(trait: 0.25, accent: 0.18, count: 2, tilt: 0.22),
+        // "It falls slowly, then all at once, softly." — leaning away, and
+        // the companion low.
+        6:  AnimaVariation(trait: 0.45, accent: 0.62, count: 2, tilt: 0.30),
+        // "One is enough to wish on." — far and tiny. Distance plus smallness
+        // is what makes a point of light read as a star rather than a moon.
+        7:  AnimaVariation(trait: 0.95, accent: 0.12, count: 2, tilt: -0.30),
+        // "The sky lowering its voice." — large and low, close in.
+        8:  AnimaVariation(trait: 0.30, accent: 0.85, count: 2, tilt: 0.18),
+        // "Cool on the skin, kind to the mind." — open and spacious.
+        9:  AnimaVariation(trait: 0.80, accent: 0.45, count: 2, tilt: -0.20),
+        // "It stays a moment longer than it must." — the rare one: the
+        // companion nearly rivals the body and will not leave.
+        10: AnimaVariation(trait: 0.10, accent: 1.00, count: 2, tilt: -0.08)
+    ]
 
     static func variation(for number: Int) -> AnimaVariation {
         variations[number] ?? .derived(from: number)

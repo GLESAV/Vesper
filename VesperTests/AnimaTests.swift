@@ -769,3 +769,95 @@ final class AnimaPopTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Authored variations (phase A)
+
+/// The ten notes inside each instrument.
+///
+/// Phase A replaces derived variations with authored ones, a family at a
+/// time. These tests hold what authoring is FOR: that the ten are actually
+/// ten, and that authoring never disturbs the one pop that must not move.
+final class AnimaVariationTests: XCTestCase {
+
+    private func authored(in family: PopFamily) -> [(Int, AnimaVariation)] {
+        PopCatalog.all
+            .filter { $0.family == family && AnimaPop.variations[$0.number] != nil }
+            .sorted { $0.number < $1.number }
+            .map { ($0.number, AnimaPop.variations[$0.number]!) }
+    }
+
+    // GUARDRAIL 5, AS A TEST. Pop #001 is the reference implementation of the
+    // game's look — the v1.0 pop, codified. Every other asset may be as
+    // adventurous as its flavour asks, but this one stays an orb: a companion
+    // tucked in so close that the silhouette does not reach past a plain disc.
+    func testPopOneStillReadsAsAPlainOrb() {
+        let figure = AnimaPop.object(for: PopCatalog.definition(for: 1)).figure
+        XCTAssertLessThanOrEqual(figure.restReach, 1.10,
+                                 "pop #001 has grown past a plain orb — guardrail 5")
+    }
+
+    // Ten pops in a family must be ten SHAPES, not one shape at ten sizes. A
+    // pair sitting on top of each other in the variation plane is one pop
+    // drawn twice, and nobody reviewing a hundred tiles would spot it.
+    func testAuthoredVariationsAreSeparatedWithinTheirFamily() {
+        for family in PopFamily.allCases {
+            let entries = authored(in: family)
+            guard entries.count > 1 else { continue }
+            for i in entries.indices {
+                for j in entries.indices where j > i {
+                    let a = entries[i].1, b = entries[j].1
+                    let distance = ((a.trait - b.trait) * (a.trait - b.trait)
+                                    + (a.accent - b.accent) * (a.accent - b.accent)).squareRoot()
+                    XCTAssertGreaterThan(distance, 0.08, """
+                        #\(entries[i].0) and #\(entries[j].0) sit on top of each other in \
+                        \(family)'s variation plane — that is one pop drawn twice.
+                        """)
+                }
+            }
+        }
+    }
+
+    // An authored family must actually look authored: its ten silhouettes
+    // must span a real range, or the batch changed nothing an eye could see.
+    func testAnAuthoredFamilySpansARangeOfSilhouettes() {
+        for family in PopFamily.allCases {
+            let entries = authored(in: family)
+            guard entries.count >= 5 else { continue }
+            let reaches = entries.map { number, _ -> Double in
+                AnimaPop.object(for: PopCatalog.definition(for: number)).figure.restReach
+            }
+            let spread = (reaches.max() ?? 0) - (reaches.min() ?? 0)
+            XCTAssertGreaterThan(spread, 0.15, """
+                \(family)'s authored silhouettes span only \(spread) — the ten are \
+                one shape at ten sizes.
+                """)
+        }
+    }
+
+    // Authoring may never break the conventions the engine depends on.
+    func testAuthoredVariationsKeepEveryEngineConvention() {
+        for (number, _) in AnimaPop.variations {
+            let object = AnimaPop.object(for: PopCatalog.definition(for: number))
+            let roots = object.figure.parts.filter { $0.parent == nil }
+            XCTAssertEqual(roots.count, 1, "#\(number) has \(roots.count) roots")
+            XCTAssertEqual(roots.first?.name, "body", "#\(number)'s root is not `body`")
+            for part in object.figure.parts {
+                XCTAssertTrue(object.figure.paints.indices.contains(part.paint),
+                              "#\(number).\(part.name) paints outside its own palette")
+            }
+            XCTAssertTrue(object.figure.restReach.isFinite && object.figure.restReach > 0,
+                          "#\(number) has a degenerate reach")
+        }
+    }
+
+    // Every authored number is a real catalogue pop. A typo'd key is silent:
+    // it authors a pop that does not exist while the one that does keeps its
+    // derived shape.
+    func testEveryAuthoredNumberIsARealPop() {
+        let known = Set(PopCatalog.all.map(\.number))
+        for number in AnimaPop.variations.keys {
+            XCTAssertTrue(known.contains(number),
+                          "#\(number) is authored but is not in the catalogue")
+        }
+    }
+}
