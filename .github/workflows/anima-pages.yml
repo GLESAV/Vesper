@@ -77,7 +77,18 @@ jobs:
 
       - name: Run the exporter
         env:
-          ANIMA_EXPORT_DIR: ${{ github.workspace }}/tools/anima-studio
+          # `TEST_RUNNER_` IS LOAD-BEARING, NOT DECORATION.
+          #
+          # The test runs inside the iOS Simulator, in a process that does not
+          # inherit this step's environment. `xcodebuild test` forwards only
+          # the variables prefixed `TEST_RUNNER_`, stripping the prefix on the
+          # way in -- so the test sees `ANIMA_EXPORT_DIR` and this file has to
+          # spell it the long way.
+          #
+          # Without the prefix the export test SKIPS, cheerfully, and the run
+          # is green right up until the step that looks for the file. That is
+          # the failure this comment exists to stop recurring.
+          TEST_RUNNER_ANIMA_EXPORT_DIR: ${{ github.workspace }}/tools/anima-studio
         run: |
           set -o pipefail
           xcodebuild test \
@@ -96,7 +107,12 @@ jobs:
         run: |
           set -euo pipefail
           file=tools/anima-studio/library.json
-          test -s "$file" || { echo "::error::the exporter wrote nothing"; exit 1; }
+          test -s "$file" || {
+            echo "::error::the exporter wrote nothing. The most likely cause is that"
+            echo "::error::TEST_RUNNER_ANIMA_EXPORT_DIR did not reach the simulator, so"
+            echo "::error::testWriteTheStudioExport skipped. Check the test log above."
+            exit 1
+          }
           bytes=$(wc -c < "$file")
           echo "library.json: $bytes bytes ($((bytes/1024)) KB)"
           # ONE LINE, DELIBERATELY. A multi-line `python3 -c "..."` written at
@@ -106,7 +122,7 @@ jobs:
           # Python, which rejects a uniformly-indented -c script.
           python3 -c "import json;d=json.load(open('$file'));print('objects:',len(d['objects']));print('clips:',sum(len(o['clips']) for o in d['objects']))"
           if [ "$bytes" -gt 8388608 ]; then
-            echo "::error::export is over 8 MB — see docs/anima_backlog.md E1"
+            echo "::error::export is over 8 MB - see docs/anima_backlog.md E1"
             exit 1
           fi
 

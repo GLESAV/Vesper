@@ -65,7 +65,7 @@ glass, asserted in a test, and shipped to a previewer that runs in a browser.
 ## 3. The authoring loop
 
 ```sh
-ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
+TEST_RUNNER_ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
   xcodebuild test -project Vesper.xcodeproj -scheme Vesper \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
   CODE_SIGNING_ALLOWED=NO \

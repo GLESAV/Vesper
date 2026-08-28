@@ -129,20 +129,42 @@ final class AnimaStudioTests: XCTestCase {
 
     /// Writes the library into `ANIMA_EXPORT_DIR`, beside the previewer.
     ///
-    ///     ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
+    ///     TEST_RUNNER_ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
     ///       xcodebuild test -project Vesper.xcodeproj -scheme Vesper \
     ///       -destination 'platform=iOS Simulator,name=iPhone 16' \
     ///       CODE_SIGNING_ALLOWED=NO \
     ///       -only-testing:VesperTests/AnimaStudioTests/testWriteTheStudioExport
     ///
     /// Then open `tools/anima-studio/index.html`.
+    ///
+    /// NOTE THE `TEST_RUNNER_` PREFIX ON THE COMMAND LINE, AND ITS ABSENCE IN
+    /// THE CODE. This test runs inside the iOS Simulator, in a process that
+    /// does not inherit the invoking shell's environment; `xcodebuild test`
+    /// forwards only variables prefixed `TEST_RUNNER_` and strips the prefix
+    /// on the way in. So the shell says `TEST_RUNNER_ANIMA_EXPORT_DIR` and
+    /// this code reads `ANIMA_EXPORT_DIR`, and they are the same variable.
+    ///
+    /// Getting it wrong is quiet, which is why it is written down here: the
+    /// test simply skips, the run stays green, and the export never appears.
     func testWriteTheStudioExport() throws {
-        let directory = ProcessInfo.processInfo.environment["ANIMA_EXPORT_DIR"]
-        try XCTSkipIf(directory == nil,
-                      "Set ANIMA_EXPORT_DIR to write the studio export. Skipped so CI writes nothing.")
+        let environment = ProcessInfo.processInfo.environment
+        // The unprefixed name is what arrives after xcodebuild strips the
+        // prefix. The prefixed one is accepted too, for a hypothetical
+        // macOS-native runner where the variable would pass straight through.
+        let directory = environment["ANIMA_EXPORT_DIR"]
+            ?? environment["TEST_RUNNER_ANIMA_EXPORT_DIR"]
+        try XCTSkipIf(directory == nil, """
+            Set TEST_RUNNER_ANIMA_EXPORT_DIR to write the studio export \
+            (the TEST_RUNNER_ prefix is required to reach the simulator). \
+            Skipped so an ordinary CI run writes nothing.
+            """)
 
-        let url = URL(fileURLWithPath: directory!, isDirectory: true)
-            .appendingPathComponent("library.json")
+        let folder = URL(fileURLWithPath: directory!, isDirectory: true)
+        // Created rather than assumed: an export directory that does not exist
+        // yet should produce the export, not an unhelpful write error.
+        try FileManager.default.createDirectory(at: folder,
+                                                withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("library.json")
         try AnimaStudio.export().write(to: url, options: .atomic)
 
         let written = try Data(contentsOf: url)
