@@ -87,9 +87,20 @@ enum AnimaEase: Equatable {
 
     /// Shapes a normalised 0...1 progress.
     ///
-    /// Total: any input is clamped first, so a caller cannot produce a NaN or
-    /// an off-curve value however it computed its progress.
+    /// TOTAL, INCLUDING FOR NaN — and the guard below is why, because clamping
+    /// alone is NOT total. `min(max(.nan, 0), 1)` is `.nan` in Swift: every
+    /// comparison against NaN is false, so both clamps pass their input
+    /// straight through. This claimed totality before it had it, and
+    /// `testEasingsAreTotalAndFinite` failed once for each of the fourteen
+    /// easings, which is exactly what a test that names its invariant is for.
+    ///
+    /// A non-finite progress answers 0 — the rest pose. A NaN time means
+    /// "unknown", and holding at the beginning is the one answer that cannot
+    /// put geometry somewhere surprising; propagating the NaN would silently
+    /// stop the part being drawn at all, which is the hardest failure of this
+    /// kind to trace back to its cause.
     func shape(_ progress: Double) -> Double {
+        guard progress.isFinite else { return 0 }
         let t = min(max(progress, 0), 1)
         switch self {
         case .linear:
@@ -185,8 +196,13 @@ struct AnimaCurve: Equatable {
     }
 
     /// The value at an absolute time in seconds.
+    ///
+    /// A non-finite time answers the first key, for the same reason
+    /// `AnimaEase.shape` answers 0: it is the rest position, and it cannot
+    /// propagate a NaN into a transform where it would quietly delete a part.
     func value(at time: Double) -> Double {
         guard let first = keys.first else { return 0 }
+        guard time.isFinite else { return first.value }
         guard keys.count > 1, let last = keys.last else { return first.value }
 
         var t = time

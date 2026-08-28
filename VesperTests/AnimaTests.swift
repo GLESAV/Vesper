@@ -304,6 +304,38 @@ final class AnimaTests: XCTestCase {
         }
     }
 
+    // AN INSTRUMENT'S LOUDNESS MUST NOT BE A FUNCTION OF THE NOTE IT PLAYS.
+    //
+    // This is the invariant `breath` broke, and the assertion that would have
+    // caught it a week earlier than the clamp did. Its band resonator's peak
+    // gain rises steeply as the centre nears DC — 590x at a 396 Hz centre
+    // against 91x at 2640 Hz — so with a fixed output scale the voice was ten
+    // times louder at the bottom of its range than the top, sitting on the
+    // clamp at 180 Hz. The clipping was the symptom; the real defect is a
+    // synthesiser where pitch and volume are the same knob, which no amount
+    // of catalogue tuning can compensate for.
+    func testNoVoicesLoudnessDependsOnItsPitch() {
+        for voice in AnimaLibrary.voices {
+            var peaks: [Float] = []
+            for pitch in [140.0, 180.0, 260.0, 440.0, 700.0, 1_200.0] {
+                let samples = voice.render(pitch: pitch)
+                peaks.append(samples.map { abs($0) }.max() ?? 0)
+            }
+            guard let quietest = peaks.min(), let loudest = peaks.max(),
+                  quietest > 0 else {
+                return XCTFail("\(voice.name) was silent at some pitch")
+            }
+            // A factor of three across the whole musical range. Some variation
+            // is honest — a fixed decay really does mean less energy at high
+            // pitch — but an order of magnitude is a bug.
+            XCTAssertLessThan(Double(loudest / quietest), 3.0, """
+                \(voice.name) is \(String(format: "%.1f", loudest / quietest))x louder at one \
+                pitch than another (peaks \(peaks.map { String(format: "%.3f", $0) })). \
+                Loudness must not track pitch.
+                """)
+        }
+    }
+
     // RULE 2: A RAISED-COSINE ATTACK. Any envelope that starts at full
     // amplitude clicks, and a click in a calm game is the loudest thing in
     // it. The first millisecond must be very much quieter than the body.

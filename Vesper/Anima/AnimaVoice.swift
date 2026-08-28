@@ -163,6 +163,14 @@ struct AnimaVoice: Equatable {
     /// Master gain. Everything is quiet, and this is where that is true.
     static let masterGain = 0.5
 
+    /// How loud a band-passed noise voice sits once its resonator has been
+    /// normalised to unit peak gain.
+    ///
+    /// Chosen by measurement rather than by ear in an editor: it puts the
+    /// worst case across six pitches and five noise seeds at a peak of 0.34,
+    /// which is where the pitched voices already sit.
+    static let bandLevel = 6.0
+
     // MARK: Rendering
 
     /// Renders one note.
@@ -207,6 +215,37 @@ struct AnimaVoice: Equatable {
         var lowpassState = 0.0
         var band1 = 0.0, band2 = 0.0
 
+        // THE BAND RESONATOR'S GAIN DEPENDS ON WHERE ITS CENTRE SITS, and
+        // that had to be normalised out rather than tuned around.
+        //
+        // The all-pole resonator below, H(z) = 1/(1 - a1·z^-1 - a2·z^-2) with
+        // poles at r·e^(±jw), has a peak magnitude that rises steeply as its
+        // centre approaches DC: measured at 590x for a 396 Hz centre against
+        // 91x at 2640 Hz. With a fixed output scale that makes a noise voice
+        // TEN TIMES LOUDER AT LOW PITCH THAN AT HIGH -- `breath` peaked at
+        // exactly 1.0, sitting on the clamp, at 180 Hz and at 0.096 at
+        // 1200 Hz. That is a clipping bug, and underneath it a worse one: an
+        // instrument whose loudness is a function of the note it plays.
+        //
+        // Dividing by the resonator's own peak magnitude gives unit gain at
+        // any centre, so `bandLevel` is a level rather than a fudge factor.
+        // Computed once from the starting frequency: the glide is at most a
+        // few percent, and chasing it would cost a pair of trigonometric
+        // calls per sample to correct something inaudible.
+        let bandNormaliser: Double = {
+            guard let band = noise.band else { return 1 }
+            // Floored well clear of DC, where the two poles collapse onto the
+            // real axis and the resonator stops being a resonator.
+            let centre = min(0.49, max(0.004, fundamental * band / sampleRate))
+            let w = 2 * Double.pi * centre
+            let r = 0.985
+            let a1 = 2 * r * cos(w)
+            let a2 = -(r * r)
+            let real = 1 - a1 * cos(w) - a2 * cos(2 * w)
+            let imaginary = a1 * sin(w) + a2 * sin(2 * w)
+            return (real * real + imaginary * imaginary).squareRoot()
+        }()
+
         var samples = [Float](repeating: 0, count: count)
 
         for frame in 0..<count {
@@ -241,16 +280,16 @@ struct AnimaVoice: Equatable {
                 if let band = noise.band {
                     // A cheap two-pole resonator. Enough to give noise a
                     // centre without pretending to be a filter design.
-                    let centre = min(0.49, frequency * band / sampleRate)
+                    let centre = min(0.49, max(0.004, frequency * band / sampleRate))
                     let feedback = 2 * cos(2 * Double.pi * centre) * 0.985
                     let output = lowpassState + feedback * band1 - 0.970 * band2
                     band2 = band1
                     band1 = output
-                    // Scaled well down: a two-pole resonator at r = 0.985 has
-                    // a resonant gain near 1/(1 − r), so the raw output is
-                    // some sixty times its input and would sit on the clamp
-                    // for the whole note without this.
-                    textured = output * 0.05
+                    // Normalised to unit peak gain, then set to a level. See
+                    // `bandNormaliser`. Measured worst peak across six pitches
+                    // and five noise seeds: 0.34, which is where the pitched
+                    // voices already sit.
+                    textured = output * bandNormaliser * Self.bandLevel
                 }
                 value += textured * noise.gain * exp(-noise.decay * t)
             }

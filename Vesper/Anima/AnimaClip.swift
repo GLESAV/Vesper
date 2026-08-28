@@ -107,6 +107,8 @@ struct AnimaClip: Equatable {
     /// its first frame would make every burst flicker on its last frame, and
     /// one that ran on would leave the screen.
     func localTime(_ time: Double) -> Double {
+        // Clamping is not total under NaN — see `AnimaEase.shape`.
+        guard time.isFinite else { return 0 }
         guard loops else { return min(max(time, 0), duration) }
         var phase = time.truncatingRemainder(dividingBy: duration)
         if phase < 0 { phase += duration }
