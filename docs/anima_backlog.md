@@ -142,12 +142,28 @@ silently inheriting a fallback and making two families sound alike.
 
 ### E4 — The hub page
 
-- [ ] E4
+- [x] E4 — **done.** A gallery of all 100 plus the six reference figures,
+      grouped by family, filterable by family and rarity, searchable by name,
+      number and flavour, with a Reduce Motion toggle that plays the engine's
+      own reduced variants.
 
-Rebuild `tools/anima-studio/index.html` as a gallery of all 100: grouped by
-family, filterable, searchable by name and number, each tile showing the pop
-number, name, family, rarity and flavour line beside the animation. Must stay
-dependency-free and must still do no animation maths.
+Three things this needed beyond the page itself:
+
+- **Revision 3 makes voices a table.** A hundred pops share ten instruments,
+  so inlining PCM per object shipped each instrument about ten times — some
+  2.5 MB of duplicated audio, most of the file. Written once and referenced by
+  name it is ~350 KB however many objects there are.
+- **Every performance ships its reduced variant beside it.** §11 is not only
+  an app property: an author reviewing a hundred assets has to see what
+  someone who asked for less motion actually gets, and the only honest way to
+  show it is the engine's own `reduced` through the same export path. A
+  reduced idle carries no tracks, so it exports as **one** frame rather than
+  thirty-two identical ones.
+- **Only visible tiles animate**, via `IntersectionObserver`. A hundred
+  canvases redrawing at once is a lot of a laptop for no benefit.
+
+Measured before pushing: **2.16 MB** for all 106 objects, against an 8 MB
+gate.
 
 ### E5 — Publish it
 

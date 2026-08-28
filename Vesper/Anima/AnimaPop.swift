@@ -328,9 +328,11 @@ enum AnimaPop {
                            // because of the one-root-named-`body` convention.
                            clips: [AnimaLibrary.breathe, AnimaLibrary.wake, AnimaLibrary.release],
                            voice: AnimaLibrary.voice(for: definition.behavior.sound.voice),
-                           note: "#\(String(format: "%03d", definition.number)) · "
-                               + "\(definition.family.displayName) · \(definition.rarity.rawValue)"
-                               + " — \(definition.flavor)")
+                           note: definition.flavor,
+                           popNumber: definition.number,
+                           family: definition.family.rawValue,
+                           rarity: definition.rarity.rawValue,
+                           flavor: definition.flavor)
     }
 
     /// Every pop in the catalogue, in number order.

@@ -525,10 +525,33 @@ struct AnimaObject: Equatable {
     /// anywhere in the product.
     var note: String
 
-    init(_ figure: AnimaFigure, clips: [AnimaClip], voice: AnimaVoice, note: String = "") {
+    // MARK: Catalogue identity
+    //
+    // Set for the hundred generated pops and nil for the hand-authored
+    // reference figures, which belong to no family and have no number. Carried
+    // so `AnimaStudio` can group, filter and search without re-deriving any of
+    // it — and OPTIONAL rather than defaulted, so a reference figure cannot
+    // silently claim to be pop #0 of some family.
+    var popNumber: Int?
+    var family: String?
+    var rarity: String?
+    var flavor: String?
+
+    init(_ figure: AnimaFigure,
+         clips: [AnimaClip],
+         voice: AnimaVoice,
+         note: String = "",
+         popNumber: Int? = nil,
+         family: String? = nil,
+         rarity: String? = nil,
+         flavor: String? = nil) {
         self.figure = figure
         self.clips = clips
         self.voice = voice
         self.note = note
+        self.popNumber = popNumber
+        self.family = family
+        self.rarity = rarity
+        self.flavor = flavor
     }
 }

@@ -60,9 +60,71 @@ final class AnimaStudioTests: XCTestCase {
                     }
                 }
             }
-            let voice = try XCTUnwrap(object["voice"] as? [String: Any])
+            // Revision 3: the voice is a NAME into the top-level table, so a
+            // hundred pops sharing ten instruments ship the audio ten times
+            // rather than a hundred.
+            let voiceName = try XCTUnwrap(object["voice"] as? String)
+            let voices = try XCTUnwrap(root["voices"] as? [String: Any])
+            let voice = try XCTUnwrap(voices[voiceName] as? [String: Any])
             let pcm = try XCTUnwrap(voice["pcm"] as? String)
-            XCTAssertFalse(pcm.isEmpty, "a voice exported no audio")
+            XCTAssertFalse(pcm.isEmpty, "\(voiceName) exported no audio")
+
+            // Catalogue identity, so the hub page groups and filters without
+            // re-deriving anything.
+            XCTAssertNotNil(object["number"] as? Int)
+            XCTAssertNotNil(object["family"] as? String)
+            XCTAssertNotNil(object["rarity"] as? String)
+        }
+
+        // Every instrument in the table is referenced, and every reference
+        // resolves. A dangling name draws a silent card; an orphan entry is
+        // dead weight in a file that has to stay openable.
+        let voices = try XCTUnwrap(root["voices"] as? [String: Any])
+        let referenced = Set(objects.compactMap { $0["voice"] as? String })
+        XCTAssertEqual(referenced, Set(voices.keys),
+                       "the voice table and the references it serves disagree")
+    }
+
+    // THE HUNDRED ARE ALL THERE. The gallery is the catalogue plus the
+    // hand-authored reference figures, and it is the thing the whole loop is
+    // for — so its size is asserted rather than assumed.
+    func testTheGalleryContainsEveryCatalogPop() throws {
+        let data = AnimaStudio.export()
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
+
+        let numbers = Set(objects.compactMap { $0["number"] as? Int }).subtracting([0])
+        XCTAssertEqual(numbers, Set(PopCatalog.all.map(\.number)),
+                       "the gallery is missing catalogue pops, or invented some")
+        XCTAssertEqual(numbers.count, 100)
+        XCTAssertGreaterThanOrEqual(objects.count, 100 + AnimaLibrary.objects.count)
+    }
+
+    // Every performance ships with its Reduce Motion variant beside it, so an
+    // author can see what someone who asked for less motion actually gets.
+    func testEveryPerformanceShipsItsReducedVariant() throws {
+        let data = AnimaStudio.export([AnimaLibrary.objects[0]])
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
+        let clips = try XCTUnwrap(objects[0]["clips"] as? [[String: Any]])
+        let names = clips.compactMap { $0["name"] as? String }
+
+        for clip in AnimaLibrary.objects[0].clips {
+            XCTAssertTrue(names.contains(clip.name), "\(clip.name) is missing")
+            XCTAssertTrue(names.contains("\(clip.name) (reduced)"),
+                          "\(clip.name) shipped without its reduced variant")
+        }
+        // A reduced idle carries no tracks, so it is one frame rather than
+        // thirty-two identical ones.
+        for (index, name) in names.enumerated() where name.hasSuffix("(reduced)") {
+            let source = AnimaLibrary.objects[0].clips.first {
+                name == "\($0.name) (reduced)"
+            }
+            if source?.loops == true {
+                let frames = try XCTUnwrap(clips[index]["frames"] as? [[Double]])
+                XCTAssertEqual(frames.count, 1,
+                               "\(name) ships \(frames.count) identical frames")
+            }
         }
     }
 

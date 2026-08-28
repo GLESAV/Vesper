@@ -60,7 +60,12 @@ enum AnimaStudio {
     /// (the four-second `breathe`) from costing four times what a reaction
     /// does to show the same amount of information.
     static func frameCount(for clip: AnimaClip) -> Int {
-        min(32, max(8, Int((clip.duration * 24).rounded())))
+        // A clip with no tracks cannot change, so one frame says everything
+        // thirty-two identical ones would. This is not a micro-optimisation:
+        // every reduced looping idle is exactly this shape (that is what
+        // "reduces to stillness" means), so it is a third of the gallery.
+        guard !clip.tracks.isEmpty else { return 1 }
+        return min(32, max(8, Int((clip.duration * 24).rounded())))
     }
 
     /// The sample rate the previewer plays at.
@@ -85,7 +90,7 @@ enum AnimaStudio {
     /// commit. `AnimaStudioTests` reads that file and fails if the two ever
     /// disagree, so this is a rule with a machine behind it rather than a
     /// comment.
-    static let revision = 2
+    static let revision = 3
     static var formatName: String { "anima-studio/\(revision)" }
 
     /// Decimal places kept for geometry.
@@ -96,6 +101,13 @@ enum AnimaStudio {
     static let places = 4
 
     // MARK: - The export
+
+    /// Everything the hub page shows: the hundred catalogue pops, plus the
+    /// hand-authored reference figures that exercise primitives the families
+    /// do not.
+    static var galleryObjects: [AnimaObject] {
+        AnimaPop.all + AnimaLibrary.objects
+    }
 
     /// The whole library as JSON.
     ///
@@ -121,13 +133,28 @@ enum AnimaStudio {
     /// can check by eye, and which
     /// `testExportedFramesReconstructTheApplicationsOwnPoses` pins against
     /// the app's own posed outlines to within the rounding.
-    static func export(_ objects: [AnimaObject] = AnimaLibrary.objects) -> Data {
+    static func export(_ objects: [AnimaObject]? = nil) -> Data {
+        let objects = objects ?? galleryObjects
         var root: [String: Any] = [:]
         root["format"] = formatName
         // A number the previewer checks, so an old page and a new export fail
         // loudly instead of drawing something subtly wrong.
         root["revision"] = revision
         root["sampleRate"] = previewSampleRate
+
+        // VOICES ARE A TABLE, NOT A FIELD ON EACH OBJECT (revision 3).
+        //
+        // A hundred pops share ten instruments, so inlining the PCM per object
+        // would ship each instrument an average of ten times — some 2.5 MB of
+        // duplicated audio, most of the export, for nothing. Written once and
+        // referenced by name, the audio is ~250 KB however many objects there
+        // are.
+        var voices: [String: Any] = [:]
+        for object in objects where voices[object.voice.name] == nil {
+            voices[object.voice.name] = encode(object.voice)
+        }
+        root["voices"] = voices
+
         // A closure rather than `objects.map(encode)`: `encode` is overloaded
         // three ways and a bare function reference makes overload resolution
         // do work it does not need to do.
@@ -157,6 +184,13 @@ enum AnimaStudio {
         return [
             "name": object.figure.name,
             "note": object.note,
+            // The catalogue identity, so the hub page can group by family,
+            // filter by rarity and search by number or name without
+            // re-deriving any of it in JavaScript.
+            "number": object.popNumber ?? 0,
+            "family": object.family ?? "reference",
+            "rarity": object.rarity ?? "reference",
+            "flavor": object.flavor ?? object.note,
             "paints": object.figure.paints.map { paint in
                 ["fill": rgb(paint.fill), "glow": rgb(paint.glow)]
             },
@@ -177,18 +211,30 @@ enum AnimaStudio {
                     "points": outline.flatMap { [round(Double($0.x)), round(Double($0.y))] }
                 ]
             },
-            "clips": object.clips.map { encode($0, of: object.figure, order: order) },
-            "voice": encode(object.voice)
+            // EVERY PERFORMANCE SHIPS WITH ITS REDUCED VARIANT beside it, named
+            // so the page can pair them. 04 §11's requirement is not a
+            // property of the app alone — an author reviewing a hundred assets
+            // has to be able to see what someone who asked for less motion
+            // will actually get, and the only honest way to show that is the
+            // engine's own `reduced`, exported through the same path.
+            "clips": object.clips.flatMap { clip -> [[String: Any]] in
+                [encode(clip, of: object.figure, order: order),
+                 encode(clip.reduced, of: object.figure, order: order,
+                        named: "\(clip.name) (reduced)")]
+            },
+            // A NAME, into the top-level table. See `export`.
+            "voice": object.voice.name
         ]
     }
 
     private static func encode(_ clip: AnimaClip,
                                of figure: AnimaFigure,
-                               order: [AnimaPosedPart]) -> [String: Any] {
+                               order: [AnimaPosedPart],
+                               named: String? = nil) -> [String: Any] {
         let frames = frameCount(for: clip)
         let names = order.map(\.name)
         return [
-            "name": clip.name,
+            "name": named ?? clip.name,
             "duration": clip.duration,
             "loops": clip.loops,
             // One flat array per frame: seven numbers per part —
