@@ -431,7 +431,47 @@ enum AnimaPop {
         29: AnimaVariation(trait: 0.05, accent: 0.20, count: 2, tilt: -0.05),
         // "Everything the sea meant to say at once." — the widest swell of
         // the hundred so far, under a sharp drop.
-        30: AnimaVariation(trait: 0.85, accent: 1.00, count: 2, tilt: -0.12)
+        30: AnimaVariation(trait: 0.85, accent: 1.00, count: 2, tilt: -0.12),
+
+        // ── 031–040 · BLOOM — it opened because it was time ─────────────
+        //
+        // Petals about a heart. `trait` is HOW LONG the petals are, `accent`
+        // is HOW POINTED, `count` is HOW MANY, `tilt` is the lean.
+        //
+        // `count` is the loudest knob in this family — three petals and nine
+        // are different objects at a glance, in a way that a length change is
+        // not — so the ten spread across seven distinct counts. Elsewhere it
+        // is a supporting knob; here it leads.
+
+        // "It opened because it was time." — the reference bloom: five
+        // petals, middling everything, level.
+        31: AnimaVariation(trait: 0.45, accent: 0.40, count: 5, tilt: 0.00),
+        // "Letting go, one soft piece at a time." — fewer petals than it
+        // started with, and tipping over.
+        32: AnimaVariation(trait: 0.35, accent: 0.55, count: 4, tilt: 0.28),
+        // "Three leaves is already lucky." — THE COUNT IS THE LINE. Exactly
+        // three, and round rather than pointed.
+        33: AnimaVariation(trait: 0.25, accent: 0.05, count: 3, tilt: -0.10),
+        // "Bend. It is not the same as breaking." — long sharp petals under
+        // the hardest lean in the family. The lean is the sentence.
+        34: AnimaVariation(trait: 0.85, accent: 0.80, count: 4, tilt: 0.45),
+        // "Uncut, unhurried, humming quietly." — many small petals; a meadow
+        // is a lot of small things, not one big one.
+        35: AnimaVariation(trait: 0.15, accent: 0.35, count: 8, tilt: -0.20),
+        // "The flower that becomes an evening." — the daisy: many narrow
+        // petals, level.
+        36: AnimaVariation(trait: 0.55, accent: 0.90, count: 8, tilt: 0.00),
+        // "It unrolls its whole life slowly." — the longest, sharpest and
+        // fewest. A frond, not a flower.
+        37: AnimaVariation(trait: 1.00, accent: 0.95, count: 3, tilt: -0.35),
+        // "Patient enough to cover a whole wall." — many, long, and hanging.
+        38: AnimaVariation(trait: 0.75, accent: 0.60, count: 7, tilt: 0.35),
+        // "Everything arrived. Nothing is missing." — the fullest count in
+        // the family. Nothing missing is a number.
+        39: AnimaVariation(trait: 0.60, accent: 0.25, count: 9, tilt: 0.00),
+        // "Rooted in mud, untroubled by it." — broad, round, perfectly level.
+        // Untroubled is drawn as level.
+        40: AnimaVariation(trait: 0.70, accent: 0.15, count: 6, tilt: 0.00)
     ]
 
     static func variation(for number: Int) -> AnimaVariation {

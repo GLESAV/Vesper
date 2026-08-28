@@ -238,7 +238,10 @@ pop's own paints, and one authored performance beyond the shared `wake` /
       moved only the ripple's sweep, so all ten had an identical silhouette
       extent. A wider swell genuinely reaches further, so `accent` now moves
       its size too. Reach 1.05–1.48; closest pair 0.16.
-- [ ] A4 — **bloom** 031–040
+- [x] A4 — **bloom** 031–040. `trait` = petal length, `accent` = sharpness,
+      `count` = how many. **`count` leads in this family** — three petals and
+      nine are different objects at a glance in a way a length change is not —
+      so the ten span seven distinct counts. Reach 1.00–1.29; closest pair 0.14.
 - [ ] A5 — **frost** 041–050
 - [ ] A6 — **chime** 051–060
 - [ ] A7 — **lantern** 061–070
