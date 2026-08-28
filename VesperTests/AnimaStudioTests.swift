@@ -24,8 +24,8 @@ final class AnimaStudioTests: XCTestCase {
 
         let root = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(root["format"] as? String, "anima-studio/1")
-        XCTAssertEqual(root["revision"] as? Int, 1)
+        XCTAssertEqual(root["format"] as? String, AnimaStudio.formatName)
+        XCTAssertEqual(root["revision"] as? Int, AnimaStudio.revision)
         XCTAssertEqual(root["sampleRate"] as? Double, AnimaStudio.previewSampleRate)
 
         let objects = try XCTUnwrap(root["objects"] as? [[String: Any]])
@@ -64,6 +64,45 @@ final class AnimaStudioTests: XCTestCase {
             let pcm = try XCTUnwrap(voice["pcm"] as? String)
             XCTAssertFalse(pcm.isEmpty, "a voice exported no audio")
         }
+    }
+
+    // THE PREVIEWER AND THE EXPORT MUST AGREE ON THE REVISION.
+    //
+    // This test exists because the failure it prevents just happened. Format 2
+    // bumped the exporter and left the shape test asserting format 1 — caught,
+    // because a test named the number. The previewer holds the SAME number in
+    // JavaScript, where no Swift test was looking at all, and an old page
+    // against a new export does not fail: `frame` stops being a list of parts
+    // and becomes a list of numbers, and the page draws nonsense, silently, to
+    // an author who has no reason to distrust it.
+    //
+    // Reading the file via `#filePath` is the whole trick: it is the path of
+    // THIS source file at compile time, so the test can find the repository
+    // without being told where it is. Skipped rather than failed when the file
+    // is missing, since a test bundle can be run from somewhere the source
+    // tree is not.
+    func testThePreviewerExpectsTheRevisionTheExporterWrites() throws {
+        let page = URL(fileURLWithPath: #filePath)     // …/VesperTests/AnimaStudioTests.swift
+            .deletingLastPathComponent()               // …/VesperTests
+            .deletingLastPathComponent()               // repository root
+            .appendingPathComponent("tools/anima-studio/index.html")
+
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: page.path),
+                          "previewer not reachable from \(page.path); skipping the pairing check")
+
+        let html = try String(contentsOf: page, encoding: .utf8)
+        guard let match = html.range(of: #"EXPECTED_REVISION\s*=\s*(\d+)"#,
+                                     options: .regularExpression) else {
+            return XCTFail("could not find EXPECTED_REVISION in the previewer")
+        }
+        let digits = html[match].compactMap { $0.isNumber ? $0 : nil }
+        let expected = Int(String(digits))
+
+        XCTAssertEqual(expected, AnimaStudio.revision, """
+            The previewer expects revision \(expected.map(String.init) ?? "?") and the exporter \
+            writes \(AnimaStudio.revision). Bump EXPECTED_REVISION in \
+            tools/anima-studio/index.html in the same commit as AnimaStudio.revision.
+            """)
     }
 
     // Byte-identical for the same library. `.sortedKeys` is what makes the

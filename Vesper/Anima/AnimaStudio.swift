@@ -72,6 +72,22 @@ enum AnimaStudio {
     /// their character. The app still renders at 44.1.
     static let previewSampleRate: Double = 22_050
 
+    /// THE FORMAT REVISION, IN ONE PLACE.
+    ///
+    /// It is written into every export and checked by the previewer, which
+    /// refuses to draw a revision it was not written for. That check is the
+    /// only thing standing between an old page and a new export -- a pairing
+    /// that does not fail, it just draws something subtly and unaccountably
+    /// wrong.
+    ///
+    /// Bump it whenever the shape of the export changes, and bump
+    /// `EXPECTED_REVISION` in `tools/anima-studio/index.html` in the same
+    /// commit. `AnimaStudioTests` reads that file and fails if the two ever
+    /// disagree, so this is a rule with a machine behind it rather than a
+    /// comment.
+    static let revision = 2
+    static var formatName: String { "anima-studio/\(revision)" }
+
     /// Decimal places kept for geometry.
     ///
     /// In unit space 1e-4 is 0.0034 pt at the largest orb in the game — three
@@ -107,10 +123,10 @@ enum AnimaStudio {
     /// the app's own posed outlines to within the rounding.
     static func export(_ objects: [AnimaObject] = AnimaLibrary.objects) -> Data {
         var root: [String: Any] = [:]
-        root["format"] = "anima-studio/2"
+        root["format"] = formatName
         // A number the previewer checks, so an old page and a new export fail
         // loudly instead of drawing something subtly wrong.
-        root["revision"] = 2
+        root["revision"] = revision
         root["sampleRate"] = previewSampleRate
         // A closure rather than `objects.map(encode)`: `encode` is overloaded
         // three ways and a bare function reference makes overload resolution
