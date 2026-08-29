@@ -83,14 +83,19 @@ Three catalog entries use that kind:
 #24 and #25 describe the behaviour outright — indecision, and blinking. #26
 survives without it.
 
-**Where it would have to be consumed.** `SceneRenderer.drawParticle`, in
-`Vesper/Rendering/SceneRenderer.swift` — a modulation of alpha, not of state.
-The simulation should not know about it. A star that flickers in the sim is a
-star whose position and lifetime become frame-shaped; a star that flickers in
-the renderer is a drawing decision, which is what this is. `drawParticle`
-would need to know which shell a particle came from — `Particle.fireworkID` is
-already there and already used for the tint — and modulate opacity by a slow
-per-particle phase.
+**Where it would have to be consumed.** The particle loop in
+`SceneRenderer.draw`, in `Vesper/Rendering/SceneRenderer.swift` — the few lines
+that compute `tint` before calling `drawParticle`. This is a modulation of
+alpha, not of state, and the simulation should not know about it: a star that
+flickers in the sim is a star whose position and lifetime become frame-shaped,
+while a star that flickers in the renderer is a drawing decision, which is what
+this is.
+
+That loop is already most of the way there. It reads `Particle.fireworkID`,
+already resolves `FireworkCatalog.definition(for: id)` to pick the shell's
+paint, and already folds `p.life` into the tint's opacity — so
+`definition.burst.twinkles` is readable at exactly the point where the opacity
+is decided.
 
 **Roughly what it would take.**
 
