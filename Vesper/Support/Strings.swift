@@ -33,8 +33,6 @@ enum Strings {
     static let firstHint = "tap an orb. let it go."
     /// The invitation after a field is clear. A question she may ignore.
     static let again = "again?"
-    /// Shown once ever, when keeping a fortune first becomes possible.
-    static let keepHint = "press and hold, to keep a thing"
 
     // MARK: - Wayfinding whispers
 
@@ -56,10 +54,6 @@ enum Strings {
 
     /// The done card's chrome. The field went quiet; nothing is claimed about her.
     static let fieldIsQuiet = "the field is quiet now."
-    /// A stone the path let go of, said without loss framing.
-    static let roadFaded = "the road behind folded itself away."
-    /// The sky's acknowledgement of an arrival. It observes; it does not congratulate.
-    static let skyNoticed = "the sky noticed."
     /// The fortune card's dismissal hint — clear register, so it says plainly what a tap does.
     static let fortuneDismissHint = "tap to let it go"
 
@@ -176,15 +170,12 @@ enum Strings {
         setFreeLabel,
         firstHint,
         again,
-        keepHint,
         skyWhisper,
         journalWhisper,
         fieldWhisper,
         skyWhisperHint,
         journalWhisperHint,
         fieldIsQuiet,
-        roadFaded,
-        skyNoticed,
         fortuneDismissHint,
         starHere,
         starWalked,

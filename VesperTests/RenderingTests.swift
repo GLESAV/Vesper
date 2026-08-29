@@ -523,14 +523,40 @@ final class RenderingTests: XCTestCase {
     // scaled by 1 and centred on the origin has to come back out unchanged —
     // if this drifts, every figure in the library is being drawn slightly
     // somewhere else and there is nothing to compare it against.
+    /// How far a coordinate read back out of a `Path` may sit from the value
+    /// that was put in.
+    ///
+    /// SWIFTUI'S `Path` ROUND-TRIPS THROUGH SINGLE PRECISION. Every number
+    /// these tests hand it is a `CGFloat` — a `Double` on every device this
+    /// ships to — but what comes back out of `Path.forEach` has been through
+    /// `Float`. It is visible in the failures: sin(50°) went in as
+    /// 0.766044443118978 and came back as 0.7660444378852844, which is
+    /// exactly the nearest `Float`; a 736-point coordinate came back
+    /// 6.7e-6 away, which is one `Float` ulp at that magnitude.
+    ///
+    /// So a fixed absolute tolerance cannot work across these tests: the same
+    /// error is 5e-9 on a unit circle and 6e-5 on a screen coordinate. The
+    /// tolerance has to scale with the number being compared. 1e-5 relative
+    /// is about eighty times `Float`'s own 1.2e-7, which leaves room for the
+    /// handful of operations that accumulate before the value is stored, and
+    /// is still far tighter than any real geometric error — a silhouette
+    /// drawn in the wrong place is wrong by points, not by millionths.
+    ///
+    /// The floor keeps it honest near zero, where a relative bound collapses.
+    private func pathTolerance(_ magnitude: CGFloat) -> CGFloat {
+        Swift.max(1e-5, abs(magnitude) * 1e-5)
+    }
+
     func testTheIdentityPlacementReproducesTheOutlineExactly() {
         let outline = ring(count: 9)
         let drawn = points(of: SceneRenderer.path(for: part(outline), at: .zero,
                                                   radius: 1, facing: 1))
         XCTAssertEqual(drawn.count, outline.count)
         for (index, expected) in outline.enumerated() {
-            XCTAssertEqual(drawn[index].x, expected.x, accuracy: 1e-12, "vertex \(index)")
-            XCTAssertEqual(drawn[index].y, expected.y, accuracy: 1e-12, "vertex \(index)")
+            XCTAssertEqual(drawn[index].x, expected.x,
+                           accuracy: pathTolerance(expected.x), "vertex \(index)")
+            XCTAssertEqual(drawn[index].y, expected.y,
+                           accuracy: pathTolerance(expected.y), "vertex \(index)")
         }
     }
 
@@ -546,13 +572,17 @@ final class RenderingTests: XCTestCase {
         for radius in [CGFloat(0.5), 2, 13.5, 400] {
             let grown = extent(of: SceneRenderer.path(for: part(outline), at: centre,
                                                       radius: radius, facing: 1))
-            XCTAssertEqual(grown.width, unit.width * radius, accuracy: 1e-9,
+            XCTAssertEqual(grown.width, unit.width * radius,
+                           accuracy: pathTolerance(unit.width * radius),
                            "radius \(radius): the silhouette did not scale in x")
-            XCTAssertEqual(grown.height, unit.height * radius, accuracy: 1e-9,
+            XCTAssertEqual(grown.height, unit.height * radius,
+                           accuracy: pathTolerance(unit.height * radius),
                            "radius \(radius): the silhouette did not scale in y")
-            XCTAssertEqual(grown.midX - centre.x, (unit.midX - centre.x) * radius, accuracy: 1e-9,
+            XCTAssertEqual(grown.midX - centre.x, (unit.midX - centre.x) * radius,
+                           accuracy: pathTolerance(centre.x),
                            "radius \(radius): it grew about the wrong point")
-            XCTAssertEqual(grown.midY - centre.y, (unit.midY - centre.y) * radius, accuracy: 1e-9,
+            XCTAssertEqual(grown.midY - centre.y, (unit.midY - centre.y) * radius,
+                           accuracy: pathTolerance(centre.y),
                            "radius \(radius): it grew about the wrong point")
         }
     }
@@ -568,10 +598,14 @@ final class RenderingTests: XCTestCase {
                        CGPoint(x: 1e5, y: -1e5)] {
             let moved = extent(of: SceneRenderer.path(for: part(outline), at: centre,
                                                       radius: 9, facing: 1))
-            XCTAssertEqual(moved.width, origin.width, accuracy: 1e-6, "\(centre): it resized")
-            XCTAssertEqual(moved.height, origin.height, accuracy: 1e-6, "\(centre): it resized")
-            XCTAssertEqual(moved.minX, origin.minX + centre.x, accuracy: 1e-6, "\(centre)")
-            XCTAssertEqual(moved.minY, origin.minY + centre.y, accuracy: 1e-6, "\(centre)")
+            XCTAssertEqual(moved.width, origin.width,
+                           accuracy: pathTolerance(centre.x), "\(centre): it resized")
+            XCTAssertEqual(moved.height, origin.height,
+                           accuracy: pathTolerance(centre.y), "\(centre): it resized")
+            XCTAssertEqual(moved.minX, origin.minX + centre.x,
+                           accuracy: pathTolerance(centre.x), "\(centre)")
+            XCTAssertEqual(moved.minY, origin.minY + centre.y,
+                           accuracy: pathTolerance(centre.y), "\(centre)")
         }
     }
 
@@ -682,7 +716,8 @@ final class RenderingTests: XCTestCase {
                             }
                             let where_ = "\(figure.name)/\(clip.name) t=\(time) \(posed.name)"
                             XCTAssertTrue(allFinite, "\(where_): a non-finite vertex")
-                            XCTAssertLessThanOrEqual(furthest, radius * reach + 1e-6,
+                            XCTAssertLessThanOrEqual(furthest,
+                                                     radius * reach + pathTolerance(radius * reach),
                                                      "\(where_): reaches \(furthest), past the "
                                                      + "pose's own stated reach of "
                                                      + "\(radius * reach)")

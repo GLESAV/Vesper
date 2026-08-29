@@ -248,10 +248,6 @@ enum UnlockRule {
 enum PopFamily: String, CaseIterable {
     case vesper, ember, tide, bloom, frost, chime, lantern, current, prism, aurora
 
-    var displayName: String {
-        rawValue.prefix(1).uppercased() + rawValue.dropFirst()
-    }
-
     // MARK: - The family signature
 
     // TEN FAMILIES, TEN INSTRUMENTS. The catalog is ten families of ten, and

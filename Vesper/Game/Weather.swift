@@ -196,6 +196,14 @@ enum Weather: String, CaseIterable, Equatable {
     // MARK: - What she is told
 
     /// The journal's name for it. Lowercase-calm, like everything else.
+    ///
+    /// **Unused today** — nothing in the world names the air out loud yet, by
+    /// design: weather is a thing she notices, not a label she reads. Kept
+    /// because these six words are authored copy with no equivalent anywhere
+    /// else, and they are what a VoiceOver reading of the field would need
+    /// the moment the field gets one. Note they do not live in
+    /// `Strings.allStrings`, so the voice guardrail does not cover them; if
+    /// they ever reach a surface, move them there first.
     var name: String {
         switch self {
         case .clear:  return "still air"

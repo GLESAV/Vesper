@@ -29,7 +29,16 @@ final class ProgressionStore: ObservableObject {
     @Published var featuredPop: Int? {
         didSet {
             if featuredPop == 0 { featuredPop = nil; return }
-            defaults.set(featuredPop ?? 0, forKey: Keys.featured)
+            // NEVER WRITE A VALUE THE STORE ALREADY HOLDS. Assigning this
+            // property in `init` runs the observer, so without this guard the
+            // mere act of BUILDING a store wrote to disk — which is how a
+            // test caught it: "constructing the store wrote
+            // vesper.progress.featured before the player did anything."
+            // Reading is not writing, and a store that writes on launch
+            // cannot answer whether anyone has played.
+            let value = featuredPop ?? 0
+            guard defaults.integer(forKey: Keys.featured) != value else { return }
+            defaults.set(value, forKey: Keys.featured)
         }
     }
 

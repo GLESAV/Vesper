@@ -48,6 +48,13 @@ import Foundation
 // it splits, whether it twinkles, what register it whirrs in. That is the
 // number below, and it will grow the way the pop families grew — by adding
 // mechanisms, not by adding hues.
+//
+// TWO OF THOSE AXES ARE NOT BUILT YET. `splits` and `twinkles` are authored
+// on the shells and read by nothing, so the crossette and the strobe are
+// currently told apart by paint, hang and voice alone. Kept rather than cut,
+// because the intent is good and the copy is written — but recorded here so
+// the paragraph above is not read as a description of the shipping build.
+// `docs/firework_behaviours.md` holds the decision.
 
 // MARK: - The shells
 
@@ -62,6 +69,7 @@ enum FireworkKind: String, CaseIterable {
     /// A thick rising trunk, then a few heavy branches.
     case palm
     /// Stars that split again in flight and fly apart crosswise.
+    /// (Intent. `splits` is not implemented — this breaks as a sphere today.)
     case crossette
     /// A flat expanding ring, seen edge-on or face-on.
     case ring
@@ -72,6 +80,7 @@ enum FireworkKind: String, CaseIterable {
     /// A cloud of small, sharp, glittering breaks.
     case crackle
     /// Slow twinkling points that come and go rather than fade.
+    /// (Intent. `twinkles` is not implemented — these fade once, but slowly.)
     case strobe
     /// Spins as it rises and throws stars off its own rotation.
     case spinner
@@ -81,9 +90,6 @@ enum FireworkKind: String, CaseIterable {
     case brocade
     /// Heavy stars that barely rise and fall almost at once.
     case horsetail
-
-    /// Lowercase-calm, for VoiceOver and the journal.
-    var name: String { rawValue }
 
     /// How this shell breaks.
     var burst: FireworkBurst {
@@ -158,20 +164,44 @@ enum FireworkPattern: String, Equatable {
     case spiral   // thrown tangentially
 }
 
+/// How a shell breaks.
+///
+/// **THREE OF THESE FIELDS ARE AUTHORED BUT NOT YET READ: `gravity`, `splits`
+/// and `twinkles`.** Every kind above sets them and several catalog entries'
+/// flavour lines promise what they describe, but no consumer exists — a shell
+/// with `splits: true` breaks exactly like its base pattern, and a strobe
+/// fades once like everything else. Do not read the catalog and assume the
+/// behaviour ships. The gap, where each would have to be consumed, and the
+/// decision it needs (implement, or retire the flags and soften the copy) are
+/// written up in `docs/firework_behaviours.md`. Each field below says for
+/// itself whether it is live.
 struct FireworkBurst: Equatable {
+    /// Live. How many stars the break makes.
     var stars: Int
+    /// Live. The range their initial speed is drawn from.
     var speed: ClosedRange<CGFloat>
+    /// **Declared, not implemented.** Meant to be the per-shell fall rate of
+    /// the stars. `GameSimulation.stepParticles` gives every particle the
+    /// gravity of the pop that made it, and firework stars are all stamped
+    /// with `PopCatalog.classic`, so these fourteen values change nothing —
+    /// a willow currently falls at exactly a crackle's rate.
     var gravity: CGFloat
-    /// 0 = clean points, 1 = long trails.
+    /// Live. 0 = clean points, 1 = long trails.
     var trail: CGFloat
+    /// Live. The shape the stars are thrown into.
     var pattern: FireworkPattern
-    /// Multiplier on how long the stars last.
+    /// Live. Multiplier on how long the stars last.
     var life: CGFloat
-    /// How much smoke this shell leaves, relative to a peony.
+    /// Live. How much smoke this shell leaves, relative to a peony.
     var smoke: CGFloat
-    /// Stars break a second time part-way through.
+    /// **Declared, not implemented.** Meant to be: stars break a second time
+    /// part-way through (the crossette). Nothing reads it — see the note at
+    /// the top of this type.
     var splits: Bool = false
-    /// Stars come and go rather than fading once.
+    /// **Declared, not implemented.** Meant to be: stars come and go rather
+    /// than fading once (the strobe). Nothing reads it, and implementing it
+    /// raises a photosensitivity question — see the note at the top of this
+    /// type.
     var twinkles: Bool = false
 }
 
