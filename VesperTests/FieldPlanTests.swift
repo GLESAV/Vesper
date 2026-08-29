@@ -380,18 +380,21 @@ final class FieldPlanTests: XCTestCase {
         func fingerprint(stage: Int, generation: Int) -> [Int] {
             let plan = FieldPlan.forStage(stage)
             let total = FieldPlan.totalOrbs(base: 13, generation: generation, plays: 0)
-            return [plan.orbCount, plan.splitters, plan.drifters, plan.generators,
-                    plan.splitDepth, plan.fireworks, plan.animals, plan.reachableOrbs,
-                    FieldPlan.isDisplay(stage: stage, generation: generation) ? 1 : 0,
-                    FieldPlan.hasAnimal(stage: stage, generation: generation) ? 1 : 0,
-                    FieldPlan.fireworkCount(stage: stage, generation: generation),
-                    FieldPlan.animalCount(stage: stage, generation: generation),
-                    FieldPlan.stage(forFieldsCleared: generation),
-                    FieldPlan.surfaceCount(total: total),
-                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 0),
-                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 1),
-                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 2),
-                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 3)]
+            let display: Int = FieldPlan.isDisplay(stage: stage, generation: generation) ? 1 : 0
+            let creature: Int = FieldPlan.hasAnimal(stage: stage, generation: generation) ? 1 : 0
+            var out: [Int] = [plan.orbCount, plan.splitters, plan.drifters,
+                              plan.generators, plan.splitDepth, plan.fireworks,
+                              plan.animals, plan.reachableOrbs]
+            out.append(display)
+            out.append(creature)
+            out.append(FieldPlan.fireworkCount(stage: stage, generation: generation))
+            out.append(FieldPlan.animalCount(stage: stage, generation: generation))
+            out.append(FieldPlan.stage(forFieldsCleared: generation))
+            out.append(FieldPlan.surfaceCount(total: total))
+            for plays in 0...3 {
+                out.append(FieldPlan.totalOrbs(base: 13, generation: generation, plays: plays))
+            }
+            return out
         }
 
         var firstWalk: [[Int]] = []

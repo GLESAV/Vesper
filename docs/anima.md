@@ -51,6 +51,7 @@ maybe ten looks an hour and cannot get any alone.
 | `Anima/AnimaClip.swift` | Timelines, channels, follow-through. |
 | `Anima/AnimaVoice.swift` | Declarative synthesis → PCM. Sound. |
 | `Anima/AnimaLibrary.swift` | The authored content. **Edit this one.** |
+| `Anima/AnimaPop.swift` | The hundred catalogue assets, generated per pop (§5a). |
 | `Anima/AnimaStudio.swift` | JSON export for the previewer. |
 | `Rendering/AnimaRenderer.swift` | The only file that imports SwiftUI. |
 | `tools/anima-studio/index.html` | The browser previewer. |
@@ -281,9 +282,12 @@ for the two gates and what they have caught.
 
 ## 6. What is **not** done
 
-**Nothing here is wired into gameplay.** This change adds an engine and an
-authoring loop; adoption is its own change, with its own before-and-after, one
-system at a time — guardrail 5 says the tuning is sacred.
+**Nothing here is wired into gameplay, and that is still true.** Verified
+against the tree: no file outside `Anima/` and `Rendering/AnimaRenderer.swift`
+references `AnimaRenderer`, `AnimaPop` or `AnimaLibrary`. The engine ships in
+the binary and nothing on the glass draws from it; its output is the browser
+gallery, not the phone. Adoption is its own change, with its own
+before-and-after, one system at a time — guardrail 5 says the tuning is sacred.
 
 The adoption path, cheapest first:
 
@@ -295,9 +299,15 @@ The adoption path, cheapest first:
    over without their shapes changing — which is the precondition for
    trusting the engine anywhere near the field.
 3. **Sound.** Express the ten existing `SoundVoice` cases as `AnimaVoice`
-   data, render both, and compare buffers numerically before switching. Four
-   of the ten are already written in `AnimaLibrary` as the proof the schema
-   generalises.
+   data, render both, and compare buffers numerically before switching. **All
+   ten are now written** in `AnimaLibrary.voices` — `popVoice`, `tone`, `bell`,
+   `pluck`, `breath`, `glass`, `wood`, `crackle`, `shimmer`, `drop`, plus
+   `chime` and `hush` — and `AnimaLibrary.voice(for:)` maps a `SoundVoice` to
+   its instrument with no `default:` case, so a new voice in the pop standard
+   stops the build here rather than silently inheriting a fallback. The schema
+   is proven; what remains is the numeric comparison and the switch, and
+   neither has been done. `PopSoundEngine` still synthesises every pop the
+   game plays.
 4. **Pops.** Last, and only with a measured before-and-after. Pop #001 is the
    reference implementation of the game's feel and must not move at all.
 
