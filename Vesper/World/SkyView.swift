@@ -368,7 +368,7 @@ enum StarVoice {
     /// it. Pop names are the catalog's proper nouns, lowercased into the
     /// world's voice (07 §2).
     static func label(for stone: MapStone, isActive: Bool) -> String {
-        var parts = stone.popNumbers.map { PopCatalog.definition(for: $0).name.lowercased() }
+        var parts = stone.popNumbers.map { lowercasedName(for: $0) }
         if isActive {
             parts.append(Strings.starHere)
         } else if stone.cleared {
@@ -381,6 +381,24 @@ enum StarVoice {
 
     /// Punctuation, not copy: it is what makes a list read as a list.
     private static let separator = ", "
+
+    /// The catalog's proper nouns, lowercased ONCE.
+    ///
+    /// A label is built for every visible star on every evaluation of
+    /// `SkyView`'s body, and that body re-runs on every frame of a scroll —
+    /// so lowercasing the same names again was per-frame work whose answer
+    /// cannot change. `String.lowercased()` is locale-independent (it is
+    /// `lowercased(with:)` that is not), so what this table holds is exactly
+    /// the string the call site used to compute, whenever it is first built.
+    private static let lowercasedNames: [Int: String] =
+        Dictionary(uniqueKeysWithValues: PopCatalog.all.map { ($0.number, $0.name.lowercased()) })
+
+    /// The same answer `PopCatalog.definition(for:).name.lowercased()` gives,
+    /// including its fall back to the classic pop for a number the catalog
+    /// does not know.
+    private static func lowercasedName(for number: Int) -> String {
+        lowercasedNames[number] ?? PopCatalog.definition(for: number).name.lowercased()
+    }
 }
 
 // MARK: - Drawing
@@ -635,6 +653,37 @@ struct SkyRenderer {
     }
 }
 
+// MARK: - The deep field, as its own view
+
+/// The dreaming behind the tree, and the only layer of the sky that does not
+/// move with the scroll.
+///
+/// Its own `View` for one reason: `SkyView`'s body observes `SkyScrollState`
+/// and therefore re-runs on every frame of every scroll (that observation is
+/// deliberate — see `SkyScrollState`, ruling 7 — and the stars and roads must
+/// redraw, since they move). The deep field must not. `Equatable` on `size`
+/// alone is exactly true of `SkyRenderer.drawDeepField`, which takes nothing
+/// else and seeds its own RNG with a constant, so eliding an update can never
+/// elide a change: the same size always paints the same sky.
+///
+/// Nothing here is interactive or spoken; `drawStars` owns every target.
+private struct DeepFieldLayer: View, Equatable {
+
+    let size: CGSize
+
+    var body: some View {
+        Canvas { context, _ in
+            SkyRenderer.drawDeepField(size: size, in: context)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    static func == (lhs: DeepFieldLayer, rhs: DeepFieldLayer) -> Bool {
+        lhs.size == rhs.size
+    }
+}
+
 // MARK: - The place
 
 struct SkyView: View {
@@ -733,11 +782,18 @@ struct SkyView: View {
             // Deterministic from a fixed seed so the sky is the SAME sky
             // every time she opens it. A dreamy background that reshuffles on
             // every appearance is a screensaver, not a place.
-            Canvas { context, _ in
-                SkyRenderer.drawDeepField(size: size, in: context)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            //
+            // HELD STILL WHILE SHE SCROLLS. `drawDeepField` reads nothing
+            // but `size` and its own fixed seed, so the sky it paints is the
+            // same sky at every scroll offset — but this body is re-evaluated
+            // on every published `scroll.offset`, which during a drag is
+            // digitizer rate, and a `Canvas` written inline here would hand
+            // SwiftUI a new closure it cannot compare and redraw all ~340
+            // fills alongside the two layers that actually moved. Wrapped in
+            // its own `Equatable` view, the offset cannot invalidate it: only
+            // a change of `size` can. The drawing is byte-for-byte the same
+            // drawing — this decides WHEN it is asked for, never what it is.
+            DeepFieldLayer(size: size).equatable()
 
             Canvas { context, _ in
                 SkyRenderer.drawRoads(layout, in: context)

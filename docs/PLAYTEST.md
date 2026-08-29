@@ -5,6 +5,16 @@ assumed past "I can open Xcode and press a button". Work item W22; the
 TestFlight path in §2 is W23. The motion-safety screen in §3 is Amara Osei's
 barrier condition from R-SPIKE and is not optional.*
 
+> **Scope note.** This guide was written for the build that first carried the
+> One World navigation, and it asks **one question** about that navigation —
+> which is still worth asking, so the guide is still live. But the build has
+> moved on underneath it: weather, balloon animals, fireworks, the staged field
+> mechanics and the scrollable sky all landed afterwards and are not described
+> here. Nothing below is *about* them, so nothing below is wrong for their
+> presence — but do not read the absence of a feature from this page as
+> evidence it does not exist. For a pass over everything that ships today, use
+> `docs/e2e_walkthrough.md`.
+
 This build exists to answer **one question**: does the game read as *one
 place* you move through, or as three screens with a fancy transition? Nothing
 else about it is finished, and it is not trying to be.
@@ -38,10 +48,17 @@ we chose.
   swipe that has nowhere to go with a soft glow. All three are new, all three
   are deliberately subtle, and §§5e–5f ask about them specifically. A still
   screen is drawn exactly as it was before any of them existed.
-- The pop engine, sounds, haptics, points, unlocks, fortunes, chains — all
-  untouched from v1.2. If a pop feels different, that is a finding, because
-  nothing in the pop was changed.
-- The counter now says **`set free`**. The word *DETONATED* is gone.
+- The pop engine, points, unlocks, fortunes and chains — untouched by the
+  navigation rebuild. **Sound and haptics are not**: after this guide was
+  written the base pop stopped being a downward pitch sweep (it was, correctly,
+  heard as an arcade laser), each of the ten families was given its own voice
+  and its own haptic rhythm, and each its own burst gesture. So a pop *should*
+  feel different from v1.2, and only a difference in the tap itself — where it
+  lands, how quickly, whether it lands at all — is a navigation finding.
+- The word *DETONATED* is gone, and so is the `SET FREE` caption that briefly
+  replaced it: the counter is now the number alone, with `set free` kept as
+  what VoiceOver reads. A number that changes when she pops something needs no
+  label, and a tracked capital caption was the loudest typography in the app.
 
 **Deliberately deferred — not bugs, please don't report them:**
 
@@ -497,24 +514,25 @@ Three different things, easy to confuse:
 foot, then confirm. This reseeds **the field in front of you**. It keeps your
 points, your collection and your path. Use it whenever you want a fresh field.
 
-**A fresh install** (the DEBUG-only reset) — journal → *the quiet things*, one
-action, and everything local is wiped: pop points, unlocks, the collection, the
-whole path. The next field is a first field. It exists so a playtest session
-can be repeated from a known start.
+**A fresh install** — **delete the app and install it again.** This is the only
+way to do it in any build, on any phone. Everything local goes: pop points,
+unlocks, the collection, the whole path. The next field is a first field.
 
-- It appears **only in builds run from Xcode**. Release builds — which is what
-  TestFlight sends — do not contain it at all, by design. Kate will not see it,
-  and should not.
-- **If you don't see it, your build predates it.** Deleting the app from the
-  phone and installing again does exactly the same thing. Everything Vesper
-  knows lives on the phone; nothing is on a server, so nothing survives a
-  delete and nothing can be restored.
+The DEBUG-only `DevReset` exists in the source and does exactly this in one
+action, but **it has no call site — no button anywhere in the app reaches it**,
+so there is nothing to look for on the journal's *quiet things* page or
+anywhere else. Do not spend time hunting for it. (It is written to be wired
+into the journal behind `#if DEBUG` when somebody wants it; until then, delete
+and reinstall.)
+
+Everything Vesper knows lives on the phone; nothing is on a server, so nothing
+survives a delete and nothing can be restored.
 
 **A warning worth reading twice:** the world build and the classic v1.2 build
-share one bundle ID and therefore one save file. A reset wipes your **real**
-numbers — every pop since v1.0, the whole path. If the owner cares about his
-own lifetime count, do the resets on a second phone, or accept the loss
-deliberately before tapping it.
+share one bundle ID and therefore one save file. A fresh install wipes your
+**real** numbers — every pop since v1.0, the whole path. If the owner cares
+about his own lifetime count, do the resets on a second phone, or accept the
+loss deliberately before deleting.
 
 ---
 

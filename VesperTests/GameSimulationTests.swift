@@ -251,4 +251,48 @@ final class GameSimulationTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
         XCTAssertEqual(sim.orbs.map(\.pos), before)
     }
+
+    // EXACTLY ONE FORTUNE PER FIELD, at every stage and depth the game can
+    // build. Every document says this — the walkthrough, the progression
+    // notes, the catalogue — and until now nothing held the code to it.
+    //
+    // The reason it is worth pinning rather than assuming: `seedField` picks
+    // the fortune from the surface orbs whose kind is `.plain`, and takes it
+    // with `randomElement`, which answers nil for an empty collection. So a
+    // plan that happened to deal no ordinary orb onto the surface would give
+    // her a field with no fortune in it, silently — no crash, no warning, just
+    // a promise quietly not kept. This sweeps every stage against every
+    // generation the plan reaches and proves that cannot happen, which is a
+    // better answer than changing the code to defend against a case that may
+    // not exist.
+    func testEveryFieldTheGameCanBuildCarriesExactlyOneFortune() {
+        for stage in 0...FieldPlan.finalStage {
+            for generation in 0...12 {
+                for seed in UInt64(1)...6 {
+                    let sim = GameSimulation(seed: seed)
+                    sim.pinnedWeather = .clear
+                    sim.layout(size: screen)
+                    sim.stage = stage
+                    sim.generation = generation
+                    sim.seedField()
+
+                    let fortunes = sim.orbs.filter(\.isFortune).count
+                    XCTAssertEqual(fortunes, 1,
+                                   "stage \(stage), generation \(generation), seed \(seed) "
+                                   + "dealt \(fortunes) fortunes")
+
+                    // And it rides an ordinary orb — never a splitter, a
+                    // generator, a drifter or a creature. A fortune attached
+                    // to the busiest thing on screen is a prize; on a plain
+                    // orb it is a gift.
+                    for orb in sim.orbs where orb.isFortune {
+                        guard case .plain = orb.kind else {
+                            return XCTFail("stage \(stage), generation \(generation), "
+                                           + "seed \(seed): the fortune rode a \(orb.kind)")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

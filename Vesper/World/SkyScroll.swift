@@ -157,6 +157,21 @@ final class SkyScrollState: ObservableObject {
         gestureOrigin = offset
     }
 
+    /// Stop a coasting glide where it actually is, without arming anything.
+    ///
+    /// Called at TOUCH-DOWN by the input layer, which is the only moment that
+    /// makes a scroll feel like a scroll: `began()` is reached from
+    /// `.scrollBegan`, and the arbiter only emits that once a drag has crossed
+    /// the slop — so catching the glide there let the content coast on under
+    /// her finger for the first ten points, and let a TAP on a gliding sky not
+    /// stop it at all while the star she was pressing kept moving.
+    ///
+    /// Idempotent, and harmless when nothing is gliding.
+    func catchGlide() {
+        cancelGlide()
+        gestureOrigin = offset
+    }
+
     /// Back to the growing tip, at once.
     ///
     /// Called when she ARRIVES at the sky, because a place opens on the thing

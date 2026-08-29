@@ -76,6 +76,13 @@ final class GameViewModel: ObservableObject {
     // behaves exactly as it always has.
     var simActive = true
 
+    /// Which field the work in flight belongs to.
+    ///
+    /// Bumped by `restart()`, read by anything that applies work a hop or a
+    /// delay later. Not `@Published` — it is bookkeeping, never something a
+    /// view diffs. See `frame` for what it prevents.
+    private var fieldEpoch: UInt64 = 0
+
     let sim = GameSimulation()
     let settings = SettingsStore.shared
     let progression = ProgressionStore.shared
@@ -157,8 +164,27 @@ final class GameViewModel: ObservableObject {
         let events = sim.step(dt: dt)
         let paused = sim.isQuiescent
         if !events.isEmpty || paused != renderingPaused {
+            // THE EPOCH IS WHAT MAKES THE HOP SAFE. This block is applied a
+            // hop later, and a `restart()` can land in between — UIKit touch
+            // delivery is a run-loop source, not FIFO with the main queue, so
+            // it genuinely can. Without the stamp the stale block did two bad
+            // things to a field that had already begun again:
+            //
+            //   * it set `renderingPaused = true` on a LIVE field. That flag
+            //     feeds `TimelineView(paused:)`, and a paused timeline never
+            //     calls `frame` again — and `frame` is the only writer that
+            //     could clear it. The field freezes, permanently, until
+            //     something else happens to restart it.
+            //   * it applied the PREVIOUS field's events into the new
+            //     session: a pending `.popped` paid into the new counter, and
+            //     a pending `.cleared` would add the clear bonus, draw a
+            //     verse and show the done card over a field with orbs still
+            //     on it.
+            //
+            // A block from a field she has already left is discarded whole.
+            let epoch = fieldEpoch
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.fieldEpoch == epoch else { return }
                 self.apply(events)
                 if self.renderingPaused != paused {
                     self.renderingPaused = paused
@@ -174,6 +200,17 @@ final class GameViewModel: ObservableObject {
     }
 
     func restart() {
+        // A NEW FIELD IS A NEW EPOCH: anything already in flight for the old
+        // one is discarded rather than applied to this one. See `frame`.
+        fieldEpoch &+= 1
+        // AND THE ONWARD SEQUENCE STOPS HERE. Without this, a stone chosen
+        // during the pause in the sky — by tapping a star, by leaving the
+        // Path, by beginning the field again — was overwritten 2.2 seconds
+        // later by the step that was already scheduled, and she was carried
+        // somewhere she had not asked to go. The sequence is meant to be an
+        // offer she can decline, and choosing something else is the clearest
+        // way anyone declines anything.
+        cancelOnward()
         doneRevealWork?.cancel()
         doneRevealWork = nil
         dismissFortune()
@@ -443,7 +480,14 @@ final class GameViewModel: ObservableObject {
         guard ahead.count == 1, let next = ahead.first else { return }
 
         let step = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            // THE SAME GUARD ITS SIBLING HAS. `rise` re-checks that the field
+            // is still finished before it moves anything, and this one did
+            // not — so a field begun again during the pause in the sky was
+            // stepped off anyway, onto a stone she had not chosen. `restart()`
+            // now cancels the sequence outright, and this is the belt to that
+            // brace: by the time this runs, a field that is no longer
+            // complete is a field she has gone back to.
+            guard let self, self.sim.completed else { return }
             self.map.setActive(next.id)
             self.restart()
             self.fieldRequest += 1

@@ -114,7 +114,7 @@ final class PopSoundEngine {
         guard SettingsStore.shared.soundEnabled else { return }
         ensureRunning()
         guard engine.isRunning else { return }
-        let key = Int(startFreq.rounded())
+        let key = Self.frequencyKey(startFreq)
         if whirrBank[key] == nil {
             whirrBank[key] = makeWhirrBuffer(startFreq: startFreq)
         }
@@ -124,14 +124,13 @@ final class PopSoundEngine {
 
     private func makeWhirrBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
         let duration = 1.05
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard frameCount > 0,
+        guard let frameCount = Self.frameCount(seconds: duration, sampleRate: sampleRate),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
         else { return nil }
         buffer.frameLength = frameCount
         let channel = buffer.floatChannelData![0]
 
-        var rngState = UInt64(bitPattern: Int64(key(startFreq))) | 1
+        var rngState = UInt64(bitPattern: Int64(Self.frequencyKey(startFreq))) | 1
         func noise() -> Double {
             rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
             return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
@@ -155,7 +154,41 @@ final class PopSoundEngine {
         return buffer
     }
 
-    private func key(_ freq: Double) -> Int { Int(freq.rounded()) }
+    /// A cache key for a frequency, and THE ONLY PLACE a Double from the
+    /// catalogue is allowed to become an Int.
+    ///
+    /// `Int(_: Double)` TRAPS on NaN, on either infinity, and on anything past
+    /// Int's range — and `UInt64(_: Int)` traps again on a negative. All of
+    /// those are reachable from a hand-authored catalogue number, and a trap
+    /// is the one thing this file promises never to do: "every failure path
+    /// degrades to silence, never to a crash". Non-finite and out-of-range
+    /// frequencies fold onto one reserved key, so they render a single
+    /// harmless buffer instead of taking the app down.
+    ///
+    /// `static` and internal so a test can pin this totality directly; it was
+    /// three separate inline conversions before, and two of them could trap.
+    static func frequencyKey(_ frequency: Double) -> Int {
+        guard frequency.isFinite else { return 0 }
+        return Int(min(max(frequency.rounded(), 0), 20_000))
+    }
+
+    /// How many frames a sound of `seconds` needs, or nil if that is not a
+    /// length anything can be rendered at.
+    ///
+    /// THE CONVERSION HAS TO BE GUARDED BEFORE IT HAPPENS, not after.
+    /// `AVAudioFrameCount` is a UInt32, so `AVAudioFrameCount(sampleRate *
+    /// seconds)` traps outright on a negative, on NaN, and on any duration
+    /// past about 97 seconds — and the `guard frameCount > 0` that used to sit
+    /// underneath it could only ever catch exactly 0, which is the one bad
+    /// value that does not trap. A profile is hand-authored data, and
+    /// `prepare` will render whatever it is handed, so a mistyped duration
+    /// must cost that pop its sound and nothing more.
+    static func frameCount(seconds: Double, sampleRate: Double) -> AVAudioFrameCount? {
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        let frames = (sampleRate * seconds).rounded()
+        guard frames >= 1, frames <= Double(AVAudioFrameCount.max) else { return nil }
+        return AVAudioFrameCount(frames)
+    }
 
     /// THE THOOMF: the mortar, the moment it leaves the tube.
     ///
@@ -179,8 +212,7 @@ final class PopSoundEngine {
 
     private func makeThoomfBuffer() -> AVAudioPCMBuffer? {
         let duration = 0.34
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard frameCount > 0,
+        guard let frameCount = Self.frameCount(seconds: duration, sampleRate: sampleRate),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
         else { return nil }
         buffer.frameLength = frameCount
@@ -212,7 +244,7 @@ final class PopSoundEngine {
         guard SettingsStore.shared.soundEnabled else { return }
         ensureRunning()
         guard engine.isRunning else { return }
-        let k = Int(startFreq.rounded())
+        let k = Self.frequencyKey(startFreq)
         if fuseBank[k] == nil { fuseBank[k] = makeFuseTickBuffer(startFreq: startFreq) }
         guard let buffer = fuseBank[k] ?? nil else { return }
         play(buffer)
@@ -220,14 +252,15 @@ final class PopSoundEngine {
 
     private func makeFuseTickBuffer(startFreq: Double) -> AVAudioPCMBuffer? {
         let duration = 0.09
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard frameCount > 0,
+        guard let frameCount = Self.frameCount(seconds: duration, sampleRate: sampleRate),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
         else { return nil }
         buffer.frameLength = frameCount
         let channel = buffer.floatChannelData![0]
 
-        var rngState = UInt64(Int(startFreq.rounded())) | 1
+        // Seeded through the same total helper: a negative frequency would
+        // trap `UInt64(_: Int)`, and a non-finite one would trap before that.
+        var rngState = UInt64(Self.frequencyKey(startFreq)) | 1
         func noise() -> Double {
             rngState = rngState &* 6364136223846793005 &+ 1442695040888963407
             return Double(Int64(bitPattern: rngState >> 11)) / Double(1 << 52) - 1
@@ -336,8 +369,7 @@ final class PopSoundEngine {
     private func makePopBuffer(profile: SoundProfile, pitch: Double,
                                detune: Double) -> AVAudioPCMBuffer? {
         let duration = profile.duration
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard frameCount > 0,
+        guard let frameCount = Self.frameCount(seconds: duration, sampleRate: sampleRate),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
         else { return nil }
         buffer.frameLength = frameCount
@@ -566,8 +598,9 @@ final class PopSoundEngine {
         // being touched once, not a phrase being played. Still the same three
         // pitches, so it is recognisably the sound she already knows.
         let duration = 0.62
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
+        guard let frameCount = Self.frameCount(seconds: duration, sampleRate: sampleRate),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        else { return nil }
         buffer.frameLength = frameCount
         let channel = buffer.floatChannelData![0]
 

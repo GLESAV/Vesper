@@ -11,6 +11,12 @@ import Foundation
 // pattern, the flight, whether the stars split or twinkle, how long they hang,
 // or the register it whirrs and blooms in. Colour is the last axis, never the
 // only one — a recolouring is not a different firework.
+//
+// SPLITTING AND TWINKLING ARE NOT BUILT. `FireworkBurst.splits` and
+// `.twinkles` are authored on the crossette and strobe shells and read by no
+// consumer, so entries 12, 13, 24, 25 and 26 currently break like ordinary
+// spheres and their flavour lines promise more than the field shows. See
+// `docs/firework_behaviours.md`.
 struct FireworkDefinition: Identifiable, Equatable {
     let id: Int
     let name: String

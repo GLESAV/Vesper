@@ -64,13 +64,17 @@ stays inside the same envelope as everything else.
 
 `voice`, `pattern` and `burst` are **categorical**, not numeric, and that is
 the point: the catalog was already heavily authored in pitch and length
-(`freq` overridden in 98 of 100 entries) through one synthesis model, one
-haptic and one burst gesture. A hundred notes on the same string.
+(`freq` overridden in 97 of 100 entries, `dur` in 93) through one synthesis
+model, one haptic and one burst gesture. A hundred notes on the same string.
 
 Defaults come from the **family** (`PopFamily.voice / .hapticPattern /
 .burst`), so the ten families are ten instruments and the ten pops inside each
 are notes on it. Authoring a new pop should normally state none of the three;
-overriding them is a budget to spend on rare and secret pops.
+overriding them is a budget to spend on rare and secret pops. **As it stands,
+none of the hundred spends it** — every pop takes all three from its family —
+so a family reads as one instrument with no exceptions yet. That is the
+intended starting point, not an oversight: the budget is there for a pop that
+has earned a departure.
 
 ### ChainBehavior — ripple
 | Field | Meaning | Classic |
@@ -110,7 +114,7 @@ Ten families of ten, in catalog order — each family one mood of the same calm:
 
 | # | Family | Mood | Signature |
 |---|--------|------|-----------|
-| 001–010 | Vesper | the original dusk | soft dots, the classic tone |
+| 001–010 | Vesper | the original dusk | soft dots, the ASMR pop |
 | 011–020 | Ember | warmth without harm | sparks, quicker warm tones |
 | 021–030 | Tide | the weight of water | slow heavy rings, deep tones |
 | 031–040 | Bloom | soft things opening | petals that float |
@@ -121,5 +125,27 @@ Ten families of ten, in catalog order — each family one mood of the same calm:
 | 081–090 | Prism | light, taken apart kindly | shimmer, multi-paint variants |
 | 091–100 | Aurora | the sky's slow applause | wide rings, drifting shimmer |
 
-Secrets: **#050 Polar Night**, **#080 Stormglass**, **#100 Morning Star** (Vesper's
-other name — the finale of the collection).
+Each family's instrument, haptic rhythm and burst gesture, since every pop takes
+all three from its family (`PopFamily.voice / .hapticPattern / .burst`):
+
+| Family | Voice | Haptic | Burst |
+|---|---|---|---|
+| Vesper | `pop` — the ASMR pop, the base sound | `single` | `radial` |
+| Ember | `crackle` | `double` | `ascend` |
+| Tide | `drop` | `swell` | `veil` |
+| Bloom | `tone` — the plain round v1.0 shape | `single` | `bloom` |
+| Frost | `glass` | `double` | `shiver` |
+| Chime | `bell` | `ripple` | `ring` |
+| Lantern | `wood` | `thud` | `drip` |
+| Current | `breath` | `swell` | `spiral` |
+| Prism | `pluck` | `double` | `scatter` |
+| Aurora | `shimmer` | `ripple` | `implode` |
+
+Note that the classic tone is **Bloom's** instrument, not Vesper's. #001 was
+moved to `pop` when the base sound stopped being a downward sweep; `tone` is
+kept in the standard for pops that want a plain round note, and the family that
+wants one is Bloom.
+
+Secrets: **#050 Polar Night** (Frost · a chain of 10), **#080 Stormglass**
+(Current · 25 fortunes), **#100 Morning Star** (Aurora · 100 fields — Vesper's
+other name, the finale of the collection).

@@ -1,5 +1,20 @@
 # v1.2 Release & Review Prep — "The Feel & Collection Update"
 
+> **This is the record of the v1.2 submission, and v1.2 is not the build in the
+> repository any more.** It was written against the *classic* navigation — a
+> top bar of icons, the Path as a sheet, the Journey as another sheet — all of
+> which now compiles only under `VESPER_CLASSIC_NAV`. `MARKETING_VERSION` has
+> not moved off 1.2 through the One World rebuild, so the version number no
+> longer distinguishes the two builds.
+>
+> Keep this page for what it records: the screenshot provenance (§1), the
+> submission mechanics (§3), and the privacy answers, all of which are still
+> accurate. **Do not run §2 or paste §4 for a build off `main`** — §2 tests
+> screens that are gone and describes the map as fading rather than settling,
+> and §4 tells a reviewer to look for two buttons that no longer exist.
+> `docs/e2e_walkthrough.md` is the device pass for the current build; a release
+> of that build needs a prep page of its own, and this is not it.
+
 Everything needed to take the `claude/vesper-pop-aaa-optimization-2n5oc2` branch
 from merged to App Store review. Items marked ⚙ are done on this branch; items
 marked 🖐 need a human with hardware/credentials.
@@ -8,6 +23,8 @@ marked 🖐 need a human with hardware/credentials.
 
 - ⚙ CI green on head commit: build + 4 test suites (simulation, catalog,
   progression, map) on iPhone 16 simulator
+  *(as of v1.2. `VesperTests` now holds well over thirty suites, and CI builds
+  and tests both navigation configurations on every PR.)*
 - ⚙ `MARKETING_VERSION = 1.2`, `CURRENT_PROJECT_VERSION = 1`
   (🖐 bump build number per TestFlight upload)
 - ⚙ Release notes, description, promotional text updated for v1.2
@@ -26,7 +43,7 @@ fonts, not New York/SF**. Before submitting, either:
    same composed states and `xcrun simctl io booted screenshot`, keeping the
    same filenames.
 
-## 2. 🖐 Manual device pass (blocking)
+## 2. 🖐 Manual device pass (blocking) — *as run for v1.2; superseded*
 
 Run the full checklist in `docs/BUILD_PLAN.md` §5 on the oldest supported
 iPhone and a ProMotion device, plus these v1.2-specific checks:
@@ -56,7 +73,7 @@ bundle exec fastlane deliver
 #    ("Data Not Collected"), submit.
 ```
 
-## 4. App Review notes (paste into the review notes field)
+## 4. App Review notes as submitted for v1.2 — *do not reuse verbatim*
 
 > Vesper is a calm, offline stress-relief game. No account or sign-in exists;
 > the app makes no network calls and collects no data. All progression

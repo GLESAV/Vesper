@@ -201,8 +201,21 @@ final class StringsTests: XCTestCase {
     // on a specific surface must appear somewhere other than their own
     // definition. Deliberately narrow — it names the strings whose absence was
     // an actual defect, rather than asserting every catalog entry is used,
-    // because several are correctly unused while their features are deferred
-    // (`keepHint` is W10, `skyNoticed` is W15, `roadFaded` is W08).
+    // because a catalogue entry can be correctly unused while its feature is
+    // deferred.
+    //
+    // The three that used to be named here as examples — `keepHint` (W10
+    // keepsakes), `skyNoticed` (W15 onboarding) and `roadFaded` — have since
+    // been deleted by a dead-code sweep. Two were deferred rather than
+    // abandoned, so their one line each is recoverable from git if those
+    // features arrive; `roadFaded` is gone for good, because W08 replaced the
+    // road's fading with settling and the road no longer fades at all.
+    //
+    // ONE KNOWN HOLE, worth naming rather than leaving to be rediscovered:
+    // this test cannot tell the two navigations apart. `fortuneDismissHint`
+    // below is satisfied by a call site in `FortuneCard`, which only the
+    // classic `VESPER_CLASSIC_NAV` build constructs — so a string that no
+    // player of the shipping build can ever see still counts as wired.
     func testTheStringsWrittenForASurfaceAreActuallyOnIt() throws {
         let mustBeWired = [
             "fieldIsQuiet",

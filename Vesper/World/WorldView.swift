@@ -237,6 +237,10 @@ private struct WorldScene: View {
                             // moments that decide whether a drag scrolls the
                             // sky or leaves it.
                             scrollRoom: { model.placeScrollRoom },
+                            // A coasting sky stops the instant she touches it,
+                            // which is earlier than the arbiter can tell anyone
+                            // a gesture began. Observational only.
+                            onTouchDown: { model.touchWentDown() },
                             onPointer: { game.pointerMoved(to: $0) },
                             onSafeArea: { top, bottom in
                                 if safeTop != top { safeTop = top }
@@ -775,7 +779,7 @@ private struct WorldScene: View {
             //     not lost — they whisper up from each pop, they are on the
             //     done card, and they are in the journal. They were the third
             //     number in a column of numbers.
-            //   * The counter drops 62 → 40 pt. Still the largest thing on
+            //   * The counter drops 62 → 30 pt. Still the largest thing on
             //     screen and still the answer to a pop, without being the
             //     subject of the screen. The orbs are the subject.
             //   * The three note kinds share ONE slot and never stack, so the

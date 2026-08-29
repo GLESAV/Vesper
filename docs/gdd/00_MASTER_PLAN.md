@@ -4,6 +4,19 @@
 Status: adopted · supersedes ROADMAP M2+ · the baseline gate runs first,
 then Phase 0a, then Phase 0 — which blocks all other feature work.*
 
+> **Phase 0 has landed.** One World is what the app launches: `VesperApp` picks
+> `WorldView`, and the icon toolbar, the Path sheet, the Journey sheet and the
+> settings screen survive only under `VESPER_CLASSIC_NAV`, which CI keeps
+> building so they stay releasable. W08 shipped with it. The ordering above is
+> kept because it is what the plan was adopted with, not because anything is
+> still blocked by it.
+>
+> Feature work has since resumed and shipped: the scrollable sky, weather,
+> balloon animals, fireworks, the staged field mechanics, and the Anima
+> animation engine (which is in the binary but wired into nothing on the glass).
+> `docs/e2e_walkthrough.md` describes what a device actually does today; this
+> page remains the plan, and the two are not the same document.
+
 ## Why this plan exists
 
 v1.2 built AAA **systems** (a pure simulation, a 100-pop content engine, kind
@@ -33,8 +46,9 @@ one idea:
 
 Foundation docs that remain in force underneath: `docs/pop_standard.md`,
 `pop_points.md`, `pop_progression.md`, `pop_map.md` (systems), `STRATEGY.md`
-(engineering standards), `CLAUDE.md` (guardrails — to be updated for P4/P5 when
-Phase 0 lands).
+(engineering standards), `CLAUDE.md` (guardrails — Phase 0 has landed and
+`CLAUDE.md` now describes the One World tree, but its five guardrails still
+predate P4/P5 and have not been rewritten around them).
 
 ## The shape of v2 in one view
 

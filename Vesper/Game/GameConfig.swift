@@ -27,7 +27,6 @@ enum GameConfig {
     /// The fallback ceiling, used only before a `FieldLayout` has been
     /// applied — the real one comes from the layout and clears the signage.
     static let fieldTopInset: CGFloat = 70
-    static let paintCount = 5
 
     // MARK: Splitters, drifters, generators (the stage mechanics)
 

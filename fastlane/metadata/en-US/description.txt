@@ -1,20 +1,43 @@
-Vesper is a small, calm space for letting go.
+Vesper is a small, quiet world you can visit at the end of a day.
 
-Soft, glowing orbs drift across a dark, quiet screen. Tap one and it bursts into light — with a gentle pop, a soft haptic, and a spreading shockwave that can set off the orbs around it. Clear them all, take a breath, and start again.
+Soft glowing orbs drift on a dark screen. Touch one and it lets go — a gentle synthesized tone, a soft tap in your hand, and a ring spreading outward that can set off the orbs beside it. Clear the field and it goes quiet. Then, if you feel like it, you go on.
 
-There is no score to chase, no timer, no failure. Just a slow, satisfying loop you can pick up for ten seconds or ten minutes.
+There is no score to chase, no timer, no failure, nothing to lose. Put it down in the middle of a field and nothing happens.
 
-- Tap to pop. Simple, tactile, endlessly repeatable.
-- Chain reactions. Bursts ripple outward and set off nearby orbs.
-- 100 pops to find. Embers, tides, blooms, frost, chimes, lanterns and more — each with its own colors, debris, tone, and ripple. The original is pop #001, unchanged.
-- The path. Stepping stones across dark water, each one a little field of its own. The road behind fades after a few days; the way forward always stays.
-- A quiet journey. Pop points only ever add up — nothing is lost, timed, ranked, or sold. Unlocks are gifts, not gates.
-- Soft synthesized sound. Every pop has its own gentle tone — never harsh.
-- Hidden fortunes. Now and then an orb leaves a small, kind message behind.
-- Made to calm. Muted colors, no ads, no pressure, no accounts.
+
+ONE PLACE, NOT A SET OF MENUS
+
+The whole game is a single world you move through with your thumb. The field is where the orbs are. Go up to the sky and every field you have ever cleared is a star, joined by the roads you walked. Go down to your journal and your records, your collection, and the quiet things you can turn on and off are waiting on three pages. Nothing opens on top of anything else.
+
+
+WEATHER THAT MOVES THE FIELD
+
+Six kinds of air, each one changing how the orbs behave. Rain comes in slow waves that carry them along. Snow falls, settles at the bottom, rests a while, and melts. Warm light leans through in shafts and the field breathes sideways. Fog rolls in front of everything — and thins around your finger, so you can push a hole in it. Every stone keeps its own weather, so going back means the same evening again.
+
+
+THINGS THAT LIVE ON THE PATH
+
+The sky is a constellation of stones, and clearing one opens a road, or a fork, or three ways at once. Out there you will find orbs that split into smaller orbs, orbs that ease away from your finger, orbs that quietly make more. Balloon animals — a cat, a fox, a deer — shy at first, drifting slower than a thumb, taking two or three soft touches. Fireworks with hanging rope fuses you can light and hurry along, entirely optional, never in the way.
+
+Nothing on the path is ever deleted. Old roads settle into a thin, dim line after a few days, but they stay, and every star stays tappable.
+
+
+A HUNDRED POPS, GIVEN NOT SOLD
+
+Ten families of ten — ember, tide, bloom, frost, chime, lantern, current, prism, aurora, and Vesper, the original, unchanged as pop #001. Each family is its own instrument, its own colors, its own debris, its own tap in the hand. Pop points only ever add up. Nothing is spent, timed, ranked, or compared, and every pop can be reached by ordinary play. A locked one shows a kind hint, never a wall.
+
+
+AND, NOW AND THEN
+
+One orb in each field is hiding a small, kind sentence. It drifts up, stays a moment, and leaves on its own.
+
+
+MADE QUIET ON PURPOSE
+
+Reduce Motion is respected everywhere — the camera crossfades instead of traveling, weather goes nearly still, animals move gently. VoiceOver reads the field, the stars, and the journal. Dynamic Type reflows the pages. One tap on "hush" silences sound and haptics together.
+
+Vesper collects nothing. No accounts, no sign-in, no ads, no in-app purchases, no notifications, no analytics, and no network connections of any kind. There is nothing to buy and nothing to give away. Your collection and your path live on your device and go nowhere.
 
 Whatever you just popped, it wasn't real anyway.
-
-Vesper collects no data and needs no sign-in. Just open it and breathe.
 
 Created by Kate Wu.
