@@ -131,6 +131,10 @@ final class EndToEndJourneyTests: XCTestCase {
         var fieldsCleared = 0
         var fortunes = 0
         var bestChain = 0
+        /// The per-pop tallies. In here because they are the diary — the
+        /// count beside each pop in the collection — and a diary that can
+        /// lose an entry is the same broken promise as a counter that falls.
+        var popCounts: [Int: Int] = [:]
         var unlocked: Set<Int> = []
         var stones: Set<UUID> = []
         var roads: Set<Edge> = []
@@ -144,6 +148,7 @@ final class EndToEndJourneyTests: XCTestCase {
         l.fieldsCleared = s.progression.fieldsCleared
         l.fortunes = s.progression.fortunesFound
         l.bestChain = s.progression.bestChain
+        l.popCounts = s.progression.popCounts
         l.unlocked = s.progression.unlockedNumbers()
         l.stones = Set(s.map.stones.map(\.id))
         l.roads = Set(s.map.stones.compactMap { stone in
@@ -176,6 +181,10 @@ final class EndToEndJourneyTests: XCTestCase {
             fell("fortunes found", before.fortunes, after.fortunes)
             fell("best chain", before.bestChain, after.bestChain)
 
+            for (number, count) in before.popCounts where (after.popCounts[number] ?? 0) < count {
+                note("\(place): pop #\(number)'s tally fell "
+                     + "\(count) → \(after.popCounts[number] ?? 0)")
+            }
             let lostPops = before.unlocked.subtracting(after.unlocked)
             if !lostPops.isEmpty {
                 note("\(place): unlocked pops were lost: \(lostPops.sorted())")
