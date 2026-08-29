@@ -101,7 +101,12 @@ Vesper.xcodeproj/           Project + shared scheme (scheme runs the tests)
 .github/workflows/anima-pages.yml  Exports the Anima library, checks the previewer,
                             publishes tools/anima-studio to Pages on main
 tools/anima-studio/         The static hub page previewing all Anima assets
-docs/                       STRATEGY.md, ROADMAP.md, BUILD_PLAN.md, anima.md, gdd/
+docs/                       e2e_walkthrough.md (the current build, end to end —
+│                           the most accurate description in the repo),
+│                           PLAYTEST.md, pop_standard/points/progression/map.md,
+│                           pop_puzzles.md + sky_assets.md (design, unbuilt),
+│                           anima.md + anima_backlog.md, STRATEGY.md,
+│                           ROADMAP.md, BUILD_PLAN.md, RELEASE_v1.2.md, gdd/
 fastlane/                   App Store metadata + screenshots (deliver)
 web/                        Static privacy page for tfc.studio/vesper/privacy
 ```
@@ -141,9 +146,13 @@ simulation free of UI imports, and rely on the CI workflow to verify the build.
   by `step()` (chain pops) are applied via `DispatchQueue.main.async`; events from taps
   are applied synchronously. Don't "simplify" this — it avoids SwiftUI's
   publishing-during-view-update hazard.
-- **Tap handling stays UIKit-backed.** `TapCatcherView` exists because SwiftUI gestures
-  are unreliable over a continuously redrawing `TimelineView`/`Canvas`. Keep it a
-  separate, stable layer.
+- **Touch handling stays UIKit-backed.** In the shipping One World build this is
+  `World/WorldInputView.swift`, hosting the raw touch stream that
+  `World/WorldInput.swift`'s pure `InputArbiter` decides between pop, pan and
+  sky-scroll; it is never rebuilt by camera motion (ruling 8). `TapCatcherView`
+  is the equivalent layer in the classic navigation. Both exist for the same
+  reason: SwiftUI gestures are unreliable over a continuously redrawing
+  `TimelineView`/`Canvas`. Keep the touch layer separate and stable.
 - **Frame-rate independence.** All motion scales by the clamped frame factor `f`
   (dt clamped to 50 ms, normalized to 60 fps). Any new motion must multiply by `f`.
 - **Performance budget.** Target 60–120 fps; the particle cap

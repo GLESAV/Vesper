@@ -2,6 +2,22 @@
 
 *Status: adopted · Owner: engineering · Last updated: 2026-08-14*
 
+> **What this document still governs, and what it no longer does.** §§2–5 —
+> the pillars, the architecture rules, the CI gate, the performance and latency
+> budgets, the UX standards — are in force and are the standard every change is
+> still held to. §1's position that Vesper would add *no content and no systems*
+> was overtaken by the product: the game has since grown a hundred-pop catalog,
+> a progression, an infinite map, weather, balloon animals, fireworks, staged
+> field mechanics and an animation engine, and `docs/gdd/01_VISION.md` is where
+> that argument now lives. It also renumbers the pillars: its five are P1 Instant
+> calm, P2 Tactile joy, P3 Generous never grasping, **P4 One beautiful place**
+> and **P5 Her evening, respected** — so "Invisible tech", P4 in the table below,
+> is not the GDD's P4. Invisible tech survives as this document's engineering
+> standard rather than as a product pillar. §7's success criteria are
+> the MVP's and were met. Read §1 as the founding argument for *why nothing may
+> add pressure*, which is still exactly right, rather than as a claim about the
+> shape of the app today.
+
 ## 1. Vision
 
 Vesper is already the right game. It is small, kind, and complete: tap a glowing orb,
@@ -45,8 +61,10 @@ deferred — they are rejected. Privacy ("collects no data") is a shipped featur
 
 ### 3.2 Quality gates (CI-enforced)
 
-- Every push and PR builds and runs the unit-test suite on an iOS Simulator via
-  GitHub Actions. Red CI blocks merge.
+- Every PR, and every push to `main`, builds and runs the unit-test suite on an
+  iOS Simulator via GitHub Actions — **in both navigation configurations**,
+  `world` and `classic` (`VESPER_CLASSIC_NAV`), because an unbuilt configuration
+  rots within days. Red CI blocks merge.
 - Simulation behavior (seeding invariants, tap tolerance, chain physics, completion,
   particle cap, determinism, long-pause clamping) is covered by `VesperTests`.
 - Manual pre-release pass on real hardware: oldest supported device + latest Pro
@@ -72,7 +90,14 @@ never explodes or tunnels.
 
 - Audio failures are never fatal: every AVAudioEngine path degrades to silence.
 - Audio session interruptions (calls, Siri) are observed and recovered.
-- Persistence is UserDefaults-only (two toggles, two counters) — nothing to corrupt.
+- Persistence is UserDefaults-only and stays on the device: three toggles
+  (`SettingsStore`), seven progression keys (`ProgressionStore`) and five map
+  keys (`MapStore`). It is no longer small enough to call incorruptible, so the
+  stores defend themselves instead: a tally that will not parse is dropped
+  without taking the other numbers with it, duplicate-parsing keys merge rather
+  than trap, and a map blob that fails to decode is moved to a keepsake key
+  before anything can write over it — because it is her whole Path, and the
+  contract is that nothing is ever lost, including to a bug.
 - No networking, so no failure modes from it.
 
 ## 4. UX standards

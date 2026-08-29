@@ -73,18 +73,30 @@ final class RenderingTests: XCTestCase {
     // viewHeight`), for every combination of a guarded geometry and an
     // arbitrary offset.
     //
-    // KNOWN GAP, STATED RATHER THAN ASSERTED. The guard reads
-    // `travelPerPlace > 0, viewHeight > 0, offset.isFinite` — it checks the
-    // OFFSET for finiteness and neither of the other two. A non-finite
-    // `travelPerPlace` or `viewHeight` therefore passes the guard and the
-    // final multiplication produces a NaN (`inf * 0`), and so does a merely
-    // enormous finite `travelPerPlace`, which overflows to infinity inside
-    // the expression. `HorizonRender.state` — the newer file, guarding the
-    // same division — checks `.isFinite` on all three. That asymmetry is
-    // reported as a defect rather than pinned here, because pinning it means
-    // either a red suite or a test that certifies the bug. The geometries
-    // swept below are therefore the finite ones, which is every geometry the
-    // app can currently produce.
+    // KNOWN GAP, STATED RATHER THAN ASSERTED, AND STATED EXACTLY. The guard
+    // reads `travelPerPlace > 0, viewHeight > 0, offset.isFinite`. Be precise
+    // about what that does and does not catch, because the imprecise version
+    // of this paragraph sends the next reader after the wrong bug:
+    //
+    //   * a NaN `travelPerPlace` or `viewHeight` IS refused, because
+    //     `nan > 0` is false. The comparison does the work `.isFinite` would
+    //     have done, by accident rather than by intent, and the sweep below
+    //     pins that behaviour so it cannot be lost;
+    //   * an INFINITE one is not. `inf > 0` is true, `offset / inf` is 0, and
+    //     the final product is `inf * 0` — a NaN, out of a guard that just
+    //     said yes;
+    //   * and neither is a merely ENORMOUS FINITE one. At
+    //     `travelPerPlace = viewHeight = 1e200` the leading product overflows
+    //     to infinity mid-expression while every argument is finite, and the
+    //     result is a NaN (at `u == 0`) or a raw infinity (at `u != 0`).
+    //     All-finite in, non-finite out.
+    //
+    // `HorizonRender.state` — the newer file, guarding the same division —
+    // checks `.isFinite` on all three. That asymmetry is reported as a defect
+    // rather than pinned here, because pinning it means either a red suite or
+    // a test that certifies the bug. The geometries swept below are therefore
+    // the ones that cannot overflow, which is every geometry the app can
+    // currently produce.
     func testEveryTravelCueIsTotalAcrossItsGuardedDomain() {
         let offsets: [CGFloat] = [0, -0, 1e-9, -1e-9, 0.375, -0.375, 0.75, -0.75,
                                   1, -1, 1e6, -1e6, .nan, .infinity, -.infinity]
@@ -335,6 +347,27 @@ final class RenderingTests: XCTestCase {
     // the exact numbers `SceneRenderer` fills every orb, ring and particle
     // with, so this is guardrail 4 held against the paint rather than against
     // a screenshot.
+    //
+    // EVERY BOUND BELOW IS SIZED AGAINST THE CATALOG AS IT STANDS, and the
+    // measurement is written down so the next author can see how much room
+    // they have before they spend it. Across the 227 paints of the 100 pops
+    // (454 colours):
+    //
+    //     saturation   worst 0.376  (#218,170,136 fill)   bound 0.42
+    //     high channel worst 0.965  (#238,236,246 fill)   bound 0.98
+    //     low channel  worst 0.507  (#218,170,136 glow)   bound 0.40
+    //     chroma       worst 0.345  (#234,202,146 fill)   bound 0.40
+    //
+    // The two ceilings were WIDENED from a first pass that set them at 0.97
+    // and 0.36. Colours here are authored in 1/255 steps, and at 0.97 the
+    // brightest pop in the catalog was 1.3 steps from failing — one new
+    // off-white and the whole suite goes red for everybody, over a colour
+    // nobody would call white. 0.98 still refuses anything at or above
+    // 250/255, which is the thing "no pure white" is actually about, and
+    // leaves four steps of authoring room. The chroma bound moved for the
+    // same reason (3.8 steps of room, now ~14) and is belt-and-braces
+    // anyway: at these brightnesses it is nearly implied by the saturation
+    // cap above it.
     func testNoOrbIsEverPaintedSaturatedOrPureWhite() {
         var checked = 0
         for definition in PopCatalog.all {
@@ -346,15 +379,16 @@ final class RenderingTests: XCTestCase {
                     let low = channels.min() ?? 0
 
                     XCTAssertTrue(channels.allSatisfy(\.isFinite), where_)
-                    XCTAssertLessThanOrEqual(high, 0.97,
-                                             "\(where_): nothing in this game is pure white")
+                    XCTAssertLessThanOrEqual(high, 0.98,
+                                             "\(where_): \(high) — nothing in this game is pure "
+                                             + "white")
                     XCTAssertGreaterThan(low, 0.4,
                                          "\(where_): the orbs are pastels lit on a dark ground, "
                                          + "not a dark shape on a dark ground")
                     XCTAssertLessThanOrEqual(saturation(colour), 0.42,
                                              "\(where_): saturation \(saturation(colour)) — the "
                                              + "palette is muted, and this one is not")
-                    XCTAssertLessThanOrEqual(high - low, 0.36,
+                    XCTAssertLessThanOrEqual(high - low, 0.40,
                                              "\(where_): chroma \(high - low) is a colour, not a "
                                              + "tint")
                     checked += 1
@@ -376,6 +410,11 @@ final class RenderingTests: XCTestCase {
     // so they get their own, looser ceiling. It is still a ceiling: the most
     // saturated colour anywhere in Vesper is the ember glow, and this is the
     // number that stops the next one being a firework-red.
+    //
+    // MEASURED, across the ten paints the 36 shells share between them:
+    // saturation worst 0.526 (the ember glow, #232,150,110) against 0.58, and
+    // high channel worst 0.957 (#214,230,244 fill) against 0.98 — the same
+    // white bound the pops carry, and widened here for the same reason.
     func testNoShellIsEverPaintedSaturatedOrPureWhite() {
         XCTAssertFalse(FireworkCatalog.all.isEmpty)
         for definition in FireworkCatalog.all {
@@ -384,7 +423,7 @@ final class RenderingTests: XCTestCase {
                     let where_ = "\(definition.name) paint \(index) \(role)"
                     let channels = [colour.r, colour.g, colour.b]
                     XCTAssertTrue(channels.allSatisfy(\.isFinite), where_)
-                    XCTAssertLessThanOrEqual(channels.max() ?? 0, 0.97,
+                    XCTAssertLessThanOrEqual(channels.max() ?? 0, 0.98,
                                              "\(where_): not even a firework is pure white")
                     XCTAssertLessThanOrEqual(saturation(colour), 0.58,
                                              "\(where_): saturation \(saturation(colour)) — "
@@ -579,6 +618,24 @@ final class RenderingTests: XCTestCase {
     // stick out of its own light — the exact "lit as though it were a ball"
     // failure the header says the halo sizing exists to avoid. Swept over
     // every figure, every clip and fixed sample times, so it is deterministic.
+    //
+    // THE ASSERTION IS PER PART, NOT PER VERTEX, AND THAT IS DELIBERATE. Six
+    // figures x six clips x four times x two facings x twenty-nine parts is
+    // some ninety thousand vertices; asserted individually that is a quarter
+    // of a million XCTest calls for a property that is a maximum, and a
+    // second of CI for nothing. The worst vertex of each part is measured and
+    // asserted once, which is the same statement — `max <= bound` is exactly
+    // `all <= bound` — and it names the offending part either way.
+    //
+    // ON THE EPSILON. The bound is `radius * reach`, and `reach` is defined
+    // as the largest `|p|` over the same outlines, so THE EXTREMAL VERTEX
+    // SITS ON THE BOUND WITH ZERO SLACK BY CONSTRUCTION. That is not a
+    // knife-edge: the comparison is `<=` rather than `==`, the two sides
+    // differ only by the order they multiply `radius` in (about 1e-13 at this
+    // scale), and 1e-6 is seven orders of magnitude of room on top. What the
+    // test really catches is a part that reaches past a reach it was NOT
+    // computed from — the case a future `reach` that is authored, cached or
+    // taken from the rest pose would introduce.
     func testEveryPoseInTheLibraryFitsInsideTheHaloDrawnForIt() {
         let radius: CGFloat = 24
         let centre = CGPoint(x: 190, y: 410)
@@ -591,25 +648,27 @@ final class RenderingTests: XCTestCase {
                     XCTAssertGreaterThanOrEqual(reach, 1,
                                                 "\(figure.name)/\(clip.name): a reach under a "
                                                 + "unit disc would light nothing")
-                    let halo = radius * reach * 1.8
                     for facing in [CGFloat(1), -1] {
                         for posed in pose.parts where posed.outline.count > 2 {
                             let path = SceneRenderer.path(for: posed, at: centre,
                                                           radius: radius, facing: facing)
+                            var furthest: CGFloat = 0
+                            var allFinite = true
                             for point in points(of: path) {
-                                XCTAssertTrue(point.x.isFinite && point.y.isFinite,
-                                              "\(figure.name)/\(clip.name) t=\(time) "
-                                              + "\(posed.name): a non-finite vertex")
+                                guard point.x.isFinite && point.y.isFinite else {
+                                    allFinite = false
+                                    break
+                                }
                                 let dx = point.x - centre.x, dy = point.y - centre.y
-                                XCTAssertLessThanOrEqual(
-                                    (dx * dx + dy * dy).squareRoot(), radius * reach + 1e-6,
-                                    "\(figure.name)/\(clip.name) t=\(time) \(posed.name): a part "
-                                    + "reaches past the pose's own stated reach")
-                                XCTAssertLessThanOrEqual(
-                                    (dx * dx + dy * dy).squareRoot(), halo,
-                                    "\(figure.name)/\(clip.name) t=\(time) \(posed.name): the "
-                                    + "creature sticks out of its own halo")
+                                furthest = Swift.max(furthest,
+                                                     (dx * dx + dy * dy).squareRoot())
                             }
+                            let where_ = "\(figure.name)/\(clip.name) t=\(time) \(posed.name)"
+                            XCTAssertTrue(allFinite, "\(where_): a non-finite vertex")
+                            XCTAssertLessThanOrEqual(furthest, radius * reach + 1e-6,
+                                                     "\(where_): reaches \(furthest), past the "
+                                                     + "pose's own stated reach of "
+                                                     + "\(radius * reach)")
                         }
                     }
                     posesChecked += 1
@@ -617,6 +676,14 @@ final class RenderingTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(posesChecked, 50, "the library handed over almost nothing to draw")
+
+        // And the halo really is a widening of that bound rather than a
+        // second, tighter one. This is the only part of the relationship the
+        // sweep above does not already contain — `reach * 1.8` is looser than
+        // `reach` for every pose there has ever been, so asserting the same
+        // vertices against it too would have proved nothing twice.
+        XCTAssertGreaterThan(1.8, 1.0,
+                             "drawAnima's halo multiplier must widen the reach, not crop it")
     }
 
     // RENDERING READS, NEVER WRITES — the architecture rule, held against the

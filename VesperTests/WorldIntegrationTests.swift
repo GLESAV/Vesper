@@ -477,12 +477,20 @@ final class WorldIntegrationTests: XCTestCase {
                        "the sky did not come to rest at the root of the drawn tree")
         XCTAssertEqual(panTranslations(out).last ?? CGFloat.nan, 294 - slop - skyHistory,
                        accuracy: 1e-9, "the camera was given points the sky had already spent")
+
+        // THE GATES SEE THE LEFTOVER, NOT THE WHOLE FINGER, and the fixture is
+        // built so that is the only reason this commits: 200 pt of leftover
+        // against a 93.7 pt gate.
+        XCTAssertGreaterThan(294 - slop - skyHistory, commitDistance,
+                             "the fixture no longer leaves enough leftover to clear the gate")
         XCTAssertEqual(commitDirections(out), [.down], "the gesture did not carry her home")
 
         // `place` is mirrored at the COMMIT instant, not on arrival.
         XCTAssertEqual(h.model.place, .field)
         XCTAssertEqual(h.model.camera.place, .field)
-        XCTAssertTrue(h.model.worldMoving, "the world is travelling and hit-testing is still on")
+        XCTAssertTrue(h.model.worldMoving,
+                      "the world is travelling and hit-testing was not taken away — a place's "
+                      + "controls must not take the touch that is trying to catch the world")
         XCTAssertFalse(h.model.simActive,
                        "the field must stop the instant she has decided to leave it (04 §5)")
 
@@ -1236,7 +1244,9 @@ final class WorldIntegrationTests: XCTestCase {
                 perform("step \(step) kind \(kind)") {
                     switch kind {
                     case 0:                                    // a tap
-                        return h.down(CGPoint(x: x, y: y0)) + h.up(CGPoint(x: x, y: y0))
+                        var o = h.down(CGPoint(x: x, y: y0))
+                        o += h.up(CGPoint(x: x, y: y0))
+                        return o
 
                     case 1:                                    // a sub-slop press
                         var o = h.down(CGPoint(x: x, y: y0))

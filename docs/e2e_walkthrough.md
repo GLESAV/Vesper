@@ -78,6 +78,10 @@ places sit 0.75 screens apart, so the neighbours already peek at the edges.
       journal" at the foot; from the sky only "the field"; from the journal
       only "the field". Tapping a whisper travels. They dim (never vanish)
       while the field is in play and breathe when idle.
+- [ ] Direction, so you can tell a bug from the design: a finger moving UP
+      the screen travels UP the axis, to the sky; a finger moving down goes
+      to the journal. (`WorldCamera`'s sign convention: an upward finger makes
+      a negative translation, which is a negative offset, which is the sky.)
 - [ ] Swipe up/down: the world tracks your finger 1:1. A release commits only
       with **both** real distance (~11% of screen) **and** real velocity —
       a slow drift or a short flick springs home instead.
@@ -226,7 +230,8 @@ animal). 2–6 shells. Entirely optional — never gates the clear.*
 
 ## 11. The journal
 
-Swipe up from the field or tap "your journal". Three pages, turned by the
+Swipe DOWN from the field (the journal sits below), or tap "your journal".
+Three pages, turned by the
 serif ribbon at the foot (or edge taps; VoiceOver: custom actions). Pages
 never turn by swipe. Leaving resets to page one.
 

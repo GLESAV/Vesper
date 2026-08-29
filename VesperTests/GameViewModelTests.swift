@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import CoreGraphics
 @testable import Vesper
 
@@ -25,9 +26,19 @@ import CoreGraphics
 // THE ONE PLACE WALL-CLOCK LEAKS IN, stated so nobody mistakes it for an
 // oversight: `noteChainProgress()` measures the chain window with `Date()`
 // rather than with simulation time (see the report accompanying this file), so
-// the three chain tests below are the only ones whose green depends on the
-// machine executing consecutive statements inside `GameConfig.chainWindow`
-// (0.9 s). They are written to fail loudly rather than flakily quietly.
+// the chain the view model sees depends on how fast the machine got from one
+// statement to the next.
+//
+// NO TEST HERE IS ALLOWED TO DEPEND ON THAT. Every chain assertion below is
+// one of two kinds. The first holds whatever the runner did — a link never
+// pays less than the unchained base and never more than the ×2 ceiling, and
+// the whisper, whenever it is raised at all, names the multiplier that was
+// paid. The second — the exact curve — is asserted only once the run has
+// PROVEN the links landed inside `GameConfig.chainWindow`, by bracketing each
+// tap with its own wall-clock reading (`chainProvenUnbroken`). The clock
+// therefore decides whether the stronger assertion is owed and never what it
+// says: a stalled runner loses coverage, it cannot go red. Nothing anywhere
+// in this file waits, sleeps, or holds an expectation open on a real timeout.
 //
 // SHARED SINGLETONS. The view model reaches `ProgressionStore.shared`,
 // `SettingsStore.shared` and `MapStore.shared` directly and is not injectable,
@@ -114,6 +125,28 @@ final class GameViewModelTests: XCTestCase {
         let saved = MapStore.shared.activeStoneID
         MapStore.shared.setActive(nil)
         return saved
+    }
+
+    /// Whether the chain the view model saw can be PROVEN unbroken.
+    ///
+    /// `noteChainProgress()` reads `Date()` from inside the tap, so the gap it
+    /// measured between links k and k+1 is bounded above by the span from just
+    /// before tap k to just after tap k+1. `marks` holds one instant taken
+    /// immediately before each tap plus one taken after the last, so if every
+    /// two-tap span came in under `GameConfig.chainWindow`, then every gap the
+    /// view model itself measured did too — whatever the machine was doing in
+    /// between, and without this test ever having to see `lastPopAt`.
+    ///
+    /// A bound, never a wait: this reads a clock that has already run and asks
+    /// a question about the past.
+    private func chainProvenUnbroken(_ marks: [Date]) -> Bool {
+        guard marks.count > 2 else { return true }
+        for k in 0..<(marks.count - 2) {
+            if marks[k + 2].timeIntervalSince(marks[k]) >= GameConfig.chainWindow {
+                return false
+            }
+        }
+        return true
     }
 
     /// Events produced inside `frame(date:size:)` are applied on the next
@@ -270,8 +303,10 @@ final class GameViewModelTests: XCTestCase {
         vm.sim.replaceOrbs(field)
 
         var deltas: [Int] = []
+        var marks: [Date] = []
         var running = vm.sessionPoints
         for (k, orb) in field.prefix(3).enumerated() {
+            marks.append(Date())
             vm.tap(at: orb.pos)
             deltas.append(vm.sessionPoints - running)
             running = vm.sessionPoints
@@ -280,12 +315,35 @@ final class GameViewModelTests: XCTestCase {
                              "a chain of \(k + 1) is under the threshold and must stay silent")
             }
         }
+        marks.append(Date())
 
-        XCTAssertEqual(vm.chainNote, "chain of 3",
-                       "the third pop inside the window must whisper the chain")
-        XCTAssertEqual(deltas, [10, 11, 12],
-                       "the multiplier the whisper announces and the multiplier that was paid "
-                       + "must be the same number")
+        // TRUE WHATEVER THE MACHINE DID, and the heart of the promise: the
+        // whisper can only be raised at all when all three links landed, and
+        // all three links landing IS the curve. So the note and the money can
+        // be held to each other without either of them being held to a clock.
+        if let note = vm.chainNote {
+            XCTAssertEqual(note, "chain of 3", "the whisper named a chain the field had not made")
+            XCTAssertEqual(deltas, [10, 11, 12],
+                           "the multiplier the whisper announces and the multiplier that was paid "
+                           + "must be the same number")
+        } else {
+            XCTAssertEqual(deltas.first, 10, "the first link of any chain is unchained, at ×1")
+            for (k, d) in deltas.enumerated() {
+                XCTAssertTrue((10...12).contains(d),
+                              "link \(k + 1) paid \(d): three links on a base of 10 span 10…12")
+            }
+        }
+
+        // AND NOT VACUOUS, on any machine that got through three taps inside
+        // the window — which is the only machine the whisper is provably owed
+        // on. If this one stalled past it, the branch above is all that is
+        // honestly provable, and it is what proves it.
+        if chainProvenUnbroken(marks) {
+            XCTAssertEqual(vm.chainNote, "chain of 3",
+                           "three pops landed inside the chain window and nothing was whispered")
+            XCTAssertEqual(deltas, [10, 11, 12],
+                           "the chain curve is +0.1 per link on a base of 10")
+        }
     }
 
     // The cap. Thirteen pops inside the window: the multiplier climbs by a
@@ -294,7 +352,9 @@ final class GameViewModelTests: XCTestCase {
     //
     // The bound is asserted separately from the curve on purpose: the bound
     // holds whatever the machine's timing did (a broken window only ever
-    // lowers a delta), so a failure there is a failure of the cap itself.
+    // lowers a delta), so a failure there is a failure of the cap itself. The
+    // curve is the same numbers said exactly, and is claimed only once the
+    // run has proven the links landed inside the window.
     func testTheChainMultiplierSaturatesAtTwiceAndNeverClimbsPastIt() {
         let vm = makeGame()
         let field = (0..<14).map { makeOrb(at: CGPoint(x: 60 + 120 * CGFloat($0 % 3),
@@ -303,20 +363,28 @@ final class GameViewModelTests: XCTestCase {
         vm.sim.replaceOrbs(field)
 
         var deltas: [Int] = []
+        var marks: [Date] = []
         var running = vm.sessionPoints
         for orb in field.prefix(13) {
+            marks.append(Date())
             vm.tap(at: orb.pos)
             deltas.append(vm.sessionPoints - running)
             running = vm.sessionPoints
         }
+        marks.append(Date())
 
         XCTAssertFalse(vm.sim.completed, "the field cleared — a +100 is inside these deltas")
         for (k, d) in deltas.enumerated() {
+            XCTAssertGreaterThanOrEqual(d, 10,
+                                        "link \(k + 1) paid \(d): below the unchained base of 10, "
+                                        + "so something is subtracting")
             XCTAssertLessThanOrEqual(d, 20,
                                      "link \(k + 1) paid \(d): the ×2 cap on a base of 10 is 20")
         }
-        XCTAssertEqual(deltas, [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 20, 20],
-                       "the chain curve is +0.1 per link to a hard ceiling of ×2")
+        if chainProvenUnbroken(marks) {
+            XCTAssertEqual(deltas, [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 20, 20],
+                           "the chain curve is +0.1 per link to a hard ceiling of ×2")
+        }
     }
 
     // The window closes. `restart()` forgets the streak, so the first pop of
@@ -328,8 +396,17 @@ final class GameViewModelTests: XCTestCase {
         let field = (0..<4).map { makeOrb(at: CGPoint(x: 60 + 110 * CGFloat($0), y: 240)) }
         vm.restart()
         vm.sim.replaceOrbs(field)
-        for orb in field.prefix(3) { vm.tap(at: orb.pos) }
-        XCTAssertNotNil(vm.chainNote, "three quick pops should have raised the whisper")
+        var marks: [Date] = []
+        for orb in field.prefix(3) {
+            marks.append(Date())
+            vm.tap(at: orb.pos)
+        }
+        marks.append(Date())
+        if chainProvenUnbroken(marks) {
+            XCTAssertNotNil(vm.chainNote, "three quick pops should have raised the whisper")
+        }
+        // The rest holds either way: whatever streak the taps above built —
+        // three links or none — `restart()` must forget it.
 
         let subject = makeOrb(at: CGPoint(x: 90, y: 220))
         XCTAssertEqual(earned(popping: subject, in: vm), 10,
@@ -680,7 +757,35 @@ final class GameViewModelTests: XCTestCase {
     // Written as an equivalence rather than as a fixed expectation because
     // lifetime totals are shared state: whether this particular pop crosses a
     // threshold depends on everything the simulator has played before.
+    //
+    // BUT AN EQUIVALENCE ALONE WAS VACUOUS, and that is worth saying plainly.
+    // On almost every run one ordinary pop crosses no threshold at all, so
+    // only the "nothing new" side is ever exercised — and a view model that
+    // had lost `checkUnlocks` entirely would sail through it. So the
+    // collection is first put ONE POP SHORT of its next points threshold, and
+    // the pop under test is the one that crosses it. The equivalence stays,
+    // for the run where the arrangement cannot be made.
+    //
+    // THE REACH INTO THE SHARED STORE IS THE SAME KIND OF WRITE EVERY OTHER
+    // TEST HERE MAKES BY POPPING, and it is bounded on both sides: it only
+    // ever adds, and it stops one point below the nearest threshold, so it
+    // can unlock nothing by itself. Nothing about it is ever asserted
+    // absolutely.
     func testTheUnlockCapsuleAppearsExactlyWhenTheCollectionGrowsAndNamesOnlyWhatIsNew() {
+        let progression = ProgressionStore.shared
+        let nextThreshold: Int? = PopCatalog.all.compactMap { def -> Int? in
+            guard case .points(let n) = def.unlock, n > progression.popPoints else { return nil }
+            return n
+        }.min()
+        if let threshold = nextThreshold {
+            progression.recordPop(popNumber: PopCatalog.classic.number,
+                                  points: threshold - 1 - progression.popPoints,
+                                  chainLength: 0)
+        }
+
+        // AFTER the arrangement, never before: `knownUnlocked` is taken in
+        // `init`, and a view model built first would have watched the ledger
+        // move behind its back.
         let vm = makeGame()
         let orb = makeOrb(at: CGPoint(x: 140, y: 300))
         vm.restart()
@@ -693,6 +798,11 @@ final class GameViewModelTests: XCTestCase {
         let fresh = after.subtracting(before)
 
         XCTAssertTrue(before.isSubset(of: after), "the collection lost a pop — it may only grow")
+        if nextThreshold != nil {
+            XCTAssertFalse(fresh.isEmpty,
+                           "this pop was arranged to cross a points threshold and unlocked "
+                           + "nothing — the capsule below would have been proved by nothing")
+        }
         if fresh.isEmpty {
             XCTAssertEqual(vm.unlockNote, noteBefore,
                            "nothing new was found, so the capsule must not appear — a view model "

@@ -1,4 +1,19 @@
-# Resume here
+# Resume here — **stale; kept as the record of one pause**
+
+> **Do not resume from this page.** It was written at a pause very early in the
+> One World rebuild, when only the input arbiter existed. Everything on the
+> critical path below has since been built and merged: `VesperApp` launches
+> `WorldView` by default, the camera, whispers, sky, journal, scoped strings and
+> the DEBUG reset all exist, `docs/PLAYTEST.md` was written, and W08 landed as
+> well — it turned out to need no persisted-schema migration at all, which is
+> the one constraint below that was simply wrong. Weather, balloon animals,
+> fireworks, the staged field mechanics and the sky scroll all arrived
+> afterwards and are not mentioned here at all.
+>
+> Two things on this page are still worth keeping: the **constraints** section,
+> which is a list of rulings the code still obeys (bar the last one), and the
+> **open question** about the playtest-panel budget. For where the build
+> actually is, read `docs/e2e_walkthrough.md`.
 
 *Working state for the One World build. Written at a deliberate pause so work
 can restart cleanly — including in a fresh container, since everything below is
@@ -19,6 +34,10 @@ Director of Engineering; her 20 rulings are §6 and are binding.
 **Nothing in the shipping app references any of this yet.** `VesperApp` still
 launches `ContentView` exactly as v1.2 does, so `main` behaviour is unchanged
 and the pause is safe.
+
+*(No longer true. `VesperApp.root` reads `WorldFlags.oneWorldEnabled` and
+launches `WorldView`; `ContentView` is reached only when `VESPER_CLASSIC_NAV`
+is compiled.)*
 
 ## The next action, precisely
 
@@ -57,7 +76,11 @@ fresh-install reset → `W23` TestFlight path → `W22` `docs/PLAYTEST.md` →
 - `WorldFlags.oneWorldEnabled` is read in **exactly one place** — `VesperApp`
   choosing the root view (ruling 10). CI builds both configurations (ruling 11).
 - Barriers are exactly three: **R-SPIKE, R-ARCH, W20** (ruling 20).
-- No persisted-schema migrations in this build (W08/W10 deferred).
+- No persisted-schema migrations in this build (W08/W10 deferred). *(W08 has
+  since shipped — and needed no migration: settledness is a pure reading of a
+  stone's own dates, so the change was the deletion of the pruning pass and
+  nothing else. W10 — keepsakes, the lamp, the fortune archive — is still
+  deferred.)*
 
 ## Open question for the owner
 
