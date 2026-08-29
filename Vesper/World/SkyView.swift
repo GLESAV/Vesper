@@ -36,10 +36,10 @@ import SwiftUI
 // view above the input layer. If that is not done the stars still render and
 // still read correctly under VoiceOver, but no tap will land on one.
 //
-// SCOPE. W08 (the settle-instead-of-prune trace) is deferred, so `MapStore`
-// still lets old stones go. This view therefore renders *today's* stones —
-// it does not pretend to a history the store no longer holds, and it adds no
-// persistence of its own to invent one.
+// SCOPE. W08 has LANDED: `MapStore`'s removal pass is gone and no stone or
+// road is ever deleted. Settledness is derived at draw time from the stone's
+// own dates (`SkyLayout.isSettled`); this view renders the whole history the
+// store now keeps, windowed by the scroll's `maximumHistory`.
 
 // MARK: - Placement (pure)
 
@@ -275,7 +275,12 @@ struct SkyLayout {
     /// layer offers and the amount the drawing can actually show are the same
     /// number by construction rather than by two files agreeing.
     static func metrics(stones: [MapStone], size: CGSize) -> SkyScrollMetrics {
-        guard !stones.isEmpty, size.height > 0 else { return SkyScrollMetrics() }
+        // A window shorter than the two insets has no band to draw stars in
+        // at all — offering scroll room over a sky that renders nothing would
+        // be phantom room. No shipping size class is this short; extreme
+        // Split View arrangements can be.
+        guard !stones.isEmpty, size.height > Self.topInset + Self.bottomInset
+        else { return SkyScrollMetrics() }
         let generations = stones.map(\.generation)
         let newest = generations.max() ?? 0
         let oldest = generations.min() ?? 0

@@ -58,7 +58,8 @@ enum GameConfig {
     /// Peak acceleration of the ease-away, in the same units as orb velocity.
     static let evadeStrength: CGFloat = 0.019
 
-    /// The fastest a drifter may travel. Barely above `orbMaxSpeed`, so a
+    /// The fastest a drifter may travel. Barely above the weather-capped orb
+    /// ceiling (`orbMaxSpeed` × the fastest air's 1.6 headroom ≈ 0.29), so a
     /// following finger always gains on it.
     static let evadeMaxSpeed: CGFloat = 0.34
 
@@ -292,7 +293,7 @@ enum GameConfig {
     static let animalMaxSpeed: CGFloat = 0.42
 
     /// The dart after a tap that did not finish it, and how long it lasts —
-    /// about 120 points a second for a quarter of a second, so roughly
+    /// about 120 points a second for four tenths of a second, so roughly
     /// twenty-six points of travel. Deliberately less than the animal's own
     /// tap radius: a second tap in the same place still finds it.
     static let animalStartleSpeed: CGFloat = 2.0

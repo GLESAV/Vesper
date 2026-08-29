@@ -22,12 +22,26 @@ on:
       - 'Vesper/Rendering/AnimaRenderer.swift'
       - 'tools/anima-studio/**'
       - '.github/workflows/anima-pages.yml'
+      # The export's REAL inputs reach past Vesper/Anima: every gallery
+      # object is generated from the pop catalog (names, paints, flavors,
+      # voices), and the exporter itself is a test. A PR that edits either
+      # changes library.json's content — without these paths it would ship a
+      # stale gallery until an unrelated Anima change happened to land.
+      - 'Vesper/Game/Pops/**'
+      - 'VesperTests/AnimaStudioTests.swift'
   pull_request:
     paths:
       - 'Vesper/Anima/**'
       - 'Vesper/Rendering/AnimaRenderer.swift'
       - 'tools/anima-studio/**'
       - '.github/workflows/anima-pages.yml'
+      # The export's REAL inputs reach past Vesper/Anima: every gallery
+      # object is generated from the pop catalog (names, paints, flavors,
+      # voices), and the exporter itself is a test. A PR that edits either
+      # changes library.json's content — without these paths it would ship a
+      # stale gallery until an unrelated Anima change happened to land.
+      - 'Vesper/Game/Pops/**'
+      - 'VesperTests/AnimaStudioTests.swift'
   workflow_dispatch:
 
 concurrency:

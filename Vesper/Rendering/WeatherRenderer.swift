@@ -39,7 +39,14 @@ enum WeatherRenderer {
     /// Bands, shafts, flakes and eddies — everything the pops float *in*.
     static func drawBehind(_ field: WeatherField, glow: inout GraphicsContext,
                            size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0, field.presence > 0.001 else { return }
+        // The whole layer fades with the field's completion — see
+        // `WeatherField.presence`. Saved and restored around the layer: the
+        // context is `inout` and everything drawn after the weather must not
+        // inherit its fade.
+        let restored = glow.opacity
+        glow.opacity = restored * Double(field.presence)
+        defer { glow.opacity = restored }
         drawShafts(field, into: &glow, size: size)
         drawWaterBands(field, into: &glow, size: size)
         drawEddies(field, into: &glow, size: size)
@@ -54,7 +61,15 @@ enum WeatherRenderer {
     static func drawFront(_ field: WeatherField, orbs: [Orb], pointer: CGPoint?,
                           into context: inout GraphicsContext,
                           glow: inout GraphicsContext, size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0, field.presence > 0.001 else { return }
+        let restoredGlow = glow.opacity
+        let restoredContext = context.opacity
+        glow.opacity = restoredGlow * Double(field.presence)
+        context.opacity = restoredContext * Double(field.presence)
+        defer {
+            glow.opacity = restoredGlow
+            context.opacity = restoredContext
+        }
         drawFoam(field, into: &glow, size: size)
         drawSplashes(field, into: &glow)
         drawShine(field, orbs: orbs, into: &glow)

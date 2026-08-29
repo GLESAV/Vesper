@@ -411,4 +411,52 @@ final class FireworkTests: XCTestCase {
         XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } },
                       "a burning fuse stole a touch meant for an unlit shell")
     }
+
+    // A SHELL SHE NEVER TOUCHED SIMPLY FADES WITH THE FIELD — and the field
+    // then goes properly quiet. Before this held, a `.waiting` shell could
+    // never reach `.spent` once the field completed (`tap` refuses a
+    // completed field, so it could not even be lit any more), `isQuiescent`
+    // stayed false forever, and the frame clock ran at full rate over a
+    // still, cleared field for as long as she cared to sit with it.
+    func testAClearedFieldGoesQuietEvenWithUnlitShells() {
+        for seed in UInt64(31)...36 {
+            let s = display(seed: seed)
+            XCTAssertFalse(s.fireworks.isEmpty)
+
+            // Clear the field without ever aiming at a shell. A tap at an
+            // orb's own position may still light an overlapping shell — the
+            // shell-first tap priority — so the loop STEPS EVERY ITERATION,
+            // not only when the surface is empty: a hurried fuse pins at
+            // 0.995 and can only finish burning in `step`, so a tap-only
+            // loop over an orb that happens to sit on a burning cord would
+            // hurry forever and never pop the orb beneath it (seeds 34 and
+            // 36 found exactly that). One step per tap lets a stolen tap's
+            // fuse burn down, launch and spend, after which the orb is
+            // tappable again.
+            var guardCount = 0
+            while !s.completed && guardCount < 8_000 {
+                if let target = s.orbs.first(where: \.alive) {
+                    s.tap(at: target.pos)
+                }
+                _ = s.step(dt: 1.0 / 60)
+                guardCount += 1
+            }
+            XCTAssertTrue(s.completed, "seed \(seed): the field could not be finished")
+
+            // Whatever mix of lit and never-touched shells remains, the field
+            // must go quiescent in bounded time. The bound is set by the
+            // slowest lit shell, not the fade: a fuse can run 165 frames, the
+            // rise ~60 more, and the smoke of a break needs up to ~600.
+            var frames = 0
+            while !s.isQuiescent && frames < 1_500 {
+                _ = s.step(dt: 1.0 / 60)
+                frames += 1
+            }
+            XCTAssertTrue(s.isQuiescent,
+                          "seed \(seed): a cleared display field never went quiet "
+                          + "(phases: \(s.fireworks.map(\.phase)))")
+            XCTAssertTrue(s.fireworks.allSatisfy { $0.phase == .spent },
+                          "seed \(seed): a shell survived the field it belonged to")
+        }
+    }
 }

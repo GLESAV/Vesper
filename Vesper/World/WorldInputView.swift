@@ -57,6 +57,15 @@ final class WorldInputView: UIView {
         set { arbiter.isFieldAtRest = newValue }
     }
 
+    // Whether the camera is at rest anywhere — the transit-grab question,
+    // distinct from the field question above. See `InputArbiter.isCameraAtRest`
+    // for why conflating the two made the sky's scroll unreachable. A live
+    // closure for the same reason as the others.
+    var isCameraAtRest: () -> Bool {
+        get { arbiter.isCameraAtRest }
+        set { arbiter.isCameraAtRest = newValue }
+    }
+
     // How much of a vertical drag the place she is standing in wants for
     // itself. A live closure for the same reason as `isFieldAtRest`, and read
     // by the arbiter exactly once per gesture — see `InputArbiter.scrollRoom`.
@@ -257,6 +266,7 @@ final class WorldInputView: UIView {
 // body, which is not ordered against the touch that is about to arrive.
 struct WorldInputLayer: UIViewRepresentable {
     var isFieldAtRest: () -> Bool
+    var isCameraAtRest: () -> Bool = { true }
     var scrollRoom: () -> ScrollRoom = { .none }
     var onPointer: (CGPoint?) -> Void = { _ in }
     var onSafeArea: (CGFloat, CGFloat) -> Void = { _, _ in }
@@ -265,6 +275,7 @@ struct WorldInputLayer: UIViewRepresentable {
     func makeUIView(context: Context) -> WorldInputView {
         let view = WorldInputView(frame: .zero)
         view.isFieldAtRest = isFieldAtRest
+        view.isCameraAtRest = isCameraAtRest
         view.scrollRoom = scrollRoom
         view.onPointer = onPointer
         view.onSafeArea = onSafeArea
@@ -274,6 +285,7 @@ struct WorldInputLayer: UIViewRepresentable {
 
     func updateUIView(_ uiView: WorldInputView, context: Context) {
         uiView.isFieldAtRest = isFieldAtRest
+        uiView.isCameraAtRest = isCameraAtRest
         uiView.scrollRoom = scrollRoom
         uiView.onPointer = onPointer
         uiView.onSafeArea = onSafeArea

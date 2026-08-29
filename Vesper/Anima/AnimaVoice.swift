@@ -185,6 +185,15 @@ struct AnimaVoice: Equatable {
     /// would make a pop a subtly different sound on every launch. A pop has
     /// to be the same sound every time anyone hears it.
     func render(pitch: Double, sampleRate: Double = 44_100) -> [Float] {
+        // TOTAL UNDER NaN, like the geometry side (`AnimaEase.shape`), and
+        // for the same reason: `min`/`max` PASS NaN THROUGH in Swift — every
+        // comparison against it is false, so both clamps hand back their
+        // input. A NaN `duration` would reach `Int(sampleRate * seconds)`
+        // and trap; a NaN `glide` would poison every sample and trap in the
+        // exporter's `Int16` conversion. A voice authored from a division
+        // that went wrong renders as silence, never as a crash.
+        guard duration.isFinite, glide.isFinite, pitch.isFinite,
+              attack.isFinite else { return [] }
         let seconds = min(max(duration, 0.01), Self.maximumDuration)
         let count = Int(sampleRate * seconds)
         guard count > 0 else { return [] }
@@ -296,7 +305,11 @@ struct AnimaVoice: Equatable {
 
             // Rule 3, in two parts: the master gain, then a hard clamp so no
             // sum of partials an author happens to type can clip.
-            let out = min(max(value * attackGain * Self.masterGain, -1), 1)
+            // NaN-safe: a poisoned sample (a NaN partial ratio or gain in
+            // authored data) becomes silence, not a value that traps the
+            // exporter's Int16 conversion downstream.
+            let raw = value * attackGain * Self.masterGain
+            let out = raw.isFinite ? min(max(raw, -1), 1) : 0
             samples[frame] = Float(out)
         }
 

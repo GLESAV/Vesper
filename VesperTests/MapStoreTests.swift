@@ -222,6 +222,34 @@ final class MapStoreTests: XCTestCase {
         XCTAssertEqual(second.activeStoneID, first.activeStoneID)
     }
 
+    // W08's contract includes not being lost to a bug. A stored map that
+    // fails to decode — corruption, or a future release changing MapStone's
+    // stored shape — must be moved aside whole, not overwritten by the fresh
+    // genesis that follows: the keepsake is the only copy of her Path.
+    func testAnUndecodableMapIsKeptAsideNeverOverwritten() {
+        let suite = "vesper.tests.map.keepsake.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let broken = Data("not a map".utf8)
+        defaults.set(broken, forKey: "vesper.map.stones")
+
+        let store = MapStore(defaults: defaults)
+        XCTAssertTrue(store.stones.isEmpty, "an unreadable map starts the view empty")
+        XCTAssertEqual(defaults.data(forKey: "vesper.map.stones.keepsake"), broken,
+                       "the unreadable bytes must be preserved before anything can save")
+
+        // Life goes on: a fresh genesis lays and saves over the LIVE key…
+        store.ensureGenesis(unlocked: [1])
+        XCTAssertEqual(store.stones.count, 1)
+
+        // …and a second failure can never replace the first keepsake, which
+        // is the copy from before anything was lost.
+        let second = MapStore(defaults: defaults)
+        XCTAssertEqual(second.stones.count, 1, "the fresh map decodes and lives on")
+        XCTAssertEqual(defaults.data(forKey: "vesper.map.stones.keepsake"), broken)
+    }
+
     // MARK: - Lineage: a stone inherits, and a fork is a choice
 
     // This inverts what the map used to do. Children were generated with

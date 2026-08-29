@@ -39,44 +39,69 @@ The calm is the product. Any change must preserve:
 ```
 Vesper/                     App source (Xcode file-system-synchronized group — new
 │                           files added here are compiled automatically, no pbxproj edit)
-├── VesperApp.swift         @main entry; scene-phase → audio lifecycle
+├── VesperApp.swift         @main entry; picks WorldView (One World) unless the
+│                           VESPER_CLASSIC_NAV flag is compiled; scene-phase → audio
 ├── Game/
 │   ├── GameConfig.swift    All gameplay tuning constants (single source of truth)
 │   ├── Entities.swift      Orb / Particle / Ring / Mote / FloatNote value types (UI-free)
 │   ├── SeededRandom.swift  SplitMix64 deterministic RNG
-│   ├── GameSimulation.swift  Pure, deterministic sim: seeding, taps, chain physics.
-│   │                         No SwiftUI/UIKit imports. Emits GameEvents. Unit-tested.
-│   ├── Fortunes.swift      Fortune message strings
+│   ├── GameSimulation.swift  Pure, deterministic sim: seeding, taps, chain physics,
+│   │                         weather application, fireworks, generators. No SwiftUI/
+│   │                         UIKit imports. Emits GameEvents. Unit-tested.
+│   ├── FieldPlan.swift     What a field contains per stage/generation (kinds dealt,
+│   │                       display vs animal fields, replay multipliers)
+│   ├── Weather.swift       The six airs and their tuning; WeatherField.swift moves them
+│   ├── AnimalPop.swift     Balloon-animal silhouettes, shyness, startle motion
+│   ├── Firework.swift      Shells, fuse ropes, break patterns; FireworkCatalog.swift
+│   ├── Fortunes.swift      Fortune message strings; Verses.swift the done-card verses
 │   ├── GameViewModel.swift ObservableObject; bridges sim → UI, audio, haptics,
-│   │                       points, unlocks
+│   │                       points, unlocks, the onward sequence
 │   ├── Pops/
 │   │   ├── PopStandard.swift  The formal pop schema (style/behavior/chain/unlock)
 │   │   └── PopCatalog.swift   All 100 pops as data; #001 codifies the v1.0 pop
 │   └── Map/
 │       ├── PopMap.swift       MapStone + pure seeded generation (The Path)
-│       └── MapStore.swift     Map state, persistence, 3-day road settling
+│       └── MapStore.swift     Map state, persistence. NOTHING IS EVER DELETED (W08):
+│                              3-day settling is derived at draw time, never pruned
+├── World/                  One World: sky / field / journal on one camera axis
+│   ├── WorldView.swift     Composition root; WorldModel.swift the glue
+│   ├── WorldCamera.swift   The pure camera (offsets, commits, settles)
+│   ├── WorldInput.swift    InputArbiter: pop vs pan vs sky-scroll arbitration
+│   ├── WorldInputView.swift  The hosted UIKit touch layer (ruling 8: never rebuilt)
+│   ├── SkyView.swift       The Path drawn as constellation; SkyScroll.swift its scroll
+│   ├── JournalView.swift   Collection, records, settings as pages
+│   ├── WhisperLabel.swift  Wayfinding whispers; FieldLayout.swift field metrics
+├── Anima/                  2-D animation engine (pure; NOT wired into gameplay yet):
+│                           shapes, figures, clips, voices, the 100 pop assets,
+│                           AnimaStudio JSON export for tools/anima-studio
 ├── Rendering/
-│   └── SceneRenderer.swift Palette + Canvas drawing (motes, orbs, rings, particles)
+│   ├── SceneRenderer.swift Palette + Canvas drawing (motes, orbs, rings, particles)
+│   ├── WeatherRenderer.swift  The drawn air; HorizonRenderer.swift the sky/field seam
+│   ├── AnimalRendering.swift  Balloon-animal bodies; AnimaRenderer.swift (unused live)
 ├── Audio/
 │   └── PopSoundEngine.swift  AVAudioEngine; pre-rendered pop buffers, completion
-│                             chime, interruption + lifecycle handling
+│                             chime, interruption/route-change/reset recovery
 ├── Haptics/
 │   └── HapticsEngine.swift Soft impact per pop (scaled by orb size), success on clear
 ├── Support/
 │   ├── SettingsStore.swift UserDefaults-backed toggles (sound/haptics/whispers)
-│   └── ProgressionStore.swift  Pop points, lifetime stats, unlock evaluation
-└── Views/
+│   ├── ProgressionStore.swift  Pop points, lifetime stats, unlock evaluation
+│   ├── Strings.swift       The world's copy, lowercase-calm; WorldFlags.swift the
+│   │                       nav flag; DevReset.swift DEBUG-only fresh install
+└── Views/                  The CLASSIC v1.2 navigation — compiled but unreachable
+    │                       unless VESPER_CLASSIC_NAV is set; kept as harness
     ├── ContentView.swift   Layer composition (canvas / tap layer / HUD / cards)
     ├── TapCatcherView.swift  UIKit tap recognizer (see note below)
-    ├── SettingsSheet.swift Toggles + headline stats
-    ├── JourneySheet.swift  Collection grid, records, featured-pop selection
-    ├── PathSheet.swift     The infinite pop map (stepping stones)
-    └── Cards.swift         Fortune card + done card
+    ├── SettingsSheet.swift / JourneySheet.swift / PathSheet.swift / Cards.swift
 
-VesperTests/                Unit tests for GameSimulation (XCTest, @testable)
+VesperTests/                Unit tests (XCTest, @testable): sim, world, camera, input,
+                            sky scroll, weather, animals, fireworks, map, Anima
 Vesper.xcodeproj/           Project + shared scheme (scheme runs the tests)
-.github/workflows/ci.yml    Build + test on iOS Simulator for every push/PR
-docs/                       STRATEGY.md, ROADMAP.md, BUILD_PLAN.md
+.github/workflows/ci.yml    Build + test (both nav configs) for every push/PR
+.github/workflows/anima-pages.yml  Exports the Anima library, checks the previewer,
+                            publishes tools/anima-studio to Pages on main
+tools/anima-studio/         The static hub page previewing all Anima assets
+docs/                       STRATEGY.md, ROADMAP.md, BUILD_PLAN.md, anima.md, gdd/
 fastlane/                   App Store metadata + screenshots (deliver)
 web/                        Static privacy page for tfc.studio/vesper/privacy
 ```

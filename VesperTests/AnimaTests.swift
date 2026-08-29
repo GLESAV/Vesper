@@ -442,7 +442,10 @@ final class AnimaTests: XCTestCase {
             }
             guard let quietest = peaks.min(), let loudest = peaks.max(),
                   quietest > 0 else {
-                return XCTFail("\(voice.name) was silent at some pitch")
+                // `continue`, not `return`: a silent voice must not exempt
+                // every voice after it from the loudness check.
+                XCTFail("\(voice.name) was silent at some pitch")
+                continue
             }
             // A factor of three across the whole musical range. Some variation
             // is honest — a fixed decay really does mean less energy at high
@@ -514,6 +517,44 @@ final class AnimaTests: XCTestCase {
             XCTAssertEqual(voice.render(pitch: 523.25), voice.render(pitch: 523.25),
                            "\(voice.name) is not deterministic")
         }
+    }
+
+    // A NaN in authored data renders as silence, never as a trap. Swift's
+    // `min`/`max` pass NaN through (every comparison against it is false), so
+    // an unguarded NaN duration reached `Int(sampleRate * seconds)` and
+    // crashed, and a NaN glide poisoned every sample and crashed the
+    // exporter's `Int16` conversion instead. The geometry side has been total
+    // under NaN since iteration 5; the audio side is now held to the same
+    // rule.
+    func testAVoiceAuthoredWithNaNRendersAsSilenceNotACrash() {
+        let bad = [
+            AnimaVoice("nan-duration", duration: .nan,
+                       partials: [AnimaPartial(1, gain: 0.5, decay: 6)]),
+            AnimaVoice("nan-glide", duration: 0.3,
+                       partials: [AnimaPartial(1, gain: 0.5, decay: 6)],
+                       glide: .nan),
+            AnimaVoice("nan-attack", duration: 0.3,
+                       partials: [AnimaPartial(1, gain: 0.5, decay: 6)],
+                       attack: .nan),
+            AnimaVoice("nan-partial", duration: 0.3,
+                       partials: [AnimaPartial(.nan, gain: .nan, decay: .nan)]),
+        ]
+        for voice in bad {
+            let samples = voice.render(pitch: 523.25)
+            XCTAssertTrue(samples.allSatisfy(\.isFinite),
+                          "\(voice.name) rendered a non-finite sample")
+        }
+        _ = AnimaStudio.base64Int16([.nan, 1, -1, .infinity])
+    }
+
+    // THE VOICE TABLE IS KEYED BY NAME (revision 3), first-wins: two distinct
+    // voices sharing a name would make every later object silently play the
+    // first one's audio in the previewer — and the structural-distinctness
+    // test below skips same-named pairs, so nothing else can see it.
+    func testNoTwoVoicesShareAName() {
+        let names = AnimaLibrary.voices.map(\.name)
+        XCTAssertEqual(Set(names).count, names.count,
+                       "duplicate voice names: \(names.sorted())")
     }
 
     // The library has to be a VOCABULARY, not a hundred notes on one string —

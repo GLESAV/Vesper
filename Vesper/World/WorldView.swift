@@ -139,8 +139,12 @@ private struct WorldScene: View {
         // downstream of here.
         .onChange(of: game.skyRequest) { _, _ in go(.up) }
         .onChange(of: game.fieldRequest) { _, _ in go(.down) }
-        // Kept from v1.2: the counter answers a pop.
+        // Kept from v1.2: the counter answers a pop — but not under Reduce
+        // Motion: a per-pop spring is repeated motion, and everything else
+        // here has a reduced variant, so this gets one too (it is simply
+        // still; the count itself changing is the answer).
         .onChange(of: game.count) { _, _ in
+            guard !reduceMotion else { return }
             withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) { pulse = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 withAnimation(.easeOut(duration: 0.15)) { pulse = false }
@@ -219,6 +223,13 @@ private struct WorldScene: View {
             // alone — otherwise a touch-down while resting at the sky pops an
             // orb on a field she cannot see.
             WorldInputLayer(isFieldAtRest: { model.simActive },
+                            // The transit-grab question is the CAMERA's rest,
+                            // anywhere — not the field predicate above. With
+                            // the two conflated, a touch at the resting sky
+                            // read as a grab of a world in flight: the camera
+                            // armed at touch-down and the sky's scroll room
+                            // was never consulted.
+                            isCameraAtRest: { model.cameraResting },
                             // A LIVE CLOSURE, for the same reason
                             // `isFieldAtRest` is one: the arbiter reads it
                             // inside `touchesMoved`, and a value pushed

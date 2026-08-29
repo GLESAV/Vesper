@@ -1,10 +1,6 @@
 import Combine
 import CoreGraphics
 import Foundation
-// For `withAnimation` only. This is the SwiftUI-facing half of the feature —
-// the pure half is `SkyScrollMetrics` and `InputArbiter.split`, and neither
-// imports anything.
-import SwiftUI
 
 // THE SKY'S OWN SCROLL (owner: "add a scroll mechanic to the sky, as it
 // expands, and it should be natural").
@@ -149,7 +145,15 @@ final class SkyScrollState: ObservableObject {
 
     // MARK: The gesture
 
+    /// A finger came down. If a glide is running, this is a CATCH: the glide
+    /// stops where it actually is, and the gesture measures from there — a
+    /// real scroll view freezes the content under a catching finger, and so
+    /// does this one. (The first version settled the offset to the glide's
+    /// destination synchronously and let SwiftUI animate the glass; catching
+    /// it then jumped the content to a place the eye had not reached, and the
+    /// canvas — which SwiftUI cannot animate — snapped there at release.)
     func began() {
+        cancelGlide()
         gestureOrigin = offset
     }
 
@@ -161,6 +165,7 @@ final class SkyScrollState: ObservableObject {
     /// scrolled to where she was reading last time would mean arriving with no
     /// star to press.
     func returnToTip() {
+        cancelGlide()
         if offset != 0 { offset = 0 }
         gestureOrigin = 0
     }
@@ -175,20 +180,30 @@ final class SkyScrollState: ObservableObject {
     }
 
     /// Released. Projects where an exponential deceleration would come to
-    /// rest and lets SwiftUI ease there, rather than running a decay on a
-    /// frame clock the sky does not own — the world's `TimelineView` may be
-    /// paused while she is up here, and a scroll that only moves while the
-    /// field happens to be awake is not a scroll.
+    /// rest and eases the OFFSET ITSELF there, stepped on this object's own
+    /// small clock rather than handed to `withAnimation`. Two reasons, both
+    /// learned the hard way:
     ///
-    /// Returns where it went and how long the ease took, so a caller — and
-    /// above all a test — can read the outcome without waiting on an
-    /// animation. The offset is written synchronously either way; the
-    /// animation only decides how the glass gets there.
+    ///   * the stars and roads are drawn in `Canvas` closures, and Canvas
+    ///     content is not animatable — under `withAnimation` only the
+    ///     invisible tap targets eased while the drawn constellation snapped
+    ///     to the destination, and for half a second every star's hit target
+    ///     was gliding through a place its drawn star had already left;
+    ///   * the model value settled synchronously, so a finger catching the
+    ///     glide measured from the destination and the content leapt under it.
+    ///
+    /// Stepping the published value keeps drawing, hit targets and a catching
+    /// finger on the one number. It cannot use the world's `TimelineView` —
+    /// that clock may be paused while she is up here — so the glide owns its
+    /// task, and `began`/`returnToTip` cancel it.
+    ///
+    /// Returns where it is going and how long that takes, so a caller — and
+    /// above all a test — can read the outcome without waiting on it.
     @discardableResult
     func ended(velocity: CGFloat) -> Glide {
         let glide = projectedGlide(velocity: velocity)
         if glide.duration > 0 {
-            withAnimation(.easeOut(duration: glide.duration)) { settle(to: glide) }
+            run(glide)
         } else {
             settle(to: glide)
         }
@@ -211,6 +226,43 @@ final class SkyScrollState: ObservableObject {
     private func settle(to glide: Glide) {
         if offset != glide.offset { offset = glide.offset }
         gestureOrigin = glide.offset
+    }
+
+    // MARK: The glide's own clock
+
+    private var glideTask: Task<Void, Never>?
+
+    private func cancelGlide() {
+        glideTask?.cancel()
+        glideTask = nil
+    }
+
+    /// Steps the offset from where it is to the glide's destination with an
+    /// ease-out, ~60 steps a second. Wall-clock is fine here — this is the
+    /// SwiftUI-facing half of the feature, and the thing being paced is the
+    /// glass, not the simulation. Each step re-clamps against the live
+    /// metrics, so a mid-glide `measure` cannot carry it out of bounds.
+    private func run(_ glide: Glide) {
+        cancelGlide()
+        let start = offset
+        let travel = glide.offset - start
+        let duration = glide.duration
+        glideTask = Task { [weak self] in
+            let t0 = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 16_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let p = min(1, Date().timeIntervalSince(t0) / duration)
+                let eased = 1 - (1 - p) * (1 - p)
+                let next = self.metrics.clamped(start + travel * CGFloat(eased))
+                if next != self.offset { self.offset = next }
+                if p >= 1 {
+                    self.gestureOrigin = self.offset
+                    self.glideTask = nil
+                    return
+                }
+            }
+        }
     }
 
     struct Glide: Equatable {

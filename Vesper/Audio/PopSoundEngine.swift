@@ -11,7 +11,11 @@ import AVFoundation
 final class PopSoundEngine {
     static let shared = PopSoundEngine()
 
-    private let engine = AVAudioEngine()
+    // `var`, not `let`: after a media-services reset (the system audio daemon
+    // crashed and came back) the old engine instance is permanently invalid —
+    // every `start()` fails silently, and the whole session would stay mute
+    // until relaunch. Recovery is a fresh engine; see `observeInterruptions`.
+    private var engine = AVAudioEngine()
     private let format: AVAudioFormat
     private let sampleRate = 44100.0
 
@@ -31,17 +35,27 @@ final class PopSoundEngine {
 
     private init() {
         format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        buildEngine()
+        prepare([PopCatalog.classic.behavior.sound])
+        chimeBuffer = makeChimeBuffer()
+        configureSession()
+        observeInterruptions()
+        ensureRunning()
+    }
+
+    /// A fresh engine and a fresh pool of players. Called once from `init`,
+    /// and again whenever the media server resets — the buffers survive (they
+    /// are plain memory), but nodes attached to a dead engine do not.
+    private func buildEngine() {
+        engine = AVAudioEngine()
+        players.removeAll()
+        nextPlayerIndex = 0
         for _ in 0..<10 {
             let node = AVAudioPlayerNode()
             engine.attach(node)
             engine.connect(node, to: engine.mainMixerNode, format: format)
             players.append(node)
         }
-        prepare([PopCatalog.classic.behavior.sound])
-        chimeBuffer = makeChimeBuffer()
-        configureSession()
-        observeInterruptions()
-        ensureRunning()
     }
 
     // Touching .shared from onAppear does the real work; this just gives the
@@ -240,6 +254,14 @@ final class PopSoundEngine {
     }
 
     private func play(_ buffer: AVAudioPCMBuffer) {
+        // Re-checked HERE, not only at the call sites: a route change stops
+        // the engine asynchronously from a system thread, and `play()` on a
+        // node whose engine has stopped raises an uncatchable exception. The
+        // window between this check and `node.play()` cannot be closed from
+        // Swift, but checking at the last instant makes it as narrow as it
+        // can be — and the configuration-change observer restarts the engine
+        // the moment the notification lands.
+        guard engine.isRunning, !players.isEmpty else { return }
         let node = players[nextPlayerIndex]
         nextPlayerIndex = (nextPlayerIndex + 1) % players.count
         node.stop()
@@ -275,6 +297,32 @@ final class PopSoundEngine {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 self.ensureRunning()
             }
+        }
+
+        // THE MEDIA SERVER CAN DIE AND COME BACK, and when it does the old
+        // engine is invalid forever — every `start()` fails silently, which
+        // is a whole evening of silence from one system hiccup. Recovery is
+        // a new engine wearing the old buffers.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.buildEngine()
+            self.configureSession()
+            self.ensureRunning()
+        }
+
+        // A route change (headphones unplugged, AirPods disconnecting) stops
+        // the engine from a system thread. Restarting on the spot instead of
+        // waiting for the next sound call closes most of the window in which
+        // a pop lands on a stopped engine — and shortens the silence to
+        // however long the notification took to arrive.
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.ensureRunning()
         }
     }
 

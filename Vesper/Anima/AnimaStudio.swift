@@ -296,7 +296,10 @@ enum AnimaStudio {
         var bytes = [UInt8]()
         bytes.reserveCapacity(samples.count * 2)
         for sample in samples {
-            let clamped = min(max(sample, -1), 1)
+            // NaN-safe for the same reason the renderer is: Int16(NaN * k)
+            // traps, and a defensive zero is the honest encoding of a sample
+            // that never existed.
+            let clamped = sample.isFinite ? min(max(sample, -1), 1) : 0
             // 32767 rather than 32768: scaling by 32768 makes a sample of
             // exactly −1.0 land on −32768, which is representable, and +1.0
             // land on +32768, which is not, and wraps to −32768 — a full-scale

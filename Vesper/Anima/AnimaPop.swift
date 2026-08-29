@@ -159,8 +159,12 @@ extension PopFamily {
                                                         rotation: v.tilt - .pi / 2,
                                                         scale: 0.9),
                                    paint: 0, depth: 6)]
-            for i in 0..<min(n, 5) {
-                let a = Double.pi * (0.25 + 0.5 * Double(i) / Double(max(1, n - 1)))
+            // The fan spans its arc over the sparks actually drawn: spacing
+            // by the unclamped count while drawing the clamped one bunched
+            // an authored count > 5 into half the arc instead of filling it.
+            let sparks = min(n, 5)
+            for i in 0..<sparks {
+                let a = Double.pi * (0.25 + 0.5 * Double(i) / Double(max(1, sparks - 1)))
                 parts.append(
                     AnimaPart("spark-\(i)", .disc, parent: "body",
                               rest: AnimaTransform(

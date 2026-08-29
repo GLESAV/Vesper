@@ -117,10 +117,19 @@ const el = function (id) { return document.getElementById(id); };
 const gallery = el("gallery"), sub = el("sub");
 let LIB = null, CARDS = [];
 
+// Every string that reaches innerHTML goes through here -- the export's
+// names and flavors are data, and the first flavor line authored with an
+// ampersand or angle bracket must not break (or script) the page.
+function esc(text) {
+  return String(text).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
 function fail(message, detail) {
   document.body.innerHTML =
-    '<div class="error"><h1>Anima Studio</h1><p>' + message + "</p>" +
-    (detail ? "<p><code>" + detail + "</code></p>" : "") +
+    '<div class="error"><h1>Anima Studio</h1><p>' + esc(message) + "</p>" +
+    (detail ? "<p><code>" + esc(detail) + "</code></p>" : "") +
     '<p>Some browsers refuse <code>fetch()</code> on <code>file://</code>. Serve the folder:</p>' +
     "<p><code>python3 -m http.server -d tools/anima-studio 8000</code></p></div>";
 }
@@ -225,9 +234,9 @@ function card(object) {
   const num = object.number ? String(object.number).padStart(3, "0") : "ref";
   wrap.innerHTML =
     '<div class="id"><span class="num">#' + num + '</span>' +
-    '<span class="rarity ' + object.rarity + '">' + object.rarity + "</span></div>" +
-    '<div class="nm">' + object.name + "</div>" +
-    '<div class="flavor">' + (object.flavor || "") + "</div>" +
+    '<span class="rarity ' + esc(object.rarity) + '">' + esc(object.rarity) + "</span></div>" +
+    '<div class="nm">' + esc(object.name) + "</div>" +
+    '<div class="flavor">' + esc(object.flavor || "") + "</div>" +
     "<canvas></canvas>" +
     '<div class="row"><select></select><button title="Hear this pop">♪</button></div>';
 
