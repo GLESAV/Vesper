@@ -80,18 +80,21 @@ final class EntitiesTests: XCTestCase {
 
         let copy = parent
 
-        XCTAssertEqual(copy.pos, parent.pos)
-        XCTAssertEqual(copy.vel.dx, parent.vel.dx)
-        XCTAssertEqual(copy.vel.dy, parent.vel.dy)
-        XCTAssertEqual(copy.r, parent.r)
-        XCTAssertEqual(copy.baseR, parent.baseR)
-        XCTAssertEqual(copy.popNumber, parent.popNumber)
-        XCTAssertEqual(copy.variantIndex, parent.variantIndex)
-        XCTAssertEqual(copy.phase, parent.phase)
-        XCTAssertEqual(copy.alive, parent.alive)
-        XCTAssertEqual(copy.spawn, parent.spawn)
-        XCTAssertEqual(copy.isFortune, parent.isFortune)
-        XCTAssertEqual(copy.kind, parent.kind)
+        // Against the values the parent was BUILT with, never against `parent`
+        // itself: a field read back off the thing it was copied from is the
+        // same expression twice and would agree under any semantics at all.
+        XCTAssertEqual(copy.pos, CGPoint(x: 140, y: 260))
+        XCTAssertEqual(copy.vel.dx, 0.4)
+        XCTAssertEqual(copy.vel.dy, -0.3)
+        XCTAssertEqual(copy.r, 30)
+        XCTAssertEqual(copy.baseR, 30)
+        XCTAssertEqual(copy.popNumber, 11)
+        XCTAssertEqual(copy.variantIndex, 2)
+        XCTAssertEqual(copy.phase, 1.25)
+        XCTAssertTrue(copy.alive)
+        XCTAssertEqual(copy.spawn, 1)
+        XCTAssertTrue(copy.isFortune, "the paint and the state set after construction come across too")
+        XCTAssertEqual(copy.kind, OrbKind.splitter(remaining: 2))
     }
 
     // The other half of the same contract, and the one that would actually
@@ -213,7 +216,7 @@ final class EntitiesTests: XCTestCase {
         mote.alpha = 0
         mote.pos = CGPoint(x: 5, y: 5)
         XCTAssertEqual(moteCopy.alpha, 0.08)
-        XCTAssertEqual(moteCopy.pos, .zero)
+        XCTAssertEqual(moteCopy.pos, CGPoint.zero)
 
         var note = FloatNote(pos: .zero, text: "+2", life: 1)
         let noteCopy = note

@@ -340,14 +340,16 @@ final class PopMapTests: XCTestCase {
         for seed in UInt64(0)..<80 {
             var rng = SplitMix64(seed: seed)
             let one = PopMapGen.lanes(from: 0.5, count: 1, using: &rng)
+            let fork = PopMapGen.lanes(from: 0.5, count: 2, using: &rng)
+            let three = PopMapGen.lanes(from: 0.5, count: 3, using: &rng)
+            guard one.count == 1, fork.count == 2, three.count == 3 else {
+                return XCTFail("seed \(seed): a road count produced the wrong number of lanes")
+            }
+
             XCTAssertLessThanOrEqual(abs(one[0] - 0.5), 0.16 + 1e-9,
                                      "seed \(seed): a single road wandered")
-
-            let fork = PopMapGen.lanes(from: 0.5, count: 2, using: &rng)
             XCTAssertLessThan(fork[0], 0.5, "seed \(seed): a fork's left road went right")
             XCTAssertGreaterThan(fork[1], 0.5, "seed \(seed): a fork's right road went left")
-
-            let three = PopMapGen.lanes(from: 0.5, count: 3, using: &rng)
             XCTAssertLessThan(three[0], three[1], "seed \(seed): a three-way crossed itself")
             XCTAssertLessThan(three[1], three[2], "seed \(seed): a three-way crossed itself")
             XCTAssertLessThanOrEqual(abs(three[1] - 0.5), 0.05 + 1e-9,
@@ -377,7 +379,9 @@ final class PopMapTests: XCTestCase {
         for step in 1...8 {
             store.setActive(current.id)
             let roads = store.recordClear(unlocked: unlocked)
-            XCTAssertFalse(roads.isEmpty, "step \(step): the path stopped")
+            guard let next = roads.first else {
+                return XCTFail("step \(step): the path stopped — a cleared stone opened no road")
+            }
 
             for road in roads {
                 XCTAssertEqual(road.parentID, current.id, "step \(step): an orphaned road")
@@ -396,7 +400,7 @@ final class PopMapTests: XCTestCase {
                 XCTAssertTrue(seeds.insert(road.seed).inserted,
                               "step \(step): two stones on the map share a seed")
             }
-            current = roads[0]
+            current = next
         }
 
         XCTAssertEqual(current.generation, 8, "eight steps did not reach the eighth generation")

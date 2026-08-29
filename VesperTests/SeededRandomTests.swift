@@ -70,7 +70,8 @@ final class SeededRandomTests: XCTestCase {
     // would otherwise leak that counter straight into its first orb.
     func testTheFirstValueIsNeverTheSeedItself() {
         var leaks: [UInt64] = []
-        for seed in stride(from: UInt64(0), to: 4096, by: 37) {
+        for step in stride(from: 0, to: 4096, by: 37) {
+            let seed = UInt64(step)
             var g = SplitMix64(seed: seed)
             if g.next() == seed { leaks.append(seed) }
         }
@@ -171,7 +172,9 @@ final class SeededRandomTests: XCTestCase {
         }
 
         var untouched = SplitMix64(seed: 0xA11CE)
-        XCTAssertEqual(field.next(), untouched.next(),
+        let fieldsOwnNext = field.next()
+        let untouchedNext = untouched.next()
+        XCTAssertEqual(fieldsOwnNext, untouchedNext,
                        "six hundred sky draws moved the field's own sequence")
 
         // And because the copies are taken from a generator that never moved,
@@ -261,14 +264,25 @@ final class SeededRandomTests: XCTestCase {
         var fromA: [String] = []
         var fromB: [String] = []
         for _ in 0..<200 {
-            fromA.append("\(Int.random(in: 0..<100, using: &a))")
-            fromB.append("\(Int.random(in: 0..<100, using: &b))")
-            fromA.append("\(Double.random(in: 0..<1, using: &a))")
-            fromB.append("\(Double.random(in: 0..<1, using: &b))")
-            fromA.append("\(pool.randomElement(using: &a) ?? -1)")
-            fromB.append("\(pool.randomElement(using: &b) ?? -1)")
-            fromA.append("\(pool.shuffled(using: &a))")
-            fromB.append("\(pool.shuffled(using: &b))")
+            let intA = Int.random(in: 0..<100, using: &a)
+            let intB = Int.random(in: 0..<100, using: &b)
+            fromA.append("\(intA)")
+            fromB.append("\(intB)")
+
+            let doubleA = Double.random(in: 0..<1, using: &a)
+            let doubleB = Double.random(in: 0..<1, using: &b)
+            fromA.append("\(doubleA)")
+            fromB.append("\(doubleB)")
+
+            let pickA = pool.randomElement(using: &a) ?? -1
+            let pickB = pool.randomElement(using: &b) ?? -1
+            fromA.append("\(pickA)")
+            fromB.append("\(pickB)")
+
+            let shuffleA = pool.shuffled(using: &a)
+            let shuffleB = pool.shuffled(using: &b)
+            fromA.append("\(shuffleA)")
+            fromB.append("\(shuffleB)")
         }
         XCTAssertEqual(fromA, fromB, "the standard library's draws diverged for one seed")
     }
