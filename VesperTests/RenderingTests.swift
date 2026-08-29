@@ -675,15 +675,13 @@ final class RenderingTests: XCTestCase {
                 }
             }
         }
+        // NOTHING IS ASSERTED ABOUT THE HALO'S OWN 1.8 HERE, and the omission
+        // is the point. `drawAnima` draws the light at `radius * reach * 1.8`,
+        // which is strictly looser than the bound above for any multiplier
+        // over 1 — so holding the same vertices against it a second time
+        // would prove the same thing twice and read as if it had proved two.
+        // Containment inside the light IS containment inside the reach.
         XCTAssertGreaterThan(posesChecked, 50, "the library handed over almost nothing to draw")
-
-        // And the halo really is a widening of that bound rather than a
-        // second, tighter one. This is the only part of the relationship the
-        // sweep above does not already contain — `reach * 1.8` is looser than
-        // `reach` for every pose there has ever been, so asserting the same
-        // vertices against it too would have proved nothing twice.
-        XCTAssertGreaterThan(1.8, 1.0,
-                             "drawAnima's halo multiplier must widen the reach, not crop it")
     }
 
     // RENDERING READS, NEVER WRITES — the architecture rule, held against the
@@ -717,6 +715,23 @@ final class RenderingTests: XCTestCase {
     // outside its own light, which is precisely the tell the halo sizing
     // exists to prevent. (`AnimalPopTests` proves the silhouette is CONNECTED;
     // this proves it is CONTAINED.)
+    //
+    // WHICH LOBES ACTUALLY CARRY THE PROPERTY, SAID PLAINLY, because the
+    // headline number is misleading on its own. `reach` is the max of
+    // `hypot(offset) + r` over the base lobes, and the base lobes are the
+    // first entries of `joinedLobes` unchanged — so for the extremal base
+    // lobe the two sides of this comparison are the SAME EXPRESSION ON THE
+    // SAME VALUES and the slack is exactly 0, bit for bit, in all eight
+    // shapes. That half is a restatement of `reach`'s definition, and it is
+    // kept only because it is the thing that would break the moment `reach`
+    // stopped being that maximum.
+    //
+    // THE CONTENT IS IN THE JOINERS, and today there are five of them: six
+    // of the eight shapes have lobes that already touch, so only `rabbit`
+    // (1 joiner, clearing the reach by 0.213 radii) and `deer` (4, clearing
+    // by 0.171) exercise the property at all. That is genuine slack, not an
+    // equality — and it is the number to watch if a shape is ever re-authored
+    // with a limb that has to reach further to meet the body.
     func testTheHaloCoversEveryLobeTheRendererDraws() {
         for shape in AnimalPop.Shape.allCases {
             let reach = shape.reach
@@ -767,6 +782,18 @@ final class RenderingTests: XCTestCase {
     // body and the creature comes apart into the pile of circles the whole
     // file exists to avoid. The smallest radius the field can hand it is the
     // smallest orb at the bottom of its rise.
+    //
+    // MEASURED: the smallest thing in any silhouette is a deer's antler
+    // joiner at 0.1147 orb radii, and the smallest orb the field ever draws
+    // is 18 x 0.42 = 7.56 pt, so that joiner arrives at the cull as 0.867 pt
+    // against a 0.01 pt threshold — eighty-seven times clear of it. This is
+    // the one bound in the file with room to spare by orders of magnitude
+    // rather than by percent, which is the right shape for a guard whose
+    // failure is a creature visibly coming apart.
+    //
+    // (That `joinedLobes` never DROPS a lobe is `AnimalPopTests`'
+    // `testEveryShapeIsOneUnbrokenBalloon`, first assertion. It is not
+    // repeated here.)
     func testNoPartOfACreatureIsCulledAtAnyRadiusTheFieldCanProduce() {
         let smallestDrawn = GameConfig.orbRadiusRange.lowerBound * GameConfig.depthMinScale
         XCTAssertGreaterThan(smallestDrawn, 0, "an orb that is never drawn at all")
@@ -776,9 +803,6 @@ final class RenderingTests: XCTestCase {
                                  "\(shape.name): its smallest lobe (\(smallestLobe) radii) is "
                                  + "culled at the smallest radius the field draws "
                                  + "(\(smallestDrawn) pt), which breaks the silhouette open")
-            // And the joined silhouette never loses a lobe it started with.
-            XCTAssertGreaterThanOrEqual(shape.joinedLobes.count, shape.lobes.count,
-                                        "\(shape.name): joining dropped a lobe")
         }
     }
 

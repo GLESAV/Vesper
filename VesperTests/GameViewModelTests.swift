@@ -45,7 +45,21 @@ import CoreGraphics
 // so NOTHING here asserts an absolute value read from a store — only deltas
 // across an operation. The two pieces of shared state these tests do move
 // (whether point whispers are on, and which stone she stands on) are saved and
-// put back by the test that moved them.
+// put back by the test that moved them, in a `defer` taken before the first
+// assertion, so a failure restores them exactly as a pass does.
+//
+// WHAT CANNOT BE PUT BACK is the ledger itself: popping an orb writes to
+// `ProgressionStore.shared`, and by design nothing there can be un-counted.
+// Every test here therefore leaves the lifetime numbers a little larger, and
+// nothing here — or in any other suite — may read them absolutely. Clearing a
+// field is the same story on `MapStore.shared`, so any test whose subject is
+// not the Path steps off it first (`stepOffThePath`), and the two that clear
+// ON the genesis stone rely on `MapStore.recordClear` opening a stone's roads
+// only once: repeated CI runs re-clear it, they do not grow it.
+//
+// NOTHING HERE WIPES `UserDefaults` OR CALLS `resetToFreshInstall`. These are
+// the live suites the app itself uses, shared with every other test class, and
+// a reset from here would be someone else's random failure.
 //
 // `@MainActor` mirrors `WorldRegressionTests`, which already constructs a
 // `GameViewModel` this way: `restart()` runs `withAnimation` and the event

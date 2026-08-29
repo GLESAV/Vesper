@@ -12,6 +12,14 @@ reveals a short, kind "fortune" message. Clearing the field shows a quiet comple
 card. There is deliberately **no score to chase, no timer, no failure state, no ads,
 no accounts, and no data collection**.
 
+That core is unchanged, and a great deal has grown around it. The app is now
+**one continuous vertical world** — the Path as a constellation in the sky
+above, the field, the journal below — and a field can carry weather, a balloon
+animal, a firework display, splitters, drifters and generators, arriving one
+idea at a time as fields accrue. None of it can be lost or failed; all of it is
+deterministic from a stone's seed, so a stone is the same field every time she
+returns to it. `docs/e2e_walkthrough.md` walks the whole of it.
+
 Created by Kate Wu. Bundle ID: `com.gregorysavage.vesper`. iOS 18.5+, iPhone + iPad.
 
 ## Product guardrails (do not break these)
@@ -23,7 +31,11 @@ The calm is the product. Any change must preserve:
    and `docs/pop_progression.md`) but must stay **affirming-only**: numbers only
    ever accrue, nothing is spent/lost/reset/time-limited/compared, every unlock is
    reachable through ordinary play, and locked content shows a kind hint, never a
-   wall.
+   wall. This extends to the field's own mechanics: a generator that closes on a
+   timer draws no countdown and costs nothing when it closes, an animal is shy
+   for a while but can never outrun a thumb, and a field is longer rather than
+   harder. **More engaging, never more difficult** is the phrasing to test
+   against.
 2. **No monetization or dark patterns.** No ads, IAP prompts, rating nags, or push
    notifications that demand attention.
 3. **No data collection.** No analytics SDKs, no network calls, no accounts. Privacy is
@@ -178,14 +190,35 @@ simulation free of UI imports, and rely on the CI workflow to verify the build.
 `00_MASTER_PLAN.md`.** It supersedes the roadmap's M2+ and adds two pillars
 (One Beautiful Place; Her Evening, Respected) that bind all new UI work:
 navigation is movement through one world (sky / field / journal), never icons
-or modal sheets. Phase 0 of that plan (the navigation rebuild) blocks all other
-feature work.
+or modal sheets.
 
+**Phase 0 — the navigation rebuild — has landed.** One World is what launches;
+the v1.2 screens survive only under `VESPER_CLASSIC_NAV`, which CI still builds
+so they stay releasable. Weather, balloon animals, fireworks, the staged field
+mechanics, the scrollable sky, W08's settling map and the Anima engine all
+shipped after it. The app is nevertheless still at `MARKETING_VERSION = 1.2`,
+so the version number does not distinguish this build from the v1.2 submission
+— do not read anything into it.
+
+**Read `docs/e2e_walkthrough.md` first.** It is a device pass over everything
+that ships today and is the most accurate description of current behaviour in
+the repository. Where an older doc disagrees with it, or with the code, the
+older doc is the one that is wrong.
+
+- `docs/e2e_walkthrough.md` — the current build, end to end, as a checklist
+- `docs/PLAYTEST.md` — the One World navigation playtest (one question, live)
 - `docs/STRATEGY.md` — what "AAA" means for Vesper, engineering/UX standards, budgets
-- `docs/ROADMAP.md` — milestones M0–M3 with acceptance criteria
-- `docs/BUILD_PLAN.md` — file-level build plan, test plan, release checklist
+  (§1's "add no content or systems" was overtaken by the product; §§2–5 are in force)
+- `docs/ROADMAP.md` — milestones M0–M3; true through M1.6, superseded after it
+- `docs/BUILD_PLAN.md` — the M0+M1 build plan; historical, but §5's device pass
+  is still referenced
 - `docs/pop_standard.md` — the formal pop schema, envelopes, and authoring rules
 - `docs/pop_progression.md` — the journey: phases, unlock rules, featuring/Drift
 - `docs/pop_points.md` — scoring formula and how stats surface in/out of game
 - `docs/pop_map.md` — The Path: infinite stepping-stone map, roads, 3-day settling
   (the road behind settles into permanent trace; **nothing is ever deleted** — W08)
+- `docs/anima.md` — the 2-D animation engine and its browser previewer. It ships
+  in the binary and **nothing in gameplay draws from it yet**; adoption is its
+  own change, one system at a time
+- `docs/pop_puzzles.md`, `docs/sky_assets.md` — adopted design, deliberately
+  unbuilt. Both say so in their own status lines; keep it that way
