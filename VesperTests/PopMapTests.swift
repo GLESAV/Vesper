@@ -264,8 +264,14 @@ final class PopMapTests: XCTestCase {
 
     /// One road 45%, a fork 45%, a rare three-way 10%. The shape is the
     /// design: a fork should be as ordinary as walking on, and a three-way
-    /// should be an event. 1,000 draws from one fixed-seed stream; the widest
-    /// sampling error here is about 0.016, and the bounds are ±0.08 or wider.
+    /// should be an event.
+    ///
+    /// 1,000 draws from ONE fixed-seed stream, so this is the same number on
+    /// every machine and every run — it cannot flake, it can only be right or
+    /// wrong. The widest sampling error at this size is about 0.016; the
+    /// common bounds are ±0.08 (five sigma) and the rare one is ±0.06/+0.07
+    /// about a much smaller sigma (0.0095), which is six. What the stream
+    /// actually produces sits within a sampling error of the design shape.
     func testRoadsOpenAsOneOrTwoWithAThreeWayStayingRare() {
         var rng = SplitMix64(seed: 90_210)
         var counts = [0, 0, 0, 0]
@@ -291,6 +297,11 @@ final class PopMapTests: XCTestCase {
 
     /// 1–2 pops per stone, rarely 3 (50% / 40% / 10%). Same stream discipline
     /// and the same bounds as the road roll above.
+    ///
+    /// This is the roll, not what a stone ends up holding: `branchedSet`
+    /// raises it to `max(popCount, set.count + 1)` so a child always brings
+    /// something of its own, which is why no child stone has one pop on it.
+    /// The roll's own shape is what is pinned here.
     func testAStoneCarriesOneOrTwoPopsAndRarelyThree() {
         var rng = SplitMix64(seed: 555_555)
         var counts = [0, 0, 0, 0]
@@ -366,6 +377,13 @@ final class PopMapTests: XCTestCase {
     /// lineage — something of the parent on every child — survives all the way
     /// down. MapStoreTests asserts these one step out of genesis; what is
     /// added here is that nothing decays over the depth she actually walks.
+    ///
+    /// The genesis seed is the one number in this file the test does not
+    /// choose — `MapStore.ensureGenesis` draws it from the system, and there
+    /// is no seam to inject one. So every assertion below is deliberately
+    /// UNIVERSAL over seeds rather than pinned to a value: a clamp, a count,
+    /// a parentage, a non-empty intersection. Nothing here can pass on one
+    /// launch and fail on the next.
     func testWalkingThePathKeepsTheLineageAndTheBanksAtEveryDepth() {
         let fixed = Date(timeIntervalSince1970: 1_700_000_000)
         let unlocked = Set(1...60)

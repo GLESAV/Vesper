@@ -1,7 +1,7 @@
 # Pop Points
 
 *The scoring system: how popping is tracked AAA-style while staying zen.
-Implementation: `GameViewModel.points(for:sizeNorm:fortune:)`,
+Implementation: `GameViewModel.points(for:sizeNorm:fortune:kind:)`,
 `Support/ProgressionStore.swift` · surfaced per §3–4 below.*
 
 ## 1. Philosophy
@@ -20,7 +20,7 @@ and unlocks feel earned — the AAA part — while refusing every pressure mecha
 For each popped orb:
 
 ```
-points = rarityBase × sizeFactor × chainMultiplier  (+ fortuneBonus)
+points = rarityBase × sizeFactor × chainMultiplier × animalMultiplier  (+ fortuneBonus)
 ```
 
 | Term | Value | Why |
@@ -28,8 +28,14 @@ points = rarityBase × sizeFactor × chainMultiplier  (+ fortuneBonus)
 | `rarityBase` | common 10 · uncommon 25 · rare 60 · secret 150 | finding rarer pops feels like finding them |
 | `sizeFactor` | `1 + 0.5 × sizeNorm` → ×1.0 (smallest) … ×1.5 (largest) | big orbs pop deeper; the ear, hand, and score agree |
 | `chainMultiplier` | `1 + 0.1 × (chainLength − 1)`, capped at ×2 | cascades feel abundant, never mandatory |
-| `fortuneBonus` | +50 flat | a found fortune is a small gift |
+| `animalMultiplier` | ×`GameConfig.animalPointsMultiplier` (**2.5**) on the final pop of a balloon animal; ×1 on everything else | a creature took two or three taps and a little patience to meet, so it gives more |
+| `fortuneBonus` | +50 flat, added *after* the multipliers | a found fortune is a small gift |
 | **field clear** | **+100 flat** | finishing the breath |
+
+The product is rounded to the nearest whole point on the way out; every term is a
+multiplication or an addition, so nothing in this formula can subtract. That
+matters most for the animal: the two or three taps that did *not* finish it cost
+nothing anywhere — they simply do not pay, and then the last one pays 2.5×.
 
 Chain length uses the same rolling 0.9 s window as the "chain of N" whisper, so what
 the player sees and what they earn are one number. The cap at ×2 keeps chains a

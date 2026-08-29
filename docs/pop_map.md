@@ -108,11 +108,22 @@ never compress below the touch target, at any depth of path.
   (`docs/pop_points.md`), same journey rules (`docs/pop_progression.md`).
   Clearing a stone that opens roads shows a soft note: *"the path continues"* /
   *"the path forks — 3 roads ahead."*
-- **Free play remains:** choosing a featured pop or Drift in the Journey screen
-  steps off the path (the map keeps waiting, and keeps settling, exactly as it
-  would). Tapping any stone — bright or trace — steps back on.
+- **Free play remains:** featuring a pop, or choosing `drift`, on the journal's
+  *collection* page steps off the path (the map keeps waiting, and keeps
+  settling, exactly as it would). Tapping any star in the sky — bright or
+  trace — steps back on.
 
-## 4. The map screen
+## 4. The map screen, as v1.2 drew it — **superseded, kept as history**
+
+> **This section describes `Views/PathSheet.swift`, which no longer ships.**
+> The map screen is the sky: `World/SkyView.swift`, described in §4a, which is
+> the section to read. `PathSheet` compiles only under `VESPER_CLASSIC_NAV` and
+> is unreachable in the shipping build. Three of its rules were deliberately
+> reversed on the way into the sky and are wrong if read as current: the tree
+> now grows **top to bottom** (newest at the *foot*, not the top); completion
+> is a **closed ring** in the stone's own paint, never a checkmark, because a
+> tick is the vocabulary of a discharged duty and nothing here was one; and a
+> star carries its pops as **family gems**, with no names written beneath.
 
 `PathSheet` (dotted-path button in the top bar): stones drawn newest-at-top,
 connected by faint dashed curves — the roads ahead of your stone tinted with
@@ -172,8 +183,11 @@ before. A transit grab (catching a world in flight) is never scrolled.
 
 ## 5. Why these numbers
 
-- **1–3 pops, 1–3 roads** keeps each choice legible at a glance — a fork on a
-  calm walk, not a skill tree.
+- **One to three pops, one to three roads** keeps each choice legible at a
+  glance — a fork on a calm walk, not a skill tree. Two or three on every stone
+  past the first is what "keep one, bring one" costs, and it is a price worth
+  paying: a lineage you can read is worth more than a stone that is occasionally
+  one pop quieter.
 - **3-day settle** is long enough that yesterday's stone is still bright when
   you return to it, short enough that the map always leads with what's ahead —
   without the past ever becoming either a museum of obligation or a loss. A

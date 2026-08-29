@@ -12,7 +12,7 @@ import Foundation
 // `WorldRegressionTests` the camera-and-arbiter pair against the v1.2 tap
 // baseline. This file is the one that holds NOTHING still: a real `WorldModel`,
 // its real `WorldCamera`, its real `SkyScrollState`, and a real `InputArbiter`
-// wired to them through the three closures `WorldView` passes to
+// wired to them through the three closures `WorldView` hands to
 // `WorldInputLayer`, driven by touches and frames in the order `WorldInputView`
 // and the world's `TimelineView` deliver them.
 //
@@ -29,26 +29,29 @@ import Foundation
 // and the shipped defect was that the transit-grab decision read the FIELD
 // predicate. At the resting sky that predicate is false, so every touch-down
 // armed the camera before the finger had moved a point, `scrollRoom` was never
-// queried — it is only read on the slop-arming path — and the headline feature
-// of the release was unreachable. A constant closure is exactly how that hid.
+// queried — it is only ever read on the slop-arming path — and the headline
+// feature of the release was unreachable. A constant closure is exactly how
+// that hid.
 //
 // So the one rule this file keeps, everywhere, without exception:
 //
 //     NO FIXTURE IS EVER A CONSTANT. Every predicate the arbiter asks is a live
 //     read of the same `WorldModel` the outcomes are fed back into.
 //
-// Determinism: no wall-clock, no sleeps, no unseeded randomness, no shared
-// state, no order dependence. Time is a fixed `dt` per frame and a synthetic
-// monotonic touch timestamp. The scripted session's variety comes from
-// `SplitMix64` with a committed seed. Sky metrics are computed from synthetic
-// `MapStone` values through `SkyLayout.metrics` — the one definition — so no
-// `MapStore` and no `UserDefaults` are involved.
+// DETERMINISM. No wall-clock, no sleeps, no unseeded randomness, no shared
+// mutable state, no order dependence. Time is a fixed `dt` per frame and a
+// synthetic monotonic touch timestamp; the scripted session's variety comes
+// from `SplitMix64` with a committed seed. Sky metrics are computed from
+// synthetic `MapStone` values through `SkyLayout.metrics` — the one definition
+// — so no `MapStore` and no `UserDefaults` are involved. Releases inside scroll
+// tests are made from a stationary finger, which is what keeps
+// `SkyScrollState`'s wall-clock glide out of the measurement entirely.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @MainActor
 final class WorldIntegrationTests: XCTestCase {
 
-    // MARK: - Geometry and constants, read from the source of truth
+    // MARK: - Geometry, read from the source of truth rather than restated
 
     private let screen = CGSize(width: 393, height: 852)          // iPhone 16
     private let frameDt: TimeInterval = 1.0 / 120.0
@@ -61,16 +64,15 @@ final class WorldIntegrationTests: XCTestCase {
         screen.height * InputArbiter.Config.default.edgeDeadZoneFraction
     }
 
-    // A date far enough from any real "now" that nothing derived from wall
-    // clocks can vary between runs. Only `SkyLayout.metrics` sees it, and it
-    // reads generations, never dates.
+    // Far from any real "now", so nothing that reads a date can vary between
+    // runs. Only the stones carry it, and `SkyLayout.metrics` reads only their
+    // generations.
     private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 
     // MARK: - The world, wired as `WorldView` wires it
 
-    // The composition under test. It owns a real model and a real arbiter and
-    // nothing else; every method on it is a transcription of something
-    // `WorldInputView` or `WorldView` does, in the order it does it.
+    // The composition under test. Every method on it is a transcription of
+    // something `WorldInputView` or `WorldView` does, in the order it does it.
     @MainActor
     private final class World {
 
@@ -78,17 +80,17 @@ final class WorldIntegrationTests: XCTestCase {
         var arbiter = InputArbiter()
 
         // What `WorldInputView.layoutSubviews` and `WorldView`'s
-        // `GeometryReader` between them establish. Kept together here because
-        // in production they are two writes of the same screen and a test that
+        // `GeometryReader` between them establish. Kept together because in
+        // production they are two writes of the same screen, and a test that
         // moved only one would be testing a geometry the app cannot have.
         private(set) var size: CGSize
 
-        // Every outcome the input layer has produced since the last
-        // `clearLog()`, in delivery order — the tape `model.handle` was fed.
+        // Every outcome the input layer has produced since `clearLog()`, in
+        // delivery order — the tape `model.handle` was fed.
         private(set) var log: [InputOutcome] = []
 
-        // The touch clock (UITouch timestamps) and the frame clock
-        // (TimelineView dates). Two clocks in production; two here.
+        // Two clocks in production, two here: UITouch timestamps and the
+        // timeline's dates.
         private(set) var touchClock: TimeInterval = 0
         private var frameDate = Date(timeIntervalSinceReferenceDate: 0)
         private let frameDt: TimeInterval
@@ -106,8 +108,8 @@ final class WorldIntegrationTests: XCTestCase {
             //
             // Three closures, three DIFFERENT questions, every one of them a
             // live read of `model`. `m` is a local so the closures capture the
-            // model rather than `self` — the harness must not be part of what
-            // is under test.
+            // model rather than the harness — the harness must not become part
+            // of what is under test.
             let m = model
             arbiter = InputArbiter(bounds: size,
                                    isFieldAtRest: { m.simActive },
@@ -116,7 +118,7 @@ final class WorldIntegrationTests: XCTestCase {
 
             // One frame before anything happens, so `lastFrameDate` is primed
             // and the first real frame carries a real `dt`. Production gets
-            // this for free from the timeline's first tick.
+            // this from the timeline's first tick.
             advanceOneFrame()
         }
 
@@ -146,9 +148,9 @@ final class WorldIntegrationTests: XCTestCase {
 
         // `touchesMoved`, `touchesEnded` and `touchesCancelled` all funnel
         // through `flush`, which collapses consecutive pan/scroll samples and
-        // drops an empty batch. Both matter: the collapsing is what the model
-        // actually sees, and the empty-batch guard is why a sub-slop press
-        // never reaches `handle` at all.
+        // drops an empty batch. Both matter here: the collapsing is what the
+        // model actually sees, and the empty-batch guard is why a sub-slop
+        // press never reaches `handle` at all.
         @discardableResult
         private func deliver(_ raw: [InputOutcome]) -> [InputOutcome] {
             var batch: [InputOutcome] = []
@@ -162,33 +164,28 @@ final class WorldIntegrationTests: XCTestCase {
         // MARK: Gestures
 
         /// A vertical drag, delivered sample by sample. Returns every outcome
-        /// the gesture produced, in order.
+        /// the whole gesture produced, in order.
         ///
-        /// `stillBeforeRelease` holds the finger at the end point for long
-        /// enough to span the arbiter's velocity window, which makes the
-        /// release velocity exactly zero — the only way to release without
-        /// launching `SkyScrollState`'s wall-clock glide, and therefore the
-        /// only way a scroll test can be deterministic.
+        /// `stillBeforeRelease` holds the finger at the end point for longer
+        /// than the arbiter's velocity window, which makes the measured release
+        /// velocity exactly zero — the only way to release without launching
+        /// `SkyScrollState`'s wall-clock glide, and therefore the only way a
+        /// scroll assertion can be deterministic.
         @discardableResult
         func drag(fromY y0: CGFloat,
                   toY y1: CGFloat,
                   x: CGFloat = 190,
                   steps: Int = 12,
                   dt: TimeInterval = 1.0 / 60.0,
-                  stillBeforeRelease: Bool = false,
-                  release: Bool = true) -> [InputOutcome] {
+                  stillBeforeRelease: Bool = false) -> [InputOutcome] {
             var out: [InputOutcome] = []
             out += down(CGPoint(x: x, y: y0))
             for i in 1...steps {
                 let k = CGFloat(i) / CGFloat(steps)
                 out += move(to: CGPoint(x: x, y: y0 + (y1 - y0) * k), dt: dt)
             }
-            if stillBeforeRelease {
-                out += hold(at: CGPoint(x: x, y: y1), dt: dt)
-            }
-            if release {
-                out += up(CGPoint(x: x, y: y1), dt: dt)
-            }
+            if stillBeforeRelease { out += hold(at: CGPoint(x: x, y: y1), dt: dt) }
+            out += up(CGPoint(x: x, y: y1), dt: dt)
             return out
         }
 
@@ -213,9 +210,8 @@ final class WorldIntegrationTests: XCTestCase {
             for _ in 0..<n { advanceOneFrame() }
         }
 
-        /// Runs the frame clock until the camera has nothing left to step —
-        /// no settle in flight AND no end-of-axis acknowledgement fading.
-        /// Returns the number of frames it took.
+        /// Runs the frame clock until the camera has nothing left to step — no
+        /// settle in flight AND no end-of-axis acknowledgement still fading.
         @discardableResult
         func runToIdle(limit: Int = 20_000) -> Int {
             var n = 0
@@ -247,15 +243,13 @@ final class WorldIntegrationTests: XCTestCase {
         func clearLog() { log.removeAll() }
     }
 
-    private func makeWorld() -> World {
-        World(size: screen, frameDt: frameDt)
-    }
+    private func makeWorld() -> World { World(size: screen, frameDt: frameDt) }
 
     // MARK: - Synthetic maps
 
     // A straight path of `generations` stones. Only `generation` reaches
-    // `SkyLayout.metrics`, but the whole value is built so the stones are the
-    // real type and would fail if the type changed under us.
+    // `SkyLayout.metrics`, but the whole value is the real type, so a change to
+    // it stops this file rather than silently changing what is measured.
     private func path(_ generations: Int) -> [MapStone] {
         var stones: [MapStone] = []
         var parent: UUID?
@@ -270,9 +264,9 @@ final class WorldIntegrationTests: XCTestCase {
         return stones
     }
 
-    // On a 852 pt screen `SkyLayout.metrics` gives (g - 1) * 118 - 624 points of
-    // history, floored at zero: 7 generations is 84 pt (a sky one short drag
-    // can run out), 12 is 674 pt (a sky no single drag can run out).
+    // On an 852 pt screen `SkyLayout.metrics` yields (g - 1) * 118 - 624 points
+    // of history, floored at zero: 7 generations is 84 pt — a sky one ordinary
+    // drag can run out — and 12 is 674 pt, a sky no single drag can.
     private var shortSkyPath: [MapStone] { path(7) }
     private var tallSkyPath: [MapStone] { path(12) }
 
@@ -298,57 +292,62 @@ final class WorldIntegrationTests: XCTestCase {
         o.compactMap { if case .pop(let p) = $0 { return p } else { return nil } }
     }
 
-    private func isScroll(_ o: InputOutcome) -> Bool {
-        switch o {
-        case .scrollBegan, .scrollChanged, .scrollEnded: return true
-        default: return false
+    private func hasAnyScroll(_ o: [InputOutcome]) -> Bool {
+        o.contains {
+            switch $0 {
+            case .scrollBegan, .scrollChanged, .scrollEnded: return true
+            default: return false
+            }
         }
     }
 
-    private func hasAnyScroll(_ o: [InputOutcome]) -> Bool { o.contains(where: isScroll) }
-
-    // The deferred clears in `worldSettled` / `worldQuietened` are queued onto
-    // the main queue on purpose (the render pass may never publish), so the
-    // flags are only observably at rest after one turn of the run loop. Ours is
-    // queued after theirs, so when it runs they have already run.
+    // The clears in `worldSettled` / `worldQuietened` are queued onto the main
+    // queue on purpose (the render pass may never publish), so the flags are
+    // only observably at rest after one turn of the run loop. Ours is queued
+    // after theirs, so by the time it runs they have already run.
     private func drainMainQueue() {
         let hop = expectation(description: "main-queue hop")
         DispatchQueue.main.async { hop.fulfill() }
         wait(for: [hop], timeout: 5)
     }
 
-    // MARK: - Getting somewhere
+    // MARK: - Getting somewhere, always with a real gesture
 
-    // Travels with a real gesture — never `model.handle([.commit(...)])`. The
-    // whole point of this file is that the outcomes come out of the arbiter.
-    private func travelUp(_ h: World, fromY y0: CGFloat = 620) {
+    // Never `model.handle([.commit(...)])`. The whole point of this file is
+    // that the outcomes come out of the arbiter.
+    private func travelUp(_ h: World, fromY y0: CGFloat = 620,
+                          file: StaticString = #filePath, line: UInt = #line) {
         let out = h.drag(fromY: y0, toY: y0 - 294)
         XCTAssertEqual(commitDirections(out), [.up],
-                       "the upward swipe did not commit — the fixture, not the world, is wrong")
+                       "the upward swipe did not commit — the fixture, not the world, is wrong",
+                       file: file, line: line)
         h.runToIdle()
         drainMainQueue()
     }
 
-    private func travelDown(_ h: World, fromY y0: CGFloat = 240) {
+    private func travelDown(_ h: World, fromY y0: CGFloat = 240,
+                            file: StaticString = #filePath, line: UInt = #line) {
         let out = h.drag(fromY: y0, toY: y0 + 294)
         XCTAssertEqual(commitDirections(out), [.down],
-                       "the downward swipe did not commit — the fixture, not the world, is wrong")
+                       "the downward swipe did not commit — the fixture, not the world, is wrong",
+                       file: file, line: line)
         h.runToIdle()
         drainMainQueue()
     }
 
-    /// Puts her at the sky, at rest, with `stones` worth of history measured
-    /// and the scroll at the tip. Asserts the state it promises, so every test
-    /// that starts here starts from a state it has proved rather than assumed.
-    private func atRestingSky(_ h: World, stones: [MapStone]) {
+    /// Puts her at the sky, at rest, with `stones` worth of history measured and
+    /// the scroll at the tip — and asserts the state it promises, so every test
+    /// that starts here starts from something proved rather than assumed.
+    private func atRestingSky(_ h: World, stones: [MapStone],
+                              file: StaticString = #filePath, line: UInt = #line) {
         h.measureSky(stones)
-        travelUp(h)
-        XCTAssertEqual(h.model.place, .sky)
-        XCTAssertEqual(h.model.camera.place, .sky)
-        XCTAssertTrue(h.model.camera.isAtRest)
-        XCTAssertTrue(h.model.camera.isIdle)
+        travelUp(h, file: file, line: line)
+        XCTAssertEqual(h.model.place, .sky, file: file, line: line)
+        XCTAssertEqual(h.model.camera.place, .sky, file: file, line: line)
+        XCTAssertTrue(h.model.camera.isAtRest, file: file, line: line)
+        XCTAssertTrue(h.model.camera.isIdle, file: file, line: line)
         XCTAssertEqual(h.model.skyScroll.offset, 0, accuracy: 1e-9,
-                       "a sky is arrived at on its growing tip")
+                       "a sky is arrived at on its growing tip", file: file, line: line)
         h.clearLog()
     }
 
@@ -363,11 +362,11 @@ final class WorldIntegrationTests: XCTestCase {
     // is no field under her finger to pop); `cameraResting` is true (nothing is
     // in flight to grab). Wire the grab to the field predicate and the gap
     // closes: every touch-down at the sky becomes a transit grab, the camera
-    // arms before her finger has moved, and `scrollRoom` — which is only ever
-    // read on the slop-arming path — is never consulted at all.
+    // arms before her finger has moved a point, and `scrollRoom` — read only on
+    // the slop-arming path — is never consulted at all.
     //
     // No component test can see this. It is a property of the three closures
-    // together, and it is only visible if they are the closures production
+    // together, and it is visible only if they are the closures production
     // passes and the object behind them is a real camera.
     func testAtTheRestingSkyTheFieldPredicateAndTheGrabPredicateDisagree() {
         let h = makeWorld()
@@ -382,17 +381,17 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertNotEqual(h.model.simActive, h.model.cameraResting,
                           "the two predicates agree at the resting sky, which is exactly the "
                           + "conflation that made the sky scroll unreachable on device")
-
         XCTAssertFalse(h.model.placeScrollRoom.isEmpty,
-                       "the resting sky with 12 generations of history must offer room")
+                       "the resting sky with 12 generations behind her must offer room")
 
-        // And the consequence, at the only moment it can be observed: touch-down
-        // at the resting sky asks for NOTHING. No pop, no `.panBegan`.
+        // And the consequence, at the only moment it can be observed: a
+        // touch-down at the resting sky asks for NOTHING. No pop, no `.panBegan`.
         XCTAssertEqual(h.down(CGPoint(x: 190, y: 300)), [],
                        "touch-down at the resting sky armed the camera — the grab decision is "
                        + "reading the field predicate again")
-        XCTAssertTrue(h.model.camera.isAtRest, "the world was put into `.dragging` by a press")
-        XCTAssertFalse(h.model.worldMoving, "a press at a resting place woke the world")
+        XCTAssertTrue(h.model.camera.isAtRest, "a press put the world into `.dragging`")
+        XCTAssertFalse(h.model.worldMoving, "a press at a resting place took hit-testing away")
+        XCTAssertFalse(h.model.worldAwake, "a press at a resting place woke the frame clock")
         XCTAssertEqual(h.up(CGPoint(x: 190, y: 300)), [],
                        "a touch that never armed has nothing to terminate")
     }
@@ -403,23 +402,26 @@ final class WorldIntegrationTests: XCTestCase {
 
     // THE HEADLINE, THROUGH THE COMPOSITION. A drag the sky can absorb moves the
     // sky's own content and NOTHING else: the camera is never told there was a
-    // gesture, the world does not travel, does not wake, does not dim, and the
-    // published place does not change.
+    // gesture, so the world does not travel, does not wake, does not dim, and
+    // the published place does not change.
     //
-    // `SkyScrollTests` proves the arbiter divides the finger correctly given a
+    // `SkyScrollTests` proves the arbiter divides the finger correctly GIVEN a
     // room. This proves production supplies that room at all.
     func testARestingSkyWithHistoryScrollsAndTheCameraIsNeverTold() {
         let h = makeWorld()
         atRestingSky(h, stones: tallSkyPath)
-        let room = h.model.placeScrollRoom
-        XCTAssertEqual(room.up, 0, accuracy: 1e-9, "at the tip there is nothing above to return to")
-        XCTAssertEqual(room.down, history(tallSkyPath, screen), accuracy: 1e-9)
+        let tall = history(tallSkyPath, screen)
+        XCTAssertEqual(tall, 674, accuracy: 1e-9, "the fixture's sky is not the size assumed")
 
-        // 360 pt down, well inside the 674 pt this sky has.
+        let room = h.model.placeScrollRoom
+        XCTAssertEqual(room.up, 0, accuracy: 1e-9, "at the tip there is nothing to return to")
+        XCTAssertEqual(room.down, tall, accuracy: 1e-9)
+
+        // 360 pt down, well inside the 674 this sky has.
         let out = h.drag(fromY: 200, toY: 560, stillBeforeRelease: true)
 
         XCTAssertTrue(out.contains(.scrollBegan), "the sky was never offered the drag")
-        XCTAssertEqual(scrollTranslations(out).last ?? .nan, 360 - slop, accuracy: 1e-9,
+        XCTAssertEqual(scrollTranslations(out).last ?? CGFloat.nan, 360 - slop, accuracy: 1e-9,
                        "the sky absorbed the wrong amount of the finger")
         XCTAssertEqual(h.model.skyScroll.offset, 360 - slop, accuracy: 1e-9,
                        "the scroll outcome never reached the sky's own state")
@@ -438,11 +440,11 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertFalse(h.model.worldMoving)
         XCTAssertFalse(h.model.worldAwake)
 
-        // And the room the place now offers has moved with her, in both
-        // directions, summing to the history it has.
+        // And the room the place offers has moved with her, in both directions,
+        // still summing to the history it has.
         let after = h.model.placeScrollRoom
         XCTAssertEqual(after.up, 360 - slop, accuracy: 1e-9)
-        XCTAssertEqual(after.up + after.down, history(tallSkyPath, screen), accuracy: 1e-9)
+        XCTAssertEqual(after.up + after.down, tall, accuracy: 1e-9)
     }
 
     // AND THE OTHER HALF, WHICH ONLY THE COMPOSITION CAN SHOW: when the history
@@ -450,8 +452,8 @@ final class WorldIntegrationTests: XCTestCase {
     // carries her to the field. She never lifts her finger and tries again.
     //
     // The sky here is 84 pt tall, so one 294 pt drag spends 84 on the sky and
-    // 200 on the world — comfortably past the 93.7 pt commit gate, which sees
-    // the LEFTOVER and not the whole finger.
+    // 200 on the world — past the 93.7 pt commit gate, which sees the LEFTOVER
+    // and not the whole finger.
     func testOneUnbrokenGestureRunsTheSkyOutAndThenCarriesHerToTheField() {
         let h = makeWorld()
         atRestingSky(h, stones: shortSkyPath)
@@ -460,31 +462,29 @@ final class WorldIntegrationTests: XCTestCase {
 
         let out = h.drag(fromY: 150, toY: 444)
 
-        // The sky went first, and only up to its room.
         guard let scrollBeganAt = out.firstIndex(of: .scrollBegan) else {
             return XCTFail("the sky was never offered the drag")
         }
         guard let panBeganAt = out.firstIndex(of: .panBegan) else {
-            return XCTFail("the camera never picked up the leftover — the gesture died at the "
-                           + "end of the sky and she would have to lift and try again")
+            return XCTFail("the camera never picked up the leftover — the gesture died at the end "
+                           + "of the sky and she would have to lift her finger and try again")
         }
         XCTAssertLessThan(scrollBeganAt, panBeganAt,
                           "the camera was armed before the place had its first refusal")
-        XCTAssertEqual(scrollTranslations(out).last ?? .nan, skyHistory, accuracy: 1e-9,
+        XCTAssertEqual(scrollTranslations(out).last ?? CGFloat.nan, skyHistory, accuracy: 1e-9,
                        "the sky absorbed more or less than the room it had")
         XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9,
-                       "the sky did not end at its own root")
-
-        // The camera got the leftover, and only the leftover.
-        XCTAssertEqual(panTranslations(out).last ?? .nan, 294 - slop - skyHistory, accuracy: 1e-9,
-                       "the camera was given points the sky had already spent")
+                       "the sky did not come to rest at the root of the drawn tree")
+        XCTAssertEqual(panTranslations(out).last ?? CGFloat.nan, 294 - slop - skyHistory,
+                       accuracy: 1e-9, "the camera was given points the sky had already spent")
         XCTAssertEqual(commitDirections(out), [.down], "the gesture did not carry her home")
 
         // `place` is mirrored at the COMMIT instant, not on arrival.
         XCTAssertEqual(h.model.place, .field)
         XCTAssertEqual(h.model.camera.place, .field)
-        XCTAssertTrue(h.model.worldMoving, "the commit did not wake the world")
-        XCTAssertFalse(h.model.simActive, "the field must not run while she is still travelling")
+        XCTAssertTrue(h.model.worldMoving, "the world is travelling and hit-testing is still on")
+        XCTAssertFalse(h.model.simActive,
+                       "the field must stop the instant she has decided to leave it (04 §5)")
 
         h.runToIdle()
         drainMainQueue()
@@ -494,33 +494,39 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty, "the field must never offer scroll room")
     }
 
-    // ARRIVING AT THE SKY OPENS IT ON THE GROWING TIP. The stones she can choose
-    // next hang off the tip; a sky still scrolled to where she was reading is a
-    // place she arrives in with no star to press.
+    // ARRIVING AT THE SKY OPENS IT ON THE GROWING TIP; LEAVING IT COSTS HER
+    // NOTHING. The stones she can choose next hang off the tip, so a sky still
+    // scrolled to where she was reading is a place she arrives in with no star
+    // to press — but a glance back at her history on the way out is free.
     //
     // Composed, because the trigger is `WorldModel.handle` noticing `place`
     // change to `.sky`, and the state it resets belongs to a different object.
     func testArrivingAtTheSkyReturnsTheScrollToTheGrowingTip() {
         let h = makeWorld()
-        atRestingSky(h, stones: tallSkyPath)
+        atRestingSky(h, stones: shortSkyPath)
+        let skyHistory = history(shortSkyPath, screen)
 
-        h.drag(fromY: 200, toY: 560, stillBeforeRelease: true)
-        XCTAssertEqual(h.model.skyScroll.offset, 350, accuracy: 1e-9)
+        // Look back 50 pt along the path (60 pt of finger, less the slop).
+        h.drag(fromY: 200, toY: 260, stillBeforeRelease: true)
+        XCTAssertEqual(h.model.skyScroll.offset, 50, accuracy: 1e-9)
+        h.runToIdle()
 
-        // Leaving does NOT reset it — a glance back at her history costs
-        // nothing on the way out.
-        travelDown(h, fromY: 240)
+        // Leave: 34 pt of sky left, then 250 pt of world.
+        let out = h.drag(fromY: 150, toY: 444)
+        XCTAssertEqual(commitDirections(out), [.down])
+        h.runToIdle()
+        drainMainQueue()
         XCTAssertEqual(h.model.place, .field)
-        XCTAssertEqual(h.model.skyScroll.offset, 350, accuracy: 1e-9,
-                       "leaving the sky threw away where she was reading")
+        XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9,
+                       "leaving the sky threw away where she had got to")
 
-        // Coming back does.
-        travelUp(h, fromY: 620)
+        // Come back.
+        travelUp(h)
         XCTAssertEqual(h.model.place, .sky)
         XCTAssertEqual(h.model.skyScroll.offset, 0, accuracy: 1e-9,
                        "she arrived at the sky with no star to press")
         XCTAssertEqual(h.model.placeScrollRoom.up, 0, accuracy: 1e-9)
-        XCTAssertEqual(h.model.placeScrollRoom.down, history(tallSkyPath, screen), accuracy: 1e-9)
+        XCTAssertEqual(h.model.placeScrollRoom.down, skyHistory, accuracy: 1e-9)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -529,16 +535,17 @@ final class WorldIntegrationTests: XCTestCase {
 
     // At the field a touch-down pops and a drag is the gesture it has always
     // been: no scroll outcomes at all, whatever the sky happens to be holding.
-    // The sky is deliberately given 674 pt of history first, so this is the
-    // real question — "does the FIELD offer room" — and not a vacuous one.
+    // The sky is deliberately given 674 pt of history first, so the question
+    // asked is the real one — does the FIELD offer room — rather than a vacuous
+    // one about a sky with nothing in it.
     func testAtTheFieldATouchDownPopsAndADragNeverScrolls() {
         let h = makeWorld()
         h.measureSky(tallSkyPath)
         XCTAssertEqual(h.model.place, .field)
         XCTAssertTrue(h.model.simActive)
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty,
-                      "the field offered the sky's room — a drag on the field would scroll a sky "
-                      + "she cannot see")
+                      "the field offered the sky's room — a drag here would scroll a sky she "
+                      + "cannot see, exactly as a touch at the sky would pop a field she cannot")
 
         let p = CGPoint(x: 190, y: 400)
         XCTAssertEqual(h.down(p), [.pop(p)],
@@ -558,8 +565,7 @@ final class WorldIntegrationTests: XCTestCase {
         h.runToIdle()
         drainMainQueue()
         XCTAssertEqual(h.model.place, .journal)
-        XCTAssertTrue(h.model.placeScrollRoom.isEmpty,
-                      "the journal offered the sky's room")
+        XCTAssertTrue(h.model.placeScrollRoom.isEmpty, "the journal offered the sky's room")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -568,44 +574,44 @@ final class WorldIntegrationTests: XCTestCase {
 
     // A GRAB IS A GRAB OF THE WORLD, WHEREVER IT LANDS. She reached out to
     // steady something in flight; every point of that gesture belongs to the
-    // camera. It never scrolls the place under her finger — even when that
-    // place is the sky, `camera.place` already says `.sky`, and the sky is
-    // sitting on 84 pt of unspent history — and it never pops.
+    // camera. It never scrolls the place under her finger — even though
+    // `camera.place` here already says `.sky` and the sky is sitting on 84 pt of
+    // spent history — and it never pops.
     //
-    // Two independent mechanisms agree here, and the composition is the only
-    // place both are live: the arbiter holds `.none` for a transit grab, and
-    // `placeScrollRoom` refuses on `camera.isAtRest`. This test would still
-    // pass if one of them broke, so it asserts the second directly as well.
+    // TWO INDEPENDENT MECHANISMS AGREE, and the composition is the only place
+    // both are live: the arbiter holds `.none` for a transit grab, and
+    // `placeScrollRoom` refuses on `camera.isAtRest`. So the second is asserted
+    // directly as well, or this test would still pass with one of them broken.
     func testATransitGrabNeverScrollsAndNeverPopsWhereverItLands() {
         let h = makeWorld()
         atRestingSky(h, stones: shortSkyPath)
         let skyHistory = history(shortSkyPath, screen)
 
         // Run the sky out and commit home, so the settle in flight departs a
-        // sky that still holds a scroll position.
+        // sky that is still holding a scroll position.
         h.drag(fromY: 150, toY: 444)
         XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9)
         XCTAssertEqual(h.model.camera.place, .field)
 
-        // Ten frames into the settle: the world is genuinely in flight.
+        // Ten frames in: the world is genuinely in flight (the shortest settle
+        // this camera will run is 0.30 s, or 36 frames at 120 Hz).
         h.frames(10)
         XCTAssertFalse(h.model.camera.isAtRest, "the settle was over before the grab could happen")
         XCTAssertTrue(h.model.worldMoving)
         XCTAssertFalse(h.model.cameraResting)
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty,
-                      "the world in flight offered scroll room — a grab could eat a settle")
+                      "a world in flight offered scroll room, so a grab could be eaten by a "
+                      + "scroll and the settle she reached out to steady would be lost")
 
         h.clearLog()
-        let began = h.down(CGPoint(x: 190, y: 400))
-        XCTAssertEqual(began, [.panBegan],
+        var out = h.down(CGPoint(x: 190, y: 400))
+        XCTAssertEqual(out, [.panBegan],
                        "a grab must arm the camera immediately and emit nothing else — no pop "
-                       + "off the resting field, no scroll")
+                       + "off a field she cannot see, no scroll")
 
-        // 30 pt of drag: past the slop, short of the 93.7 pt commit gate, so
-        // this resolves as the UNDECIDED release a scroll could have stolen.
-        var out = began
+        // 30 pt: past the slop, short of the 93.7 pt commit gate, so this
+        // resolves as the UNDECIDED release a scroll could have stolen.
         for i in 1...6 { out += h.move(to: CGPoint(x: 190, y: 400 + CGFloat(i) * 5)) }
-
         XCTAssertFalse(hasAnyScroll(out), "a transit grab was absorbed by the place under it")
         XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9,
                        "the grab moved the sky's content")
@@ -621,17 +627,20 @@ final class WorldIntegrationTests: XCTestCase {
         h.runToIdle()
         drainMainQueue()
 
-        // Wherever it landed, the world is consistent — and if it landed back
-        // at the sky, that arrival opened on the tip like any other.
+        // Wherever it landed, the world is consistent — and if it landed back at
+        // the sky, that arrival opened on the tip like any other.
         XCTAssertTrue(h.model.camera.isAtRest)
         XCTAssertTrue(h.model.camera.isIdle)
         XCTAssertEqual(h.model.place, h.model.camera.place)
-        XCTAssertTrue([.sky, .field].contains(h.model.place),
+        XCTAssertTrue([Place.sky, .field].contains(h.model.place),
                       "the grab settled somewhere the gesture could not reach")
+        XCTAssertEqual(h.model.camera.offset,
+                       h.model.camera.restOffset(of: h.model.place), accuracy: 1e-9,
+                       "the grab left the world between two places")
         XCTAssertEqual(h.model.skyScroll.offset,
                        h.model.place == .sky ? 0 : skyHistory, accuracy: 1e-9,
-                       "an arrival at the sky must open on the tip; anywhere else must leave "
-                       + "her reading position alone")
+                       "an arrival at the sky must open on the tip; anywhere else must leave her "
+                       + "reading position alone")
         XCTAssertFalse(h.model.worldMoving)
         XCTAssertFalse(h.model.worldAwake)
         XCTAssertFalse(h.arbiter.isTracking)
@@ -642,14 +651,14 @@ final class WorldIntegrationTests: XCTestCase {
     // ─────────────────────────────────────────────────────────────────────────
 
     // A PRESS AT A RESTING PLACE IS A PRESS, EVERYWHERE. Under the conflated
-    // predicate a 3 pt press at the sky armed the camera, put the world into
+    // predicate a 6 pt press at the sky armed the camera, put the world into
     // `.dragging`, dimmed every place and woke the frame clock — while the same
     // press on the field did nothing at all.
     //
     // `WorldRegressionTests` pins this for the camera and arbiter alone. The
-    // composition adds the three things only it can see: the sky's own content
-    // does not move either, the published flags do not latch, and the journal —
-    // a place that never had a scroll — behaves identically.
+    // composition adds the three things only it can see: the place's own
+    // content does not move either, the published flags do not latch, and the
+    // journal — a place that never had a scroll — behaves identically.
     func testASubSlopPressAtAnyRestingPlaceAsksForNothing() {
         for place in [Place.field, .sky, .journal] {
             let h = makeWorld()
@@ -665,9 +674,9 @@ final class WorldIntegrationTests: XCTestCase {
             let restingScroll = h.model.skyScroll.offset
             h.clearLog()
 
-            // Downward, 6 pt — well inside the 10 pt slop, and toward the
-            // journal, where an excursion would have room to show rather than
-            // being absorbed by the end of the axis.
+            // Downward, 6 pt — inside the 10 pt slop, and toward the journal,
+            // where an excursion would have room to show rather than being
+            // absorbed by the end of the axis.
             let p = CGPoint(x: 190, y: 420)
             var out = h.down(p)
             out += h.move(to: CGPoint(x: 190, y: 423))
@@ -677,9 +686,8 @@ final class WorldIntegrationTests: XCTestCase {
             let expected: [InputOutcome] = place == .field ? [.pop(p)] : []
             XCTAssertEqual(out, expected,
                            "a sub-slop press at the resting \(place) asked for something")
-
-            out = h.up(CGPoint(x: 190, y: 426))
-            XCTAssertEqual(out, [], "a touch that never armed had something to terminate")
+            XCTAssertEqual(h.up(CGPoint(x: 190, y: 426)), [],
+                           "a touch that never armed had something to terminate")
 
             XCTAssertEqual(h.model.camera.offset, restingOffset, accuracy: 1e-12,
                            "a 6 pt press at the resting \(place) moved the world")
@@ -688,7 +696,7 @@ final class WorldIntegrationTests: XCTestCase {
             XCTAssertEqual(h.model.place, place, "a press changed the place")
             XCTAssertTrue(h.model.camera.isAtRest)
             XCTAssertTrue(h.model.camera.isIdle)
-            XCTAssertFalse(h.model.worldMoving, "a press woke hit-testing off")
+            XCTAssertFalse(h.model.worldMoving, "a press took hit-testing away")
             XCTAssertFalse(h.model.worldAwake, "a press held the frame clock awake")
             XCTAssertFalse(h.arbiter.isTracking, "the press is still being tracked")
 
@@ -703,27 +711,27 @@ final class WorldIntegrationTests: XCTestCase {
     // MARK: - 6. The latches
     // ─────────────────────────────────────────────────────────────────────────
 
-    // `worldMoving` gates hit-testing; `worldAwake` gates the pause predicate.
-    // A stuck `worldMoving` takes the place's controls away from her; a stuck
-    // `worldAwake` holds the frame clock running forever. Both are set in the
-    // touch handler and cleared on a deferred hop, so the property that must
-    // hold at every observable instant is the IMPLICATION, checked frame by
-    // frame across a whole gesture and its settle:
+    // `worldMoving` gates hit-testing; `worldAwake` gates the pause predicate. A
+    // stuck `worldMoving` takes the place's controls away from her for the rest
+    // of the session; a stuck `worldAwake` holds the frame clock running
+    // forever. Both are set in the touch handler and cleared on a deferred hop,
+    // so what must hold at every observable instant is the IMPLICATION, checked
+    // frame by frame across a whole gesture and its settle:
     //
     //     !camera.isAtRest  ⟹  worldMoving        (never pause a moving world)
     //     !camera.isIdle    ⟹  worldAwake         (never freeze a live envelope)
     //     worldMoving       ⟹  worldAwake         (the render half is weaker)
     //
-    // and then both return to false, once, and stay there.
+    // and then both return to false, and stay there.
     func testTheLatchesRideAWholeGestureAndReturnToRest() {
         let h = makeWorld()
         h.measureSky(tallSkyPath)
         XCTAssertFalse(h.model.worldMoving)
         XCTAssertFalse(h.model.worldAwake)
 
-        // Sample the flags at every point of a real gesture, not just at the
-        // ends: `.panChanged` arrives at digitizer rate and the flags must be
-        // right on every one of them.
+        // Sampled at every point of a real gesture, not only at its ends:
+        // `.panChanged` arrives at digitizer rate and the flags must be right
+        // on every one of them.
         var out = h.down(CGPoint(x: 190, y: 620))
         for i in 1...12 {
             out += h.move(to: CGPoint(x: 190, y: 620 - CGFloat(i) * 24.5))
@@ -732,7 +740,7 @@ final class WorldIntegrationTests: XCTestCase {
         out += h.up(CGPoint(x: 190, y: 620 - 294))
         XCTAssertEqual(commitDirections(out), [.up])
         assertLatchesConsistent(h, "at the commit")
-        XCTAssertTrue(h.model.worldMoving, "the commit did not wake hit-testing off")
+        XCTAssertTrue(h.model.worldMoving, "the commit did not take hit-testing away")
         XCTAssertTrue(h.model.worldAwake, "the commit did not wake the frame clock")
 
         var frames = 0
@@ -745,10 +753,12 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertTrue(h.model.camera.isAtRest)
 
         drainMainQueue()
-        XCTAssertFalse(h.model.worldMoving, "`worldMoving` stayed latched after arrival — the "
-                       + "sky's stars are untappable for the rest of the session")
-        XCTAssertFalse(h.model.worldAwake, "`worldAwake` stayed latched after arrival — the "
-                       + "frame clock never pauses again")
+        XCTAssertFalse(h.model.worldMoving,
+                       "`worldMoving` stayed latched after arrival — the sky's stars are "
+                       + "untappable for the rest of the session")
+        XCTAssertFalse(h.model.worldAwake,
+                       "`worldAwake` stayed latched after arrival — the frame clock never pauses "
+                       + "again and the evening costs battery for nothing")
         XCTAssertEqual(h.model.place, .sky)
         XCTAssertEqual(h.model.place, h.model.camera.place)
 
@@ -761,17 +771,19 @@ final class WorldIntegrationTests: XCTestCase {
 
     // THE CASE THAT PROVES THE TWO FLAGS ARE TWO QUESTIONS, produced by a real
     // gesture rather than a hand-written outcome: a hard flick at the ceiling of
-    // the axis. The commit cannot go anywhere, so the camera stays AT REST —
-    // `worldMoving` correctly never becomes true — and yet an end-of-axis
-    // acknowledgement is armed, which is per-frame state that must be stepped.
-    // If `worldAwake` did not exist, or were derived from `worldMoving`, the
-    // world would pause over a live glow and freeze it part-lit.
+    // the axis. The commit cannot go anywhere, so the settle is zero-length and
+    // the camera comes to REST on the same call — `worldMoving` clears on the
+    // next frame — and yet an end-of-axis acknowledgement is armed, which is
+    // per-frame state that must go on being stepped. If `worldAwake` did not
+    // exist, or were derived from `worldMoving`, the world would pause over a
+    // live glow and freeze it part-lit.
     //
-    // The sky is short here, so its room is empty and the gesture is the plain
-    // one; the point is what the CAMERA does, and that it reaches the model.
+    // The sky is deliberately short here, so its room is empty and the gesture
+    // is the plain one; the subject is what the CAMERA does and that it reaches
+    // the model.
     func testAFlickAtTheCeilingWakesTheClockWithoutMovingTheWorld() {
         let h = makeWorld()
-        h.measureSky(path(3))                 // a sky with nothing to scroll
+        h.measureSky(path(3))                          // a sky with nothing to scroll
         travelUp(h)
         XCTAssertEqual(h.model.place, .sky)
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty, "the fixture's sky has history it should not")
@@ -785,54 +797,60 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.camera.place, .sky, "there is nothing above the sky")
         XCTAssertTrue(h.model.camera.isAtRest,
                       "an axis-gated commit must not put the world into motion")
+        XCTAssertFalse(h.model.camera.isIdle, "no acknowledgement was armed at all")
+
+        // `worldMoving` was set by the drag itself and clears on the frame
+        // after the camera comes to rest; `worldAwake` must NOT clear with it.
+        h.advanceOneFrame()
+        drainMainQueue()
         XCTAssertFalse(h.model.worldMoving,
-                       "hit-testing was taken away for a flick that moved nothing — the sky's "
+                       "hit-testing is still off after a flick that moved nothing — the sky's "
                        + "stars go dead for a third of a second after every flick at the ceiling")
         XCTAssertTrue(h.model.worldAwake,
-                      "the frame clock was not woken, so the acknowledgement will never be "
-                      + "stepped and the glow freezes at whatever fraction it reached")
-        XCTAssertFalse(h.model.camera.isIdle)
+                      "the frame clock was allowed to pause, so the acknowledgement will never be "
+                      + "stepped and the glow freezes at whatever fraction it had reached")
 
-        // The place still answers, all the way through: `placeScrollRoom` reads
-        // `isAtRest`, which stays true for the whole acknowledgement.
         var frames = 0
         while !h.model.camera.isIdle && frames < 20_000 {
             h.advanceOneFrame()
             frames += 1
-            XCTAssertTrue(h.model.camera.isAtRest, "the acknowledgement moved the world")
-            XCTAssertFalse(h.model.worldMoving)
-            XCTAssertTrue(h.model.worldAwake)
+            XCTAssertTrue(h.model.camera.isAtRest, "the acknowledgement translated the world")
+            XCTAssertFalse(h.model.worldMoving, "frame \(frames): hit-testing went off again")
+            XCTAssertTrue(h.model.worldAwake, "frame \(frames): the clock was paused mid-glow")
+            // The place goes on answering throughout: `placeScrollRoom` reads
+            // `isAtRest`, which stays true for the whole envelope.
+            XCTAssertTrue(h.model.camera.isAtRest && h.model.camera.place == .sky)
         }
-        XCTAssertGreaterThan(frames, 10, "the acknowledgement was not stepped at all")
+        XCTAssertGreaterThan(frames, 10, "the acknowledgement was never stepped")
         XCTAssertEqual(h.model.camera.offset, restingOffset, accuracy: 1e-12,
-                       "the acknowledgement translated the world")
+                       "the acknowledgement moved the world")
 
         drainMainQueue()
         XCTAssertFalse(h.model.worldAwake, "`worldAwake` stayed latched after the glow faded")
         XCTAssertEqual(h.model.place, .sky)
     }
 
-    private func assertLatchesConsistent(_ h: World, _ where_: String,
-                                        file: StaticString = #filePath, line: UInt = #line) {
+    private func assertLatchesConsistent(_ h: World, _ moment: String,
+                                         file: StaticString = #filePath, line: UInt = #line) {
         if !h.model.camera.isAtRest {
             XCTAssertTrue(h.model.worldMoving,
-                          "\(where_): the camera is moving and `worldMoving` is false — the pause "
+                          "\(moment): the camera is moving and `worldMoving` is false — the pause "
                           + "predicate would have frozen the world mid-settle",
                           file: file, line: line)
         }
         if !h.model.camera.isIdle {
             XCTAssertTrue(h.model.worldAwake,
-                          "\(where_): the camera has state left to step and `worldAwake` is false",
+                          "\(moment): the camera has state left to step and `worldAwake` is false",
                           file: file, line: line)
         }
         if h.model.worldMoving {
             XCTAssertTrue(h.model.worldAwake,
-                          "\(where_): `worldMoving` without `worldAwake` — the render half must "
-                          + "be strictly weaker, or the clock pauses over a travelling world",
+                          "\(moment): `worldMoving` without `worldAwake` — the render half must be "
+                          + "strictly weaker, or the clock pauses over a travelling world",
                           file: file, line: line)
         }
         XCTAssertEqual(h.model.place, h.model.camera.place,
-                       "\(where_): the published place drifted from the camera",
+                       "\(moment): the published place drifted from the camera",
                        file: file, line: line)
     }
 
@@ -841,36 +859,35 @@ final class WorldIntegrationTests: XCTestCase {
     // ─────────────────────────────────────────────────────────────────────────
 
     // The room a place offers is `.none` everywhere except a RESTING sky, and
-    // both halves of that guard matter. Checked at every frame of a real
-    // round trip, because the two moments it is easiest to get wrong are the
-    // frame after a commit (place already says `.sky`, the world is still
-    // travelling) and the frame after arrival.
+    // both halves of that guard matter. Checked at every frame of a real round
+    // trip, because the two moments easiest to get wrong are the frame after a
+    // commit — `place` already says `.sky` while the world is still travelling
+    // — and the frame after arrival.
     func testPlaceScrollRoomIsOfferedOnlyByARestingSky() {
         let h = makeWorld()
-        h.measureSky(tallSkyPath)
+        h.measureSky(shortSkyPath)
 
-        func check(_ where_: String) {
+        func check(_ moment: String) {
             let room = h.model.placeScrollRoom
-            let restingAtSky = h.model.camera.isAtRest && h.model.camera.place == .sky
-            if !restingAtSky {
-                XCTAssertTrue(room.isEmpty,
-                              "\(where_): room offered while \(restingAtSky ? "" : "not ")"
-                              + "resting at the sky (place \(h.model.camera.place), "
-                              + "atRest \(h.model.camera.isAtRest))")
-            } else {
+            if h.model.camera.isAtRest && h.model.camera.place == .sky {
                 XCTAssertEqual(room, h.model.skyScroll.room,
-                               "\(where_): the resting sky offered something other than its own room")
+                               "\(moment): the resting sky offered something other than its room")
+            } else {
+                XCTAssertTrue(room.isEmpty,
+                              "\(moment): room offered away from a resting sky (place "
+                              + "\(h.model.camera.place), atRest \(h.model.camera.isAtRest))")
             }
         }
 
         check("at the field, at rest")
+        XCTAssertTrue(h.model.placeScrollRoom.isEmpty)
 
-        // Field → sky, checked every frame of the journey.
+        // Field → sky.
         var out = h.drag(fromY: 620, toY: 326)
         XCTAssertEqual(commitDirections(out), [.up])
-        check("the instant of the commit — place is already `.sky`, the world is not")
+        check("the instant of the commit — `place` is already `.sky`, the world is not")
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty,
-                      "a world in flight offered the sky's room; a grab would be eaten by a scroll")
+                      "a world in flight offered the sky's room, so a grab could be eaten")
         var frames = 0
         while !h.model.camera.isIdle && frames < 20_000 {
             h.advanceOneFrame()
@@ -881,20 +898,32 @@ final class WorldIntegrationTests: XCTestCase {
         check("arrived at the sky")
         XCTAssertFalse(h.model.placeScrollRoom.isEmpty, "the resting sky offered nothing")
 
-        // Sky → journal, through the field, checked the same way.
-        for _ in 0..<2 {
-            out = h.drag(fromY: 240, toY: 700)
-            XCTAssertEqual(commitDirections(out), [.down])
-            check("the instant of a downward commit")
-            frames = 0
-            while !h.model.camera.isIdle && frames < 20_000 {
-                h.advanceOneFrame()
-                frames += 1
-                check("field-bound frame \(frames)")
-            }
-            drainMainQueue()
-            check("arrived at \(h.model.place)")
+        // Sky → field: 84 pt of sky, then 200 pt of world, in one gesture.
+        out = h.drag(fromY: 150, toY: 444)
+        XCTAssertEqual(commitDirections(out), [.down])
+        check("the instant of the downward commit off the sky")
+        frames = 0
+        while !h.model.camera.isIdle && frames < 20_000 {
+            h.advanceOneFrame()
+            frames += 1
+            check("field-bound frame \(frames)")
         }
+        drainMainQueue()
+        check("arrived at the field")
+        XCTAssertEqual(h.model.place, .field)
+
+        // Field → journal.
+        out = h.drag(fromY: 240, toY: 534)
+        XCTAssertEqual(commitDirections(out), [.down])
+        check("the instant of the downward commit off the field")
+        frames = 0
+        while !h.model.camera.isIdle && frames < 20_000 {
+            h.advanceOneFrame()
+            frames += 1
+            check("journal-bound frame \(frames)")
+        }
+        drainMainQueue()
+        check("arrived at the journal")
         XCTAssertEqual(h.model.place, .journal)
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty, "the journal offered the sky's room")
     }
@@ -907,7 +936,7 @@ final class WorldIntegrationTests: XCTestCase {
     // one definition of how much history there is; the input layer's room and
     // the drawing's window both come from it, so the property to pin is that
     // the room production actually offers is exactly that number, at every map
-    // size — including past the cap, where the store still holds every stone
+    // length — including past the cap, where the store still holds every stone
     // (W08: nothing is ever deleted) and the sky simply stops drawing the
     // oldest of them.
     func testTheSkyNeverOffersMoreRoomThanItHasAsTheMapGrows() {
@@ -926,34 +955,37 @@ final class WorldIntegrationTests: XCTestCase {
                                      "\(generations) generations escaped the history cap")
             XCTAssertEqual(room.up + room.down, expected, accuracy: 1e-9,
                            "\(generations) generations: the room offered is not the history the "
-                           + "sky can draw")
+                           + "sky can actually draw")
             XCTAssertGreaterThanOrEqual(room.up, 0)
             XCTAssertGreaterThanOrEqual(room.down, 0)
             XCTAssertGreaterThanOrEqual(h.model.skyScroll.offset, 0)
             XCTAssertLessThanOrEqual(h.model.skyScroll.offset, expected + 1e-9,
-                                     "the scroll is outside the sky it can draw")
+                                     "the scroll sits outside the sky it can draw")
             XCTAssertGreaterThanOrEqual(expected, previousMax - 1e-9,
                                         "a longer path offered less history than a shorter one")
             previousMax = expected
         }
     }
 
-    // GROWTH KEEPS HER WHERE SHE WAS; A SMALLER SCREEN ONLY RE-CLAMPS HER. Both
-    // paths are driven through the composition, because the values that must
+    // GROWTH KEEPS HER WHERE SHE WAS READING; A RESIZE ONLY RE-MEASURES AND
+    // RE-CLAMPS. Driven through the composition because the values that must
     // stay consistent live in three objects: the arbiter's bounds, the camera's
     // view height, and the scroll's metrics.
     func testTheScrollStaysInsideItsBoundsAsTheMapGrowsAndTheScreenResizes() {
         let h = makeWorld()
         atRestingSky(h, stones: tallSkyPath)
-
-        // Scroll all the way back along the path she has.
         let tall = history(tallSkyPath, screen)
-        h.drag(fromY: 120, toY: 120 + slop + tall + 40, stillBeforeRelease: true)
+
+        // All the way back along the path she has, and no further: the drag is
+        // exactly the room, so the camera is never armed and stays at rest.
+        h.drag(fromY: 120, toY: 120 + slop + tall, stillBeforeRelease: true)
         XCTAssertEqual(h.model.skyScroll.offset, tall, accuracy: 1e-9,
                        "the drag did not reach the root of the drawn tree")
+        XCTAssertTrue(h.model.camera.isAtRest, "the drag spilled into the camera")
+        XCTAssertEqual(h.model.place, .sky)
 
-        // A stone arrives while she is looking back. She stays where she was
-        // reading, and the sky simply has more above her.
+        // A stone arrives while she is looking back: she stays where she was,
+        // and the sky simply has more above her.
         let longer = path(20)
         h.measureSky(longer)
         XCTAssertEqual(h.model.skyScroll.offset, tall, accuracy: 1e-9,
@@ -961,8 +993,9 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.placeScrollRoom.up + h.model.placeScrollRoom.down,
                        history(longer, screen), accuracy: 1e-9)
 
-        // Split View: a much shorter screen. Everything is re-measured, the
-        // offset is re-clamped, and the room still matches the drawing.
+        // Split View: a much shorter window. Everything is re-measured, the
+        // offset is re-clamped against it, and the room still matches what can
+        // be drawn.
         let small = CGSize(width: 320, height: 420)
         h.resize(to: small)
         h.measureSky(longer)
@@ -975,25 +1008,27 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.camera.viewHeight, small.height,
                        "the camera was not told the world got shorter")
 
-        // And a degenerate window — shorter than the two insets — offers
-        // nothing at all rather than phantom room.
+        // A degenerate window — shorter than the two insets — has no band to
+        // draw stars in, and must offer nothing rather than phantom room.
         let sliver = CGSize(width: 320, height: 200)
         h.resize(to: sliver)
         h.measureSky(longer)
         XCTAssertTrue(h.model.placeScrollRoom.isEmpty,
-                      "a window with no band to draw stars in still offered scroll room")
+                      "a window with nowhere to draw a star still offered scroll room")
         XCTAssertEqual(h.model.skyScroll.offset, 0, accuracy: 1e-9)
 
-        // The world is still hers afterwards.
+        // And the world is still hers afterwards.
         h.resize(to: screen)
         h.measureSky(longer)
         XCTAssertTrue(h.model.camera.isAtRest)
         XCTAssertEqual(h.model.place, .sky)
         XCTAssertFalse(h.model.placeScrollRoom.isEmpty)
+        XCTAssertEqual(h.model.placeScrollRoom.up + h.model.placeScrollRoom.down,
+                       history(longer, screen), accuracy: 1e-9)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // MARK: - 9. A cancelled gesture leaves nothing behind
+    // MARK: - 9. Cancellation leaves nothing behind
     // ─────────────────────────────────────────────────────────────────────────
 
     // The system takes the touch away mid-scroll (a call arrives). The sky is
@@ -1012,8 +1047,7 @@ final class WorldIntegrationTests: XCTestCase {
         let scrolled = h.model.skyScroll.offset
         XCTAssertEqual(scrolled, 240 - slop, accuracy: 1e-9)
 
-        let tail = h.cancel()
-        XCTAssertEqual(tail, [.scrollEnded(velocity: 0)],
+        XCTAssertEqual(h.cancel(), [.scrollEnded(velocity: 0)],
                        "a cancelled scroll must release the place and nothing else — a "
                        + "`.cancelToRest` here starts a settle nobody asked for")
         XCTAssertEqual(h.model.skyScroll.offset, scrolled, accuracy: 1e-9,
@@ -1024,18 +1058,19 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertFalse(h.model.worldAwake)
         XCTAssertFalse(h.arbiter.isTracking, "the cancelled touch is still being tracked")
 
-        // A second cancel is idempotent, and the next gesture starts clean.
+        // A second cancel is idempotent, and the next gesture starts clean and
+        // measures from where the sky actually is.
         XCTAssertEqual(h.cancel(), [])
         h.clearLog()
         out = h.drag(fromY: 500, toY: 380, stillBeforeRelease: true)
         XCTAssertTrue(out.contains(.scrollBegan), "the next gesture did not start clean")
         XCTAssertEqual(h.model.skyScroll.offset, scrolled - (120 - slop), accuracy: 1e-9,
-                       "the sky did not measure the new gesture from where it actually was")
+                       "the sky did not measure the new gesture from where it had come to rest")
     }
 
-    // The other half: cancelled after the camera HAS been armed. The camera is
-    // sent exactly one terminator, and the sky is released too — one gesture,
-    // two places, both ended.
+    // The other half: cancelled after the camera HAS been armed. Exactly one
+    // terminator for each half, in order — one gesture, two places, both ended
+    // — and the camera is not stranded in `.dragging` with no finger on it.
     func testACancelAfterTheSkyRanOutTerminatesBothHalvesExactlyOnce() {
         let h = makeWorld()
         atRestingSky(h, stones: shortSkyPath)
@@ -1047,8 +1082,7 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertTrue(out.contains(.panBegan), "the leftover never reached the camera")
         XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9)
 
-        let tail = h.cancel()
-        XCTAssertEqual(tail, [.scrollEnded(velocity: 0), .cancelToRest],
+        XCTAssertEqual(h.cancel(), [.scrollEnded(velocity: 0), .cancelToRest],
                        "a cancelled gesture that reached both halves must end both, in that "
                        + "order, exactly once")
         XCTAssertEqual(h.model.place, .sky, "a cancel changed the place")
@@ -1063,6 +1097,7 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertFalse(h.model.worldAwake)
         XCTAssertEqual(h.model.skyScroll.offset, skyHistory, accuracy: 1e-9,
                        "springing the camera home also threw away her reading position")
+        XCTAssertFalse(h.arbiter.isTracking)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1072,131 +1107,181 @@ final class WorldIntegrationTests: XCTestCase {
     // A LONG SESSION OF MIXED GESTURES, AND THE WORLD IS CONSISTENT AFTER EVERY
     // ONE OF THEM. Pops, sub-slop presses, scrolls, decisive swipes, drags that
     // die in the edge dead zone, settles interrupted by the next touch, and
-    // system cancellations, in a seeded order, with the map growing and the
-    // screen resizing underneath.
+    // system cancellations — in a seeded order, with the map growing and the
+    // screen resizing underneath her.
     //
-    // Everything here is checked as an INVARIANT rather than as an expected
-    // value, because the point is not that a particular gesture does a
-    // particular thing — the component tests own that — but that no ORDER of
-    // gestures can leave the composition in a state it cannot get out of.
+    // Everything is checked as an INVARIANT rather than as an expected value:
+    // the point is not that a particular gesture does a particular thing (the
+    // component tests own that) but that no ORDER of gestures can leave the
+    // composition in a state it cannot get out of.
+    //
+    // COVERAGE IS SCRIPTED, NOT HOPED FOR. Every sixth step of the first
+    // quarter runs a fixed sequence — reach the sky, scroll it, leave it, and
+    // catch the settle four frames in — so the counters below are guaranteed by
+    // construction rather than by the seed happening to be lucky. The map only
+    // starts growing afterwards, so that sequence never depends on a sky whose
+    // size the fuzz has changed.
     func testAScriptedSessionOfMixedGesturesAlwaysLeavesTheWorldConsistent() {
         let h = makeWorld()
-        var stones = path(4)
+        var stones = shortSkyPath                 // 84 pt of history, from the start
         h.measureSky(stones)
 
-        var rng = SplitMix64(seed: 0x5645_5350_4552_0001)   // "VESPER" + 1
-        var pops = 0
-        var scrolls = 0
-        var commits = 0
-        var grabs = 0
+        var rng = SplitMix64(seed: 0x5645_5350_4552_0001)
+        var pops = 0, scrolls = 0, commits = 0, grabs = 0, gestures = 0
 
-        for step in 1...240 {
-            // Everything the invariants need to know about the world BEFORE the
-            // gesture, read live from the same predicates production reads.
+        // One gesture, its preconditions read live from the same predicates
+        // production reads, and every invariant that must hold across it.
+        func perform(_ label: String, _ body: () -> [InputOutcome]) {
             let wasFieldAtRest = h.model.simActive
             let wasCameraResting = h.model.cameraResting
             let placeBefore = h.model.place
             h.clearLog()
-
-            // Origins are kept out of the edge dead zone most of the time and
-            // deliberately inside it sometimes: a swipe that begins in the zone
-            // must still be silent, and silence is a state too.
-            let inZone = Int.random(in: 0..<6, using: &rng) == 0
-            let y0: CGFloat = inZone
-                ? CGFloat.random(in: 4...(deadZone - 4), using: &rng)
-                : CGFloat.random(in: (deadZone + 20)...(screen.height - deadZone - 20), using: &rng)
-            let x = CGFloat.random(in: 30...(screen.width - 30), using: &rng)
-
-            var out: [InputOutcome] = []
-            switch Int.random(in: 0..<7, using: &rng) {
-
-            case 0:                                     // a tap
-                out += h.down(CGPoint(x: x, y: y0))
-                out += h.up(CGPoint(x: x, y: y0))
-
-            case 1:                                     // a sub-slop press
-                let dy = CGFloat.random(in: -9...9, using: &rng)
-                out += h.down(CGPoint(x: x, y: y0))
-                out += h.move(to: CGPoint(x: x, y: y0 + dy))
-                out += h.hold(at: CGPoint(x: x, y: y0 + dy))
-                out += h.up(CGPoint(x: x, y: y0 + dy))
-
-            case 2, 3:                                  // a slow drag, no flick
-                let dy = CGFloat.random(in: -260...260, using: &rng)
-                let end = min(max(y0 + dy, 2), screen.height - 2)
-                out += h.drag(fromY: y0, toY: end, x: x, steps: 14, stillBeforeRelease: true)
-
-            case 4, 5:                                  // a decisive swipe
-                let sign: CGFloat = Bool.random(using: &rng) ? 1 : -1
-                let dy = sign * CGFloat.random(in: 240...420, using: &rng)
-                let end = min(max(y0 + dy, 2), screen.height - 2)
-                out += h.drag(fromY: y0, toY: end, x: x, steps: 10)
-
-            default:                                    // the system takes it away
-                let dy = CGFloat.random(in: -200...200, using: &rng)
-                out += h.down(CGPoint(x: x, y: y0))
-                for i in 1...6 {
-                    out += h.move(to: CGPoint(x: x, y: y0 + dy * CGFloat(i) / 6))
-                }
-                out += h.cancel()
-            }
-
-            // ── Per-gesture invariants ───────────────────────────────────────
+            let out = body()
+            gestures += 1
 
             // THE POP IS NEVER LOST TO A PAN, AND NEVER STOLEN FROM ONE. It is
             // emitted exactly when the field predicate said so at touch-down —
-            // no more (an orb popped on a field she cannot see) and no less (a
-            // tap eaten because a drag might follow).
+            // no more (an orb popped on a field she cannot see) and no fewer (a
+            // tap eaten because a drag might have followed).
             XCTAssertEqual(popPoints(out).count, wasFieldAtRest ? 1 : 0,
-                           "step \(step): the field was \(wasFieldAtRest ? "" : "not ")at rest "
-                           + "and \(popPoints(out).count) pops were emitted")
+                           "\(label): the field was \(wasFieldAtRest ? "" : "not ")at rest and "
+                           + "\(popPoints(out).count) pops were emitted")
 
             // A gesture is never both. Production never offers scroll room over
             // a poppable field, and this is where that would show.
             XCTAssertFalse(!popPoints(out).isEmpty && hasAnyScroll(out),
-                           "step \(step): one gesture both popped an orb and scrolled the sky")
+                           "\(label): one gesture both popped an orb and scrolled the sky")
 
-            // A grab of a world in flight belongs entirely to the camera.
             if !wasCameraResting {
                 grabs += 1
                 XCTAssertFalse(hasAnyScroll(out),
-                               "step \(step): a transit grab was absorbed by the place under it")
-                XCTAssertTrue(popPoints(out).isEmpty,
-                              "step \(step): a transit grab popped something")
+                               "\(label): a transit grab was absorbed by the place under it")
+                XCTAssertTrue(popPoints(out).isEmpty, "\(label): a transit grab popped something")
             }
 
-            // Scroll outcomes can only ever have come from a resting sky.
             if hasAnyScroll(out) {
                 scrolls += 1
                 XCTAssertEqual(placeBefore, .sky,
-                               "step \(step): a place that is not the sky produced scroll outcomes")
+                               "\(label): a place that is not the sky produced scroll outcomes")
                 XCTAssertTrue(wasCameraResting,
-                              "step \(step): a world in flight produced scroll outcomes")
+                              "\(label): a world in flight produced scroll outcomes")
             }
 
             pops += popPoints(out).count
             commits += commitDirections(out).count
 
             XCTAssertFalse(h.arbiter.isTracking,
-                           "step \(step): the gesture ended and the arbiter is still tracking a "
-                           + "touch — every future gesture in this session is now refused")
-            assertWorldConsistent(h, "step \(step), after the gesture", stones: stones)
+                           "\(label): the gesture ended and the arbiter is still tracking a touch "
+                           + "— every future gesture in this session would be refused")
+            assertWorldConsistent(h, "\(label), after the gesture", stones: stones)
+        }
 
-            // ── A random number of frames: sometimes a full settle, sometimes
-            //    an interruption the next gesture will grab. ─────────────────
+        for step in 1...240 {
+
+            if step % 6 == 0 && step <= 60 {
+                // ── The scripted interlude ──────────────────────────────────
+                h.runToIdle()
+
+                // Reach the sky. At most two ascents (journal → field → sky),
+                // each one a guaranteed commit from a place with no room.
+                var ascents = 0
+                while h.model.camera.place != .sky && ascents < 4 {
+                    perform("step \(step) ascent") { h.drag(fromY: 620, toY: 326) }
+                    ascents += 1
+                    h.runToIdle()
+                }
+                XCTAssertEqual(h.model.camera.place, .sky, "step \(step): never reached the sky")
+
+                // Scroll it. The sky always has 84 pt, so room is never empty
+                // and this always reaches the place rather than the camera.
+                perform("step \(step) sky scroll") {
+                    h.drag(fromY: 200, toY: 260, stillBeforeRelease: true)
+                }
+                h.runToIdle()
+
+                // Leave it — 84 pt of sky at most, then 200 pt of world, so the
+                // leftover always clears the commit gate.
+                perform("step \(step) descent") { h.drag(fromY: 150, toY: 444) }
+
+                // And catch the world four frames into a settle that is at
+                // least thirty-six frames long.
+                h.frames(4)
+                perform("step \(step) transit grab") {
+                    var o = h.down(CGPoint(x: 190, y: 400))
+                    for i in 1...6 { o += h.move(to: CGPoint(x: 190, y: 400 + CGFloat(i) * 5)) }
+                    o += h.up(CGPoint(x: 190, y: 430))
+                    return o
+                }
+                h.runToIdle()
+
+            } else {
+                // ── The fuzz ────────────────────────────────────────────────
+                //
+                // Origins are kept out of the edge dead zone most of the time
+                // and deliberately inside it sometimes: a swipe that begins in
+                // the zone must still be silent, and silence is a state too.
+                let inZone = Int.random(in: 0..<6, using: &rng) == 0
+                let y0: CGFloat = inZone
+                    ? CGFloat.random(in: 4...(deadZone - 4), using: &rng)
+                    : CGFloat.random(in: (deadZone + 20)...(screen.height - deadZone - 20),
+                                     using: &rng)
+                let x = CGFloat.random(in: 30...(screen.width - 30), using: &rng)
+                let kind = Int.random(in: 0..<7, using: &rng)
+                let slowDy = CGFloat.random(in: -260...260, using: &rng)
+                let fastSign: CGFloat = Bool.random(using: &rng) ? 1 : -1
+                let fastDy = fastSign * CGFloat.random(in: 240...420, using: &rng)
+                let subSlopDy = CGFloat.random(in: -9...9, using: &rng)
+                let cancelDy = CGFloat.random(in: -200...200, using: &rng)
+
+                perform("step \(step) kind \(kind)") {
+                    switch kind {
+                    case 0:                                    // a tap
+                        return h.down(CGPoint(x: x, y: y0)) + h.up(CGPoint(x: x, y: y0))
+
+                    case 1:                                    // a sub-slop press
+                        var o = h.down(CGPoint(x: x, y: y0))
+                        o += h.move(to: CGPoint(x: x, y: y0 + subSlopDy))
+                        o += h.hold(at: CGPoint(x: x, y: y0 + subSlopDy))
+                        o += h.up(CGPoint(x: x, y: y0 + subSlopDy))
+                        return o
+
+                    case 2, 3:                                 // a slow drag, no flick
+                        let end = min(max(y0 + slowDy, 2), self.screen.height - 2)
+                        return h.drag(fromY: y0, toY: end, x: x, steps: 14,
+                                      stillBeforeRelease: true)
+
+                    case 4, 5:                                 // a decisive swipe
+                        let end = min(max(y0 + fastDy, 2), self.screen.height - 2)
+                        return h.drag(fromY: y0, toY: end, x: x, steps: 10)
+
+                    default:                                   // the system takes it away
+                        var o = h.down(CGPoint(x: x, y: y0))
+                        for i in 1...6 {
+                            o += h.move(to: CGPoint(x: x, y: y0 + cancelDy * CGFloat(i) / 6))
+                        }
+                        o += h.cancel()
+                        return o
+                    }
+                }
+            }
+
+            // A random number of frames: sometimes a full settle, sometimes an
+            // interruption the next gesture will catch.
             let budget = Int.random(in: 0...90, using: &rng)
             for i in 0..<budget {
                 h.advanceOneFrame()
                 assertWorldConsistent(h, "step \(step), frame \(i)", stones: stones)
             }
 
-            // The world changes shape under her from time to time.
-            if step % 17 == 0 {
+            // The world changes shape under her from time to time — but never
+            // during the scripted quarter, whose distances depend on the sky
+            // staying the size it was measured at.
+            if step > 60 && step % 17 == 0 {
                 stones = path(stones.count + Int.random(in: 1...6, using: &rng))
                 h.measureSky(stones)
                 assertWorldConsistent(h, "step \(step), after the map grew", stones: stones)
             }
-            if step % 43 == 0 {
+            if step > 60 && step % 43 == 0 {
                 let heights: [CGFloat] = [852, 667, 1_024, 420]
                 let height = heights[Int.random(in: 0..<heights.count, using: &rng)]
                 h.resize(to: CGSize(width: 393, height: height))
@@ -1204,25 +1289,27 @@ final class WorldIntegrationTests: XCTestCase {
                 assertWorldConsistent(h, "step \(step), after the resize", stones: stones)
                 h.resize(to: screen)
                 h.measureSky(stones)
+                assertWorldConsistent(h, "step \(step), after the resize back", stones: stones)
             }
         }
 
         // ── The session ends. Nothing may be stuck. ─────────────────────────
-        let frames = h.runToIdle()
-        XCTAssertLessThan(frames, 20_000, "the world never came to rest")
+        let tail = h.runToIdle()
+        XCTAssertLessThan(tail, 20_000, "the world never came to rest")
         drainMainQueue()
 
         print("""
-        [WorldIntegration] 240 gestures: \(pops) pops, \(scrolls) scrolling gestures, \
-        \(commits) commits, \(grabs) transit grabs, \(stones.count) generations at the end
+        [WorldIntegration] \(gestures) gestures over 240 steps: \(pops) pops, \
+        \(scrolls) scrolling gestures, \(commits) commits, \(grabs) transit grabs; \
+        \(stones.count) generations of sky at the end
         """)
 
-        XCTAssertGreaterThan(pops, 0, "the session never popped anything — the script degenerated")
-        XCTAssertGreaterThan(commits, 0, "the session never travelled — the script degenerated")
-        XCTAssertGreaterThan(scrolls, 0, "the session never scrolled the sky — the script "
-                             + "degenerated, and the feature under test was never exercised")
-        XCTAssertGreaterThan(grabs, 0, "the session never caught a world in flight — the script "
-                             + "degenerated")
+        XCTAssertGreaterThan(pops, 0, "the session never popped anything")
+        XCTAssertGreaterThan(commits, 0, "the session never travelled")
+        XCTAssertGreaterThan(scrolls, 0,
+                             "the session never scrolled the sky — the feature under test was "
+                             + "never exercised at all")
+        XCTAssertGreaterThan(grabs, 0, "the session never caught a world in flight")
 
         XCTAssertTrue(h.model.camera.isAtRest, "the camera did not come to rest")
         XCTAssertTrue(h.model.camera.isIdle, "the camera still has state left to step")
@@ -1230,54 +1317,59 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.camera.offset,
                        h.model.camera.restOffset(of: h.model.camera.place), accuracy: 1e-9,
                        "the world came to rest between two places")
-        XCTAssertFalse(h.model.worldMoving, "`worldMoving` is stuck true — the place's controls "
-                       + "are disabled for the rest of the session")
-        XCTAssertFalse(h.model.worldAwake, "`worldAwake` is stuck true — the frame clock will "
-                       + "never pause again")
+        XCTAssertFalse(h.model.worldMoving,
+                       "`worldMoving` is stuck true — the place's controls are disabled for the "
+                       + "rest of the evening")
+        XCTAssertFalse(h.model.worldAwake,
+                       "`worldAwake` is stuck true — the frame clock will never pause again")
         XCTAssertFalse(h.arbiter.isTracking, "a touch is still armed with no finger on the glass")
         assertWorldConsistent(h, "at the end of the session", stones: stones)
     }
 
     // Everything that must be true of the composition at every observable
     // instant, whatever happened before it.
-    private func assertWorldConsistent(_ h: World, _ where_: String, stones: [MapStone],
+    private func assertWorldConsistent(_ h: World, _ moment: String, stones: [MapStone],
                                        file: StaticString = #filePath, line: UInt = #line) {
         // The published place is a mirror of the camera's, written in the touch
         // handler and nowhere else.
         XCTAssertEqual(h.model.place, h.model.camera.place,
-                       "\(where_): the published place drifted from the camera",
+                       "\(moment): the published place drifted from the camera",
                        file: file, line: line)
 
         // The latches never lie in the direction that costs something.
         if !h.model.camera.isAtRest {
             XCTAssertTrue(h.model.worldMoving,
-                          "\(where_): the camera is moving and the pause predicate would freeze it",
+                          "\(moment): the camera is moving and the pause predicate would freeze it",
                           file: file, line: line)
         }
         if !h.model.camera.isIdle {
             XCTAssertTrue(h.model.worldAwake,
-                          "\(where_): the camera has state to step and the clock may pause",
+                          "\(moment): the camera has state to step and the clock may pause",
                           file: file, line: line)
         }
         if h.model.worldMoving {
             XCTAssertTrue(h.model.worldAwake,
-                          "\(where_): `worldMoving` outlived `worldAwake`",
+                          "\(moment): `worldMoving` outlived `worldAwake`",
                           file: file, line: line)
         }
 
-        // The sim gate and the input layer's field predicate are ONE predicate.
+        // The sim gate and the input layer's field predicate are ONE predicate,
+        // so they cannot drift apart (R-ARCH blocking acceptance).
         XCTAssertEqual(h.model.simActive,
                        h.model.camera.isAtRest && h.model.camera.place == .field,
-                       "\(where_): `simActive` drifted from its own definition",
+                       "\(moment): `simActive` drifted from its own definition",
+                       file: file, line: line)
+        XCTAssertEqual(h.model.cameraResting, h.model.camera.isAtRest,
+                       "\(moment): `cameraResting` drifted from the camera",
                        file: file, line: line)
 
         // The scroll is inside the sky that can actually be drawn.
         let maxOffset = SkyLayout.metrics(stones: stones, size: h.size).maxOffset
         XCTAssertGreaterThanOrEqual(h.model.skyScroll.offset, -1e-9,
-                                    "\(where_): the sky scrolled below its tip",
+                                    "\(moment): the sky scrolled below its own tip",
                                     file: file, line: line)
         XCTAssertLessThanOrEqual(h.model.skyScroll.offset, maxOffset + 1e-9,
-                                 "\(where_): the sky scrolled past what it can draw",
+                                 "\(moment): the sky scrolled past what it can draw",
                                  file: file, line: line)
 
         // And room is only ever offered by a resting sky, and only ever the
@@ -1285,12 +1377,12 @@ final class WorldIntegrationTests: XCTestCase {
         let room = h.model.placeScrollRoom
         if h.model.camera.isAtRest && h.model.camera.place == .sky {
             XCTAssertEqual(room.up + room.down, maxOffset, accuracy: 1e-6,
-                           "\(where_): the resting sky offered room it cannot draw",
+                           "\(moment): the resting sky offered room it cannot draw",
                            file: file, line: line)
         } else {
             XCTAssertTrue(room.isEmpty,
-                          "\(where_): room was offered away from a resting sky "
-                          + "(place \(h.model.camera.place), atRest \(h.model.camera.isAtRest))",
+                          "\(moment): room was offered away from a resting sky (place "
+                          + "\(h.model.camera.place), atRest \(h.model.camera.isAtRest))",
                           file: file, line: line)
         }
     }
