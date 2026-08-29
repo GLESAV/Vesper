@@ -138,6 +138,14 @@ final class WorldModel: ObservableObject {
     // each end of every settle, and being wrong there costs a pop.
     var simActive: Bool { camera.isAtRest && camera.place == .field }
 
+    // The transit-grab question, for the input layer's `isCameraAtRest`: is
+    // the camera at rest ANYWHERE — sky, field, or journal. Deliberately not
+    // `simActive`: that predicate is false at the resting sky, and deciding
+    // the grab from it made every sky touch arm the camera at touch-down,
+    // which is what kept `placeScrollRoom` from ever being consulted.
+    // Computed, never stored, for the same staleness reason as `simActive`.
+    var cameraResting: Bool { camera.isAtRest }
+
     // MARK: - How much of a drag the current place wants
 
     /// Answers the input layer's one question about the place she is standing

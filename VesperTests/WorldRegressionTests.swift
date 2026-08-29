@@ -66,7 +66,8 @@ final class WorldRegressionTests: XCTestCase {
     // would make most of this file pass for the wrong reason.
     private func makeArbiter(reading camera: WorldCamera) -> InputArbiter {
         InputArbiter(bounds: screen,
-                     isFieldAtRest: { camera.isAtRest && camera.place == .field })
+                     isFieldAtRest: { camera.isAtRest && camera.place == .field },
+                     isCameraAtRest: { camera.isAtRest })
     }
 
     private func isPop(_ outcome: InputOutcome) -> Bool {
@@ -707,20 +708,17 @@ final class WorldRegressionTests: XCTestCase {
         XCTAssertEqual(pops, 200, "every tap on a resting field must pop")
     }
 
-    // A NOTED EXPOSURE, measured rather than hidden.
+    // THE EXPOSURE THIS TEST USED TO MEASURE IS REPAIRED. The arbiter once
+    // decided the transit grab from `!isFieldAtRest()`, so at the resting sky
+    // an ordinary press read as a grab of a world in flight: the pan armed
+    // with no slop and a 3 pt thumb wobble moved the world where the same
+    // wobble on the field moved it not at all. The grab decision now has its
+    // own question — `isCameraAtRest` — so a press at a RESTING place is a
+    // press, with the same slop everywhere.
     //
-    // `isFieldAtRest` answers two questions at once: may this touch pop, and is
-    // this touch a transit grab. At the sky and the journal the camera is at
-    // rest but the FIELD is not the place, so the predicate is false and the
-    // arbiter treats an ordinary press as a transit grab — arming the pan with
-    // NO slop. The invariant that matters still holds (the world cannot change
-    // place, and a sub-slop press settles straight back), but a thumb wobble at
-    // the sky moves the world where the same wobble on the field moves it not
-    // at all.
-    //
-    // This test states the asymmetry, pins the invariant, and PRINTS the size
-    // of the exposure so the owner's device pass can say whether it is visible.
-    func testASubSlopPressAwayFromTheFieldMovesTheWorldButComesStraightBack() {
+    // This test pins the repaired symmetry: a sub-slop press at the resting
+    // sky pops nothing, arms nothing, moves nothing, and ends in silence.
+    func testASubSlopPressAwayFromTheFieldMovesNothingAtAll() {
         let camera = makeCamera()
         var arbiter = makeArbiter(reading: camera)
 
@@ -729,35 +727,26 @@ final class WorldRegressionTests: XCTestCase {
         while !camera.isAtRest && settled < 10_000 { camera.step(dt: frame); settled += 1 }
         XCTAssertEqual(camera.place, .sky)
 
-        // DOWNWARD, 3 pt — toward the field. Upward would push against the end
-        // of the axis, where `clampToAxis` absorbs the whole excursion and the
-        // measurement would read a reassuring zero for the wrong reason.
+        // DOWNWARD, 3 pt — toward the field, where an excursion would have
+        // room to show. (Upward pushes against the end of the axis, where
+        // `clampToAxis` would absorb it and hide a regression.)
         let restingOffset = camera.offset
         var batch = arbiter.began(at: CGPoint(x: 195, y: 420), timestamp: 0)
         batch += arbiter.moved(to: CGPoint(x: 195, y: 423), timestamp: 0.02)
-        for outcome in batch {
-            XCTAssertFalse(isPop(outcome), "a touch at the sky must not pop the field below it")
-        }
+        XCTAssertEqual(batch, [], "a sub-slop press at a resting place asks for nothing")
         camera.consume(batch)
-        let excursion = abs(camera.offset - restingOffset)
+        XCTAssertEqual(abs(camera.offset - restingOffset), 0, accuracy: 1e-12,
+                       "a 3 pt press at the resting sky must move the world exactly as far "
+                       + "as it moves it on the field: not at all")
 
         let tail = arbiter.ended(at: CGPoint(x: 195, y: 423), timestamp: 0.05)
-        XCTAssertTrue(tail.contains(.settleToNearest),
-                      "a press caught away from the field must resolve to the nearest place")
+        XCTAssertEqual(tail, [], "a touch that never armed has nothing to terminate")
         camera.consume(tail)
 
         settled = 0
         while !camera.isAtRest && settled < 10_000 { camera.step(dt: frame); settled += 1 }
-
-        print("[W20] a 3 pt press at the sky moved the world \(excursion) screen heights "
-              + "(the same press on the field moves 0)")
-
-        XCTAssertGreaterThan(excursion, 0,
-                             "the press did not move the world at all — this measurement is only "
-                             + "meaningful if it does, and on the field the same press moves 0")
         XCTAssertEqual(camera.place, .sky, "a sub-slop press must never change the place")
-        XCTAssertEqual(camera.offset, camera.restOffset(of: .sky), accuracy: 1e-12,
-                       "the world must come straight back")
+        XCTAssertEqual(camera.offset, camera.restOffset(of: .sky), accuracy: 1e-12)
     }
 
     // MARK: - Tap success against the W20a baseline

@@ -46,10 +46,10 @@ import SwiftUI
 // camera, and is positioned by `WorldView`. It reads `model.place` for one
 // purpose only — to refuse every touch unless the journal is the place she is
 // in — so that a page laid over a crossfaded field can never take a tap meant
-// for an orb. Its own touches must be able to REACH it: the world's moving
-// body is `.allowsHitTesting(false)` and `WorldInputLayer` sits above it, so
-// this view has to be composed ABOVE the input layer, like the cards, or it
-// will render perfectly and never respond. Everything it does not consume —
+// for an orb. Its own touches must be able to REACH it: since the W12
+// hit-testing ruling the moving body sits ABOVE the input layer and is
+// hit-testable, and this view rides in that body — its controls take their
+// touches there, exactly like the sky's stars. Everything it does not consume —
 // empty page space — falls through to the input layer beneath, which is what
 // keeps the swipe back up to the field alive from anywhere on the page.
 

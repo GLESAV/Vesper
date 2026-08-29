@@ -22,9 +22,13 @@ final class WorldInputTests: XCTestCase {
     // 844 * 0.11 = 92.84 pt of travel, and 300 pt/s at release.
     private func makeArbiter() -> InputArbiter { InputArbiter(bounds: screen) }
 
-    // The camera is mid-settle: touch-down grabs it instead of playing.
+    // The camera is mid-settle: touch-down grabs it instead of playing. Both
+    // closures answer false — the camera is in flight, so the field predicate
+    // (which includes the camera's rest) is false with it.
     private func makeTransitArbiter() -> InputArbiter {
-        InputArbiter(bounds: screen, isFieldAtRest: { false })
+        InputArbiter(bounds: screen,
+                     isFieldAtRest: { false },
+                     isCameraAtRest: { false })
     }
 
     // A stand-in for the live camera, for the tests where a CONSTANT
@@ -478,7 +482,9 @@ final class WorldInputTests: XCTestCase {
     // and the camera has not moved.
     func testSecondTouchAtRestPopsAndDoesNotStealTheCamera() {
         let field = FieldRestModel()
-        var arbiter = InputArbiter(bounds: screen, isFieldAtRest: { field.isAtRest })
+        var arbiter = InputArbiter(bounds: screen,
+                                   isFieldAtRest: { field.isAtRest },
+                                   isCameraAtRest: { field.isAtRest })
 
         field.observe(arbiter.began(at: CGPoint(x: 100, y: 500), timestamp: 0))
         XCTAssertTrue(field.isAtRest, "a bare touch-down moves nothing")
@@ -506,7 +512,9 @@ final class WorldInputTests: XCTestCase {
     // forever would assert a pop here that the real camera never produces.
     func testSecondTouchDuringAnArmedDragNeitherPopsNorSteals() {
         let field = FieldRestModel()
-        var arbiter = InputArbiter(bounds: screen, isFieldAtRest: { field.isAtRest })
+        var arbiter = InputArbiter(bounds: screen,
+                                   isFieldAtRest: { field.isAtRest },
+                                   isCameraAtRest: { field.isAtRest })
 
         field.observe(arbiter.began(at: CGPoint(x: 100, y: 500), timestamp: 0))
         field.observe(arbiter.moved(to: CGPoint(x: 100, y: 440), timestamp: 0.02))
@@ -577,7 +585,9 @@ final class WorldInputTests: XCTestCase {
     // pop. Here the state flips between two gestures with no setter call.
     func testFieldAtRestIsQueriedLiveAtEachTouchDown() {
         var atRest = true
-        var arbiter = InputArbiter(bounds: screen, isFieldAtRest: { atRest })
+        var arbiter = InputArbiter(bounds: screen,
+                                   isFieldAtRest: { atRest },
+                                   isCameraAtRest: { atRest })
 
         let p = CGPoint(x: 195, y: 500)
         XCTAssertEqual(arbiter.began(at: p, timestamp: 0), [.pop(p)])

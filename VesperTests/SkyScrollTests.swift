@@ -219,8 +219,21 @@ final class SkyScrollTests: XCTestCase {
 
     // MARK: - The gesture, end to end
 
+    // THE PRODUCTION SHAPE, and that is the point of this fixture. At the
+    // resting sky the shipped composition supplies `isFieldAtRest` FALSE (no
+    // orb to pop there) and `isCameraAtRest` TRUE (nothing is in flight).
+    // The original fixture said `isFieldAtRest: { true }` — a state in which
+    // production never offers scroll room — and so the whole suite proved
+    // the split's math while never once driving the wiring the app ships.
+    // That wiring was broken: the arbiter decided the transit grab from
+    // `!isFieldAtRest()`, so every touch at the resting sky armed the camera
+    // at touch-down and `scrollRoom` was never queried. These tests now run
+    // the shipped shape and would catch that regression.
     private func arbiter(room: ScrollRoom) -> InputArbiter {
-        InputArbiter(bounds: size, isFieldAtRest: { true }, scrollRoom: { room })
+        InputArbiter(bounds: size,
+                     isFieldAtRest: { false },
+                     isCameraAtRest: { true },
+                     scrollRoom: { room })
     }
 
     /// Drags from `from` to `to` over `duration`, in `steps`, and returns
@@ -253,6 +266,14 @@ final class SkyScrollTests: XCTestCase {
     // gesture, so the world does not dim, wake or travel behind it.
     func testADragTheSkyCanAbsorbScrollsAndDoesNotLeaveTheSky() {
         var a = arbiter(room: ScrollRoom(up: 0, down: 600))
+
+        // Touch-down at the resting sky asks for nothing: no pop (there is no
+        // field under her finger) and no grab (nothing is in flight). The
+        // regression this pins: the conflated predicate armed the camera
+        // right here, before the finger had moved a point.
+        XCTAssertEqual(a.began(at: CGPoint(x: 190, y: 200), timestamp: 0), [])
+        _ = a.ended(at: CGPoint(x: 190, y: 200), timestamp: 0.05)
+
         let out = drag(&a, from: 200, to: 560)          // 360 pt down, well inside 600
 
         XCTAssertTrue(out.contains { if case .scrollBegan = $0 { return true }; return false })
@@ -310,6 +331,7 @@ final class SkyScrollTests: XCTestCase {
     func testATransitGrabIsNeverScrolled() {
         var a = InputArbiter(bounds: size,
                              isFieldAtRest: { false },
+                             isCameraAtRest: { false },
                              scrollRoom: { ScrollRoom(up: 800, down: 800) })
         // Deliberately short of the commit gates (11% of 852 is ~94 pt), so
         // what this asserts is the UNDECIDED release — the case where a
@@ -327,9 +349,14 @@ final class SkyScrollTests: XCTestCase {
     }
 
     // RULING 4 IS UNTOUCHED. The pop still comes first, unconditionally, and
-    // no amount of scroll room can suppress it.
+    // no amount of scroll room can suppress it. This is a mechanism-level
+    // property (production never offers scroll room over a poppable field),
+    // so it gets its own both-at-rest fixture rather than the sky-shaped one.
     func testScrollRoomNeverCostsAPop() {
-        var a = arbiter(room: ScrollRoom(up: 800, down: 800))
+        var a = InputArbiter(bounds: size,
+                             isFieldAtRest: { true },
+                             isCameraAtRest: { true },
+                             scrollRoom: { ScrollRoom(up: 800, down: 800) })
         let out = drag(&a, from: 400, to: 700)
         guard case .pop = out.first else {
             return XCTFail("the pop was not emitted first, or at all")

@@ -283,6 +283,21 @@ struct InputArbiter {
     // read the camera's live state, never capture a Bool.
     var isFieldAtRest: () -> Bool = { true }
 
+    // Whether the CAMERA is at rest — anywhere, not just at the field. This
+    // is the transit-grab question, and it is a different question from
+    // `isFieldAtRest`: the field predicate is false at the resting sky (no
+    // orb to pop there), but a touch at the resting sky is not a grab of a
+    // world in flight — it is a touch on a place at rest, whose own content
+    // (the sky's scrollback) must get first refusal on the drag. Deciding the
+    // grab from `!isFieldAtRest()` conflated the two and made every touch at
+    // the resting sky arm the camera at touch-down, which (a) made the sky
+    // scroll unreachable — `scrollRoom` is only queried on the slop-arming
+    // path — and (b) put the world into `.dragging` under a stationary
+    // finger, dimming every place and waking the frame clock for a mere tap.
+    //
+    // A CLOSURE, live, for the same reason the other two are (§7.2).
+    var isCameraAtRest: () -> Bool = { true }
+
     // How much of a vertical drag the CURRENT PLACE wants for itself, before
     // the world starts moving. Queried exactly ONCE per gesture, at the moment
     // the pan arms, and then held for the whole of that gesture.
@@ -338,10 +353,12 @@ struct InputArbiter {
     init(bounds: CGSize = .zero,
          config: Config = .default,
          isFieldAtRest: @escaping () -> Bool = { true },
+         isCameraAtRest: @escaping () -> Bool = { true },
          scrollRoom: @escaping () -> ScrollRoom = { .none }) {
         self.bounds = bounds
         self.config = config
         self.isFieldAtRest = isFieldAtRest
+        self.isCameraAtRest = isCameraAtRest
         self.scrollRoom = scrollRoom
     }
 
@@ -371,10 +388,16 @@ struct InputArbiter {
     mutating func began(at p: CGPoint, timestamp: TimeInterval) -> [InputOutcome] {
         var out: [InputOutcome] = []
 
-        // Queried live, once per touch-down, and reused for the whole of this
-        // decision so a settle finishing mid-call cannot make the branch
-        // disagree with itself.
+        // Both queried live, once per touch-down, and reused for the whole of
+        // this decision so a settle finishing mid-call cannot make the branch
+        // disagree with itself. TWO QUESTIONS, TWO ANSWERS: whether this
+        // touch pops is the field's question; whether it is a grab of a world
+        // in flight is the camera's. At the resting sky the first is false
+        // and the second is true — the touch neither pops nor grabs, it is a
+        // candidate scroll/pan that arms through the slop path below, where
+        // `scrollRoom` gets its one query.
         let atRest = isFieldAtRest()
+        let cameraResting = isCameraAtRest()
 
         if atRest { out.append(.pop(p)) }
 
@@ -401,7 +424,7 @@ struct InputArbiter {
                           panArmed: false,
                           cameraArmed: false,
                           deadZoned: isInEdgeDeadZone(p),
-                          isTransitGrab: !atRest,
+                          isTransitGrab: !cameraResting,
                           room: .none,
                           samples: [Sample(y: p.y, t: timestamp)])
 
@@ -416,7 +439,7 @@ struct InputArbiter {
         // likely to reach: low, one-handed, thumb near the bottom of the
         // screen. The zone still suppresses the *commit* at release, so the
         // OS edge gestures keep everything they were given.
-        if !atRest {
+        if !cameraResting {
             touch.panArmed = true
             // The camera is armed immediately AND the room stays `.none`: a
             // grab is a grab of the world, and the place under her finger is
@@ -442,7 +465,7 @@ struct InputArbiter {
         var out: [InputOutcome] = []
 
         if !tracking!.panArmed {
-            // A pan can only ARM from a resting field outside the dead zone.
+            // A pan can only ARM from a resting world outside the dead zone.
             // The zone is decided once, from where the touch BEGAN, and is
             // never re-evaluated: a swipe that starts mid-screen and travels
             // up through the top 10% must still commit — killing it on the
