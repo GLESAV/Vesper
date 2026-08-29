@@ -26,3 +26,5 @@ fastlane/metadata/review_information/
 
 # demo recordings are generated (demo/run-demo.js)
 demo/out/
+__pycache__/
+*.pyc
