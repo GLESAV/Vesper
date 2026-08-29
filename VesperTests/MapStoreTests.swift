@@ -79,9 +79,18 @@ final class MapStoreTests: XCTestCase {
 
         var newlySeen = Set<Int>()
         for road in roads {
+            // A ROAD ALWAYS CARRIES MORE THAN THE POP IT INHERITED. This is
+            // the form of the claim that is universally true, and it replaces
+            // an assertion that a road brings a pop its parent did NOT have —
+            // which reads well but is not guaranteed: `branchedSet` builds its
+            // pool as `unlocked` minus the siblings' takings minus what it has
+            // already chosen (PopMap.swift), and the parent's OTHER pops are
+            // in none of those, so a child may legitimately draw one. With a
+            // three-pop parent that happened a few percent of the time per
+            // road, which is an intermittent CI failure on correct code.
+            XCTAssertGreaterThanOrEqual(road.popNumbers.count, 2,
+                                        "road \(road.popNumbers) is only the pop it inherited")
             let fresh = Set(road.popNumbers).subtracting(genesis.popNumbers)
-            XCTAssertFalse(fresh.isEmpty,
-                           "road \(road.popNumbers) brought nothing its parent did not have")
             XCTAssertTrue(newlySeen.isDisjoint(with: fresh),
                           "two roads out of one stone introduced the same pop")
             newlySeen.formUnion(fresh)
@@ -277,9 +286,15 @@ final class MapStoreTests: XCTestCase {
         let parent = store.stones[0]
         store.setActive(parent.id)
         for road in store.recordClear(unlocked: Set(1...40)) {
-            let fresh = Set(road.popNumbers).subtracting(parent.popNumbers)
-            XCTAssertFalse(fresh.isEmpty,
-                           "road \(road.popNumbers) is only its parent repeated")
+            // Stated as the property that always holds — see the note in
+            // `testRoadsBringNewPopsAndSiblingsBringDifferentOnes`. A child may
+            // legitimately redraw one of its parent's other pops, so "brings
+            // something the parent lacked" is not an invariant; "brings more
+            // than the one pop it inherited" is, by construction of `target`.
+            XCTAssertGreaterThanOrEqual(road.popNumbers.count, 2,
+                                        "road \(road.popNumbers) is only the pop it inherited")
+            XCTAssertFalse(Set(road.popNumbers).isDisjoint(with: parent.popNumbers),
+                           "road \(road.popNumbers) kept nothing from its parent")
         }
     }
 

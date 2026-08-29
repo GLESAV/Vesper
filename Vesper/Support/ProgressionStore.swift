@@ -16,9 +16,21 @@ final class ProgressionStore: ObservableObject {
     @Published private(set) var bestChain: Int
     @Published private(set) var popCounts: [Int: Int]
 
-    // nil = "Drift": every new field mixes all unlocked pops
+    // nil = "Drift": every new field mixes all unlocked pops.
+    //
+    // 0 IS NORMALISED TO nil ON THE WAY IN, not only on the way out. 0 is the
+    // on-disk spelling of "no favourite", so a 0 assigned in memory used to
+    // survive until the next launch and mean pop #0 in between — and there is
+    // no pop #0. `fieldPops()` would answer `[0]`, breaking its own promise
+    // that a field only ever holds pops she has earned, and
+    // `PopCatalog.definition(for:)` would quietly substitute the classic pop
+    // rather than say anything. Nothing assigns 0 today; this makes sure
+    // nothing can.
     @Published var featuredPop: Int? {
-        didSet { defaults.set(featuredPop ?? 0, forKey: Keys.featured) }
+        didSet {
+            if featuredPop == 0 { featuredPop = nil; return }
+            defaults.set(featuredPop ?? 0, forKey: Keys.featured)
+        }
     }
 
     private let defaults: UserDefaults
@@ -62,11 +74,20 @@ final class ProgressionStore: ObservableObject {
         fortunesFound = defaults.integer(forKey: Keys.fortunes)
         bestChain = defaults.integer(forKey: Keys.bestChain)
         let stored = defaults.dictionary(forKey: Keys.popCounts) as? [String: Int] ?? [:]
-        popCounts = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
+        // `uniquingKeysWith`, NEVER `uniqueKeysWithValues`. The latter TRAPS on
+        // a duplicate key, and two stored keys can parse to the same number
+        // without this store ever having written them that way — "7" and "07",
+        // or "7" and "+7", both answer 7. That is a crash on EVERY launch with
+        // no way out but deleting the app, which is the worst failure this
+        // file could have: her whole journey is in here. Damaged defaults must
+        // cost her a tally, never the app.
+        popCounts = Dictionary(stored.compactMap { key, value in
             Int(key).map { ($0, value) }
-        })
+        }, uniquingKeysWith: { first, second in max(first, second) })
+        // 0 is the on-disk spelling of "no favourite" — the catalogue is
+        // numbered 1...100, so it can never be a real pop.
         let featured = defaults.integer(forKey: Keys.featured)
-        self.featuredPop = featured == 0 ? nil : featured
+        self.featuredPop = PopCatalog.all.contains { $0.number == featured } ? featured : nil
     }
 
     // MARK: - Recording
