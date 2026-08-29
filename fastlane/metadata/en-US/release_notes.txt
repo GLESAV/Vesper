@@ -22,7 +22,7 @@ THE JOURNAL
 - Feature any pop you have found and the field is painted with it, or "drift" and every field mixes your whole collection.
 
 AND
-- Reduce Motion is honoured everywhere now — the camera crossfades, weather goes nearly still, fireworks rise straight.
+- Reduce Motion is honored everywhere now — the camera crossfades, weather goes nearly still, fireworks rise straight.
 - VoiceOver reads the field as one direct-touch surface: touch an orb and it lets go, no double-tap.
 - Fixes for 120 Hz phones so weather and fireworks feel the same on every device, and for fields left cleared with fireworks or weather still running.
 

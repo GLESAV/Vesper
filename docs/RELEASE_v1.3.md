@@ -63,9 +63,9 @@ is the "One World" release the `docs/gdd/` plan is named for.
 
 ## 3. Metadata
 
-- ⚙ `description.txt` rewritten for the current build (3,119 / 4,000 chars).
+- ⚙ `description.txt` rewritten for the current build (3,117 / 4,000 chars).
 - ⚙ `release_notes.txt` rewritten, every claim grounded in
-  `docs/e2e_walkthrough.md` (2,219 / 4,000 chars).
+  `docs/e2e_walkthrough.md` (2,218 / 4,000 chars).
 - ⚙ `promotional_text.txt` (166 / 170), `subtitle.txt` (28 / 30),
   `keywords.txt` (99 / 100), `name.txt` (10 / 30) — all within limits.
 - ⚙ URLs, copyright and category files reviewed and left as they are.
@@ -196,6 +196,14 @@ Detail and reasoning live with the release report; the short list:
   therapeutic or medical effect, and `anxiety` was dropped from the keywords
   to keep it that way.
 - **Screenshots.** Blocking, §4.
+- **A swipe-direction discrepancy worth settling before the notes are
+  pasted.** `WorldCamera.swift`'s sign convention says a finger moving *up*
+  the screen drives the camera to a negative offset, which is the sky;
+  `docs/e2e_walkthrough.md` §11 says "swipe up from the field" reaches the
+  journal. One of the two is wrong. Both the store description and the review
+  notes in §6 avoid naming a direction and lead with tapping the whispers
+  instead, which is unambiguous either way — but someone with a device should
+  settle it and correct whichever document is wrong.
 - **Open for the owner:** 1.3 vs 2.0; whether the App Store Connect copyright
   field should read "Kate Wu" or the publishing entity in the privacy page's
   footer; whether the second sub-category stays `GAMES_PUZZLE`.

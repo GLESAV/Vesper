@@ -1,5 +1,17 @@
 # Vesper Build Plan — M0 + M1 (MVP "The Feel Update", v1.1)
 
+> **Status: historical, with one live section.** This is the execution plan for
+> the roadmap's *first two* milestones. All of Workstreams A–C landed; the
+> layout table below is the app as it stood at v1.1 and has since grown by
+> several folders (`World/`, `Anima/`, `Game/Map/`, `Game/Pops/` — see
+> `CLAUDE.md` for the current tree). Everything from M1.5 onward is planned in
+> `docs/ROADMAP.md` and then superseded by `docs/gdd/00_MASTER_PLAN.md`.
+>
+> **§5, the manual device pass, is still live** and still referenced by
+> `docs/RELEASE_v1.2.md`. It is a v1.1-era list, so it tests none of the
+> One World navigation, the sky, weather, animals or fireworks — for those,
+> run `docs/e2e_walkthrough.md`, which is written against the current build.
+
 Concrete execution plan for the roadmap's first two milestones. Checkboxes reflect the
 state of this branch.
 
@@ -25,12 +37,23 @@ source-file edits are needed):
 | `Views/Cards.swift` | Fortune + done cards | ✅ |
 | `Views/SettingsSheet.swift` | Settings UI | ✅ |
 
-**Tuning-preservation contract** (checked during review): orb count `7..<20`, radius
-`18…34`, speed `±0.18`, tap tolerance `+12`, top inset 70 (bounce) / 100 (spawn), edge
-inset 24, wobble `sin(phase)·0.03` at `0.02·f`, ring growth `(max−r)·0.1·f + 1.5·f`,
-ring life decay `0.03·f`, shell thickness 24, chain trigger `r > 18`, particle counts
-`18 + baseR`, gravity `0.07·f`, damping `0.986^f`, pop pitch mapping `460–880 Hz ±12`,
-fortune display 3.6 s, done-card delay 0.65 s. All palette RGB values unchanged.
+**Tuning-preservation contract** (checked during review, and the v1.1 values):
+orb count `7..<20`, radius `18…34`, speed `±0.18`, tap tolerance `+12`, top inset
+70 (bounce) / 100 (spawn), edge inset 24, wobble `sin(phase)·0.03` at `0.02·f`,
+ring growth `(max−r)·0.1·f + 1.5·f`, ring life decay `0.03·f`, shell thickness 24,
+chain trigger `r > 18`, particle counts `18 + baseR`, gravity `0.07·f`, damping
+`0.986^f`, pop pitch mapping `460–880 Hz ±12`, fortune display 3.6 s, done-card
+delay 0.65 s. All palette RGB values unchanged.
+
+*Four of those have since moved, deliberately and one at a time.* `GameConfig`
+remains the single source of truth; go there rather than to this list.
+
+| Then | Now | Why |
+|---|---|---|
+| orb count `7..<20` seeds the field | `FieldPlan.forStage` decides the composition; `orbCountRange` is the envelope a seeded field stays inside, and a generator may raise the live count past it | fields grow in *length*, not in crowding |
+| spawn top inset 100 from the screen edge | `spawnMargin` 30 below a ceiling that comes from `FieldLayout` | the ceiling moved when the world got a camera and a safe area |
+| fortune display 3.6 s | `fortuneDisplayDuration` 5.5 s, and it does not auto-dismiss at all under VoiceOver or Switch Control | a sentence someone reads slowly must not be taken away mid-line |
+| pop pitch `460–880 Hz ±12` on one synthesis model | ten voices, one per family, each pop's profile in `PopCatalog` | see `docs/pop_standard.md` |
 
 ## 2. Workstream B — Feel features (M1)
 
