@@ -1,13 +1,29 @@
-The Feel & Collection Update.
+One World.
 
-Vesper plays exactly the way it did — it just feels better, and there is more of it to find.
+Vesper is no longer a screen with buttons on it. It is one place, and you move through it with your thumb.
 
-- Every pop now lands with a soft haptic tap and instant sound, sized to the orb.
-- 100 pops to discover: embers, tides, blooms, frost, chimes, lanterns and more — each with its own colors, debris, sound, and ripple. The original is pop #001, unchanged.
-- The Journey: a quiet collection screen with your pop points, records, and what's somewhere ahead. Feature one pop, or drift among everything you've found.
-- Pop points only ever add up. Nothing is lost, timed, ranked, or sold. Unlocks are gifts, not gates.
-- Little point whispers drift up from each pop (you can turn them off).
-- A gentle chime when you clear the field; faint motes drift in the dark.
-- Kinder to your battery, your motion settings, and VoiceOver.
+THE WORLD
+- The field, the sky above it, your journal below it — one vertical axis, tracked 1:1 under your finger. No sheets, no icons, no windows over windows.
+- The sky holds your whole path as a constellation. Drag it down to walk back through older evenings; nothing you have cleared is ever removed.
+- Clear a field, touch nothing, and the world drifts up to the sky on its own. If one road leads on, it steps onto it and carries you down to a fresh field. A fork waits for you to choose.
 
-Still no ads, no accounts, no timers, and nothing collected. Just open it and breathe.
+WEATHER
+- Six kinds of air, from the very first field. Rain arrives in waves that carry the orbs. Snow settles at the bottom and melts. Warm light leans through in shafts. Storms turn in slow eddies. Fog rolls in front of everything and thins around your finger.
+- Every stone keeps its own weather, so returning to one means the same evening again.
+
+THINGS TO FIND
+- Balloon animals: eight of them, shy for a while, keeping to the edges, and needing two or three soft touches.
+- Fireworks with hanging rope fuses. Light the shell or anywhere on the cord, tap the burning fuse to hurry it, and watch it break. Always optional — an unlit shell just sits there.
+- Orbs that split into smaller orbs, orbs that ease away from your finger, and orbs that quietly make more.
+
+THE JOURNAL
+- Three pages, turned by the ribbon at the foot: the evening (your records), the collection (all 100 pops), and the quiet things (sound, haptics, whispers).
+- "hush" silences sound and haptics together, in one tap.
+- Feature any pop you have found and the field is painted with it, or "drift" and every field mixes your whole collection.
+
+AND
+- Reduce Motion is honoured everywhere now — the camera crossfades, weather goes nearly still, fireworks rise straight.
+- VoiceOver reads the field as one direct-touch surface: touch an orb and it lets go, no double-tap.
+- Fixes for 120 Hz phones so weather and fireworks feel the same on every device, and for fields left cleared with fireworks or weather still running.
+
+Still no ads, no purchases, no accounts, no notifications, and nothing collected. Just open it and breathe.

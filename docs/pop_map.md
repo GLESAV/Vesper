@@ -2,8 +2,11 @@
 
 *Top-level navigation as stepping stones. Implementation:
 `Game/Map/PopMap.swift` (model + pure generation), `Game/Map/MapStore.swift`
-(state, persistence, the trace), `Views/PathSheet.swift` (the map screen).
-Contract enforced by `VesperTests/MapStoreTests.swift`.*
+(state, persistence, the trace), `World/SkyView.swift` + `World/SkyScroll.swift`
+(the map screen, as the sky — see §4a). `Views/PathSheet.swift` is the v1.2
+map screen and is unreachable unless `VESPER_CLASSIC_NAV` is compiled.
+Contract enforced by `VesperTests/MapStoreTests.swift`,
+`VesperTests/PopMapTests.swift`, `SkyLayoutTests` and `SkyScrollTests`.*
 
 ## 1. The idea
 
@@ -24,10 +27,21 @@ and replaying a cleared stone is always allowed.
 ### Stones
 | Rule | Value |
 |---|---|
-| Pops per stone | **1–2, rarely 3** (50% / 40% / 10%) |
-| Uniqueness | a stone's pops avoid its parent's and its siblings' pops whenever the collection allows |
+| Pops on the **first** stone | **1–2, rarely 3** — the `popCount` roll, 50% / 40% / 10% |
+| Pops on every **later** stone | **2–3.** A child keeps one pop and must bring at least one of its own, so `branchedSet` raises the roll to `max(popCount, set.count + 1)`. A child stone with a single pop cannot happen |
+| Lineage | a child **inherits one of its parent's pops** and branches with new ones. The parent's set is passed *down*, not avoided |
+| Uniqueness | only *siblings* are held apart: `avoiding` carries the new pops earlier siblings took, never the parent's. Within one stone no pop repeats |
 | Visitors | ~35% of stones host **one visitor** — a pop you haven't unlocked, playable on that stone only. A taste of what's ahead; the permanent unlock still comes through the journey's rules |
 | First stone | the map begins as **one dot**, lane-centered, drawn from whatever you've unlocked |
+
+**Inheritance is deliberate, and it used to be the opposite.** Children were
+once generated with the parent's pops in `avoiding`, so every step replaced the
+whole set and nothing carried — which is a shuffle, not a lineage, and a stone
+told you nothing about the stone it came from. Now every field holds something
+she recognises and something she does not, which is the shape of a good
+introduction, repeated forever. It is also why the pop count rises: a stone
+that only inherited would be a copy, so the standard says *keep one, bring one*
+(`PopMapTests.testAChildAlwaysBringsAtLeastOnePopBeyondWhatItInherited`).
 
 ### Roads
 | Rule | Value |
@@ -36,6 +50,17 @@ and replaying a cleared stone is always allowed.
 | When they open | on a stone's *first* clear only — replays open nothing new |
 | Reachability | roads exist only once their parent is cleared, so **every stone on the map is playable** — there is no locked state to display |
 | Lanes | children spread left/center/right of the parent, clamped to the banks |
+| Family | **each road out of a stone leans a different family**, and the parent's own family is offered first so continuing straight on is always available. New pops are drawn from the road's family where the collection allows — a preference, not a rule, because a family she has barely unlocked would otherwise make a road one pop thin |
+| Inheritance, dealt round-robin | the parent's pops are shuffled and dealt one per road, so two roads out of one stone keep *different* things and genuinely diverge |
+
+A stone's own family — `MapStone.leaning` — is **derived, never stored**:
+whichever family holds the most of its pops. Adding a field to a `Codable`
+struct would make every previously saved map fail to decode, and the map's one
+promise is that nothing is lost. Ties resolve to the family whose name sorts
+first alphabetically (`min` over `PopFamily.rawValue`), which is arbitrary but
+*stable* — and stability is the requirement, because a leaning recomputed on
+every read would otherwise let a stone change family between two glances at the
+same sky.
 
 ### The trace
 | Rule | Value |
@@ -45,7 +70,7 @@ and replaying a cleared stone is always allowed.
 | Always bright | the **anchor** (the stone you stand on — or your most recently played one) and the roads directly ahead of it |
 | Untaken forks | settle into the constellation with the rest of the past — and remain quietly takeable, so there is nothing you could ever "miss" |
 | Effect | after quiet days the map leads with your latest stone plus its open roads; everything walked before hangs above as trace. History only accrues |
-| When settling runs | app foreground, map open, and view-model init |
+| When settling runs | never — it is not a pass. Settledness is read from the stone's own dates at draw time (`SkyLayout.isSettled`), so it needs no foreground hook, no schema and no migration. Set the clock back and a stone un-settles |
 
 Nothing is ever pruned or deleted: `MapStore` replaced its 3-day removal pass
 with a settle-state transition (**W08, shipped** — contract in `MapStoreTests`:

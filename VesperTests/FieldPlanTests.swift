@@ -368,21 +368,53 @@ final class FieldPlanTests: XCTestCase {
     /// not on Wednesday. Every one of these is a pure function of its
     /// arguments — no clock, no RNG, no stored state — so calling them again
     /// must give the same field back, whatever has happened in between.
+    ///
+    /// Written as a walk RECORDED and then WALKED AGAIN, rather than as each
+    /// function called twice inside one assertion. Two calls side by side are
+    /// a tautology a compiler may fold into one, and they would go on passing
+    /// even if these grew a cache or reached for a clock; a whole evening of
+    /// other fields in between is what makes the second walk a real question.
     func testTheSameStoneIsTheSameFieldEveryTimeSheReturnsToIt() {
+        // One field, flattened to numbers so nothing new has to be declared:
+        // the plan, where it sits, and what it grows to on every visit.
+        func fingerprint(stage: Int, generation: Int) -> [Int] {
+            let plan = FieldPlan.forStage(stage)
+            let total = FieldPlan.totalOrbs(base: 13, generation: generation, plays: 0)
+            return [plan.orbCount, plan.splitters, plan.drifters, plan.generators,
+                    plan.splitDepth, plan.fireworks, plan.animals, plan.reachableOrbs,
+                    FieldPlan.isDisplay(stage: stage, generation: generation) ? 1 : 0,
+                    FieldPlan.hasAnimal(stage: stage, generation: generation) ? 1 : 0,
+                    FieldPlan.fireworkCount(stage: stage, generation: generation),
+                    FieldPlan.animalCount(stage: stage, generation: generation),
+                    FieldPlan.stage(forFieldsCleared: generation),
+                    FieldPlan.surfaceCount(total: total),
+                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 0),
+                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 1),
+                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 2),
+                    FieldPlan.totalOrbs(base: 13, generation: generation, plays: 3)]
+        }
+
+        var firstWalk: [[Int]] = []
         for stage in 0...FieldPlan.finalStage {
             for generation in 0...30 {
-                XCTAssertEqual(FieldPlan.forStage(stage), FieldPlan.forStage(stage))
-                XCTAssertEqual(FieldPlan.isDisplay(stage: stage, generation: generation),
-                               FieldPlan.isDisplay(stage: stage, generation: generation))
-                XCTAssertEqual(FieldPlan.fireworkCount(stage: stage, generation: generation),
-                               FieldPlan.fireworkCount(stage: stage, generation: generation))
-                XCTAssertEqual(FieldPlan.animalCount(stage: stage, generation: generation),
-                               FieldPlan.animalCount(stage: stage, generation: generation))
-                for plays in 0...3 {
-                    XCTAssertEqual(FieldPlan.totalOrbs(base: 13, generation: generation, plays: plays),
-                                   FieldPlan.totalOrbs(base: 13, generation: generation, plays: plays))
-                }
+                firstWalk.append(fingerprint(stage: stage, generation: generation))
             }
         }
+
+        // Everything else the curve can produce, in between, so the second
+        // walk is not reading anything back out of a warm register.
+        for stage in -5...(FieldPlan.finalStage + 5) {
+            for generation in 31...120 { _ = fingerprint(stage: stage, generation: generation) }
+        }
+
+        var index = 0
+        for stage in 0...FieldPlan.finalStage {
+            for generation in 0...30 {
+                XCTAssertEqual(fingerprint(stage: stage, generation: generation), firstWalk[index],
+                               "stage \(stage) gen \(generation) came back a different field")
+                index += 1
+            }
+        }
+        XCTAssertEqual(index, firstWalk.count)
     }
 }
