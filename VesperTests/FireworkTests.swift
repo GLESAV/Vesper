@@ -425,15 +425,20 @@ final class FireworkTests: XCTestCase {
 
             // Clear the field without ever aiming at a shell. A tap at an
             // orb's own position may still light an overlapping shell — the
-            // shell-first tap priority — so the loop simply keeps going; a
-            // lit shell flies, breaks and spends on its own.
+            // shell-first tap priority — so the loop STEPS EVERY ITERATION,
+            // not only when the surface is empty: a hurried fuse pins at
+            // 0.995 and can only finish burning in `step`, so a tap-only
+            // loop over an orb that happens to sit on a burning cord would
+            // hurry forever and never pop the orb beneath it (seeds 34 and
+            // 36 found exactly that). One step per tap lets a stolen tap's
+            // fuse burn down, launch and spend, after which the orb is
+            // tappable again.
             var guardCount = 0
-            while !s.completed && guardCount < 4_000 {
+            while !s.completed && guardCount < 8_000 {
                 if let target = s.orbs.first(where: \.alive) {
                     s.tap(at: target.pos)
-                } else {
-                    _ = s.step(dt: 1.0 / 60)
                 }
+                _ = s.step(dt: 1.0 / 60)
                 guardCount += 1
             }
             XCTAssertTrue(s.completed, "seed \(seed): the field could not be finished")

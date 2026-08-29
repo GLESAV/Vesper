@@ -89,6 +89,15 @@ final class DevResetTests: XCTestCase {
     // MARK: - The list must match reality
 
     func testTheDeclaredKeyListMatchesTheKeysTheStoresActuallyWrite() {
+        // The two keepsake keys are written only on the corruption path —
+        // `MapStore.load()` moving an undecodable blob aside before anything
+        // can overwrite it — so that path is exercised here like every other
+        // write path: unreadable bytes first, and the store's own
+        // construction is the write. Without this the keys are declared (the
+        // wipe must clear a keepsake) but never written, and the drift check
+        // below rightly complains.
+        defaults.set(Data("not a map".utf8), forKey: "vesper.map.stones")
+        defaults.set(Data("not plays".utf8), forKey: "vesper.map.plays")
         let stores = makeStores()
         exerciseEveryWritePath(stores)
 
