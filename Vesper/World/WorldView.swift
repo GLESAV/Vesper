@@ -237,6 +237,10 @@ private struct WorldScene: View {
                             // moments that decide whether a drag scrolls the
                             // sky or leaves it.
                             scrollRoom: { model.placeScrollRoom },
+                            // A coasting sky stops the instant she touches it,
+                            // which is earlier than the arbiter can tell anyone
+                            // a gesture began. Observational only.
+                            onTouchDown: { model.touchWentDown() },
                             onPointer: { game.pointerMoved(to: $0) },
                             onSafeArea: { top, bottom in
                                 if safeTop != top { safeTop = top }

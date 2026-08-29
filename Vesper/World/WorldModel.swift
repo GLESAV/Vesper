@@ -146,6 +146,14 @@ final class WorldModel: ObservableObject {
     // Computed, never stored, for the same staleness reason as `simActive`.
     var cameraResting: Bool { camera.isAtRest }
 
+    /// A finger came down anywhere on the glass. The place she is standing in
+    /// stops whatever its own content was coasting through — see
+    /// `SkyScrollState.catchGlide`. Nothing is armed and nothing is decided
+    /// here; arbitration is still entirely the arbiter's.
+    func touchWentDown() {
+        skyScroll.catchGlide()
+    }
+
     // MARK: - How much of a drag the current place wants
 
     /// Answers the input layer's one question about the place she is standing

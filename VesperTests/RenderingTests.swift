@@ -25,9 +25,16 @@ import SwiftUI
 //   TOTALITY. Every reachable cue fed the values a sweep never contains —
 //   NaN, zero, negative, tiny, enormous — and held to "finite, and inside the
 //   range you documented". This is a real defect class in this project rather
-//   than a hypothetical: Swift's `min`/`max` pass NaN straight through, so a
-//   pair of clamps is NOT a total function, and this app has already shipped
-//   one NaN through exactly that hole.
+//   than a hypothetical, and it is worth being exact about why, because the
+//   folk version ("min/max propagate NaN") is wrong and sends the reader
+//   after the wrong thing. Swift's `min`/`max` are the `Comparable` ones —
+//   `y < x ? y : x` — so a NaN argument does not propagate, it is silently
+//   REPLACED by whichever bound the comparison happens to fall through to:
+//   `min(1, max(-1, .nan))` is −1, an ordinary-looking number the caller
+//   will never question. A pair of clamps is therefore not a total function
+//   and not an honest one either, and the arithmetic AROUND the clamp
+//   (`inf * 0`, a product that overflows before it is clamped) is where the
+//   non-finite values this app has already shipped actually come from.
 //       → testEveryTravelCueIsTotalAcrossItsGuardedDomain
 //       → testTheLuminanceCueIsTotalAndNeverLeavesItsBand
 //       → testTheAcknowledgementIsTotalAtEveryLevelAnyoneCanHandIt
@@ -164,7 +171,9 @@ final class RenderingTests: XCTestCase {
 
         // A degenerate crossfade must land on FULL light rather than on the
         // deepest dim: failing dark on a frame nobody can explain is the one
-        // failure mode a calm game may not have.
+        // failure mode a calm game may not have. (`WorldRenderTests` already
+        // pins the NaN case; the two infinities are only reachable from here,
+        // and the three are kept together because they are one statement.)
         for t in [CGFloat.nan, .infinity, -.infinity] {
             XCTAssertEqual(WorldRender.transitLuminance(isTransitioning: true, crossfade: t), 1,
                            accuracy: 1e-12,
@@ -442,6 +451,14 @@ final class RenderingTests: XCTestCase {
     // is the pessimistic floor the whole luminance argument rests on, so if it
     // ever stopped being dark the ceiling above it would quietly stop meaning
     // anything.
+    //
+    // MEASURED: `groundTone` (9, 8, 14) is 0.00263 relative luminance and
+    // `brightestGround` (28, 24, 29) is 0.00989 — the second sits at half the
+    // 0.02 bound and at a third of `luminanceCap / 4`, so both have real
+    // room. For scale, the light composited over that ground at full presence
+    // measures 0.0181 against the 0.12 cap, which is the headroom
+    // `HorizonTests` states as "a glow, not a light" and this is the floor
+    // half of the same argument.
     func testTheGroundsTheHorizonPaintsOnStayDark() {
         let ground = HorizonRender.relativeLuminance(r: HorizonRender.groundTone.r,
                                                      g: HorizonRender.groundTone.g,

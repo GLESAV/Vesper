@@ -627,6 +627,17 @@ final class GameViewModelTests: XCTestCase {
         vm.restart()
         XCTAssertFalse(vm.renderingPaused,
                        "the clock must be running again the instant a new field exists")
+
+        // AND IT MUST STILL BE RUNNING A QUEUE TURN LATER. `frame(date:size:)`
+        // defers its write to `renderingPaused`, so a pause computed on the
+        // old field and applied after the new one exists would freeze a live
+        // field permanently — the flag is what `TimelineView(paused:)` reads,
+        // and a paused timeline never calls `frame` again to correct it. Every
+        // frame this test scheduled was drained above, so nothing is owed;
+        // this says so out loud rather than leaving it to be inferred.
+        hopTheMainQueue()
+        XCTAssertFalse(vm.renderingPaused,
+                       "a deferred pause from the old field landed on the new one and froze it")
     }
 
     // MARK: - What the field says out loud
@@ -909,10 +920,19 @@ final class GameViewModelTests: XCTestCase {
     // the instant the field goes quiet. The done card and its verse are hers
     // first.
     //
-    // And the counters are EDGES, not levels: `restart()` — which the sequence
-    // itself calls when it steps onto the next stone — must not reset them, or
-    // the world would miss the arrival it was about to make.
-    func testAClearedFieldDoesNotTravelInTheSameInstantAndTheEdgeCountersSurviveARestart() {
+    // AND `restart()` ASKS FOR NOTHING ON ITS OWN. The sequence calls it from
+    // inside the step onto the next stone, so a `restart()` that touched
+    // either counter would either fire a journey nobody asked for or swallow
+    // the one already in flight.
+    //
+    // WHAT THIS TEST DOES NOT PROVE, said rather than implied: that a
+    // counter already RAISED survives the restart. Nothing raises it
+    // synchronously — `skyRequest` moves only from a work item scheduled
+    // `GameConfig.onwardToSkyDelay` (3.4 s) out — and this file does not wait
+    // on a clock for anything. The half that is reachable is asserted; the
+    // half that would need a real timeout is left to the world suites rather
+    // than faked with a sleep.
+    func testAClearedFieldDoesNotTravelInTheSameInstantAndARestartAsksForNothing() {
         let saved = stepOffThePath()
         defer { MapStore.shared.setActive(saved) }
 
@@ -937,8 +957,8 @@ final class GameViewModelTests: XCTestCase {
         XCTAssertEqual(vm.fieldRequest, 0)
 
         vm.restart()
-        XCTAssertEqual(vm.skyRequest, 0, "restart reset an edge counter into a level")
-        XCTAssertEqual(vm.fieldRequest, 0)
+        XCTAssertEqual(vm.skyRequest, 0, "a restart asked the world to rise")
+        XCTAssertEqual(vm.fieldRequest, 0, "a restart asked the world to step onward")
         XCTAssertFalse(vm.showDone)
     }
 }

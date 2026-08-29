@@ -81,6 +81,22 @@ final class WorldInputView: UIView {
     // once per UIEvent (see `flush`).
     var onOutcome: ([InputOutcome]) -> Void = { _ in }
 
+    /// Called at touch-DOWN, before anything is arbitrated, so a place whose
+    /// own content is coasting can stop it under her finger.
+    ///
+    /// THIS EXISTS BECAUSE ARMING IS TOO LATE. The sky's glide used to be
+    /// caught in `SkyScrollState.began()`, which the model calls on
+    /// `.scrollBegan` — and the arbiter only emits that from the slop-arming
+    /// path, ten points into a drag. So a finger placed on a gliding sky did
+    /// not freeze it (the content coasted on under her for the first ~10 pt)
+    /// and a TAP on a gliding sky never stopped it at all, while the stars
+    /// she was pressing kept moving. A real scroll view stops dead the
+    /// instant you touch it, and that instant is here.
+    ///
+    /// Strictly observational, like `onPointer`: it produces no
+    /// `InputOutcome` and cannot change what the arbiter decides.
+    var onTouchDown: () -> Void = {}
+
     /// Where the finger is, reported for drifters to ease away from. Nil on
     /// release.
     ///
@@ -193,6 +209,11 @@ final class WorldInputView: UIView {
             batch.appendCollapsingPanChanges(arbiter.cancelled())
         }
 
+        // Before anything is arbitrated: a place that is coasting stops here.
+        // Unconditional, and ahead of `began`, because a tap must stop a
+        // glide just as a drag does — see `onTouchDown`.
+        onTouchDown()
+
         // `touches` is a Set, so its iteration order is a hash order that can
         // differ between runs and between OS versions. Two fingers landing in
         // one event would then pop in an arbitrary order, and an arbitrary
@@ -268,6 +289,7 @@ struct WorldInputLayer: UIViewRepresentable {
     var isFieldAtRest: () -> Bool
     var isCameraAtRest: () -> Bool = { true }
     var scrollRoom: () -> ScrollRoom = { .none }
+    var onTouchDown: () -> Void = {}
     var onPointer: (CGPoint?) -> Void = { _ in }
     var onSafeArea: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onOutcome: ([InputOutcome]) -> Void
@@ -277,6 +299,7 @@ struct WorldInputLayer: UIViewRepresentable {
         view.isFieldAtRest = isFieldAtRest
         view.isCameraAtRest = isCameraAtRest
         view.scrollRoom = scrollRoom
+        view.onTouchDown = onTouchDown
         view.onPointer = onPointer
         view.onSafeArea = onSafeArea
         view.onOutcome = onOutcome
@@ -287,6 +310,7 @@ struct WorldInputLayer: UIViewRepresentable {
         uiView.isFieldAtRest = isFieldAtRest
         uiView.isCameraAtRest = isCameraAtRest
         uiView.scrollRoom = scrollRoom
+        uiView.onTouchDown = onTouchDown
         uiView.onPointer = onPointer
         uiView.onSafeArea = onSafeArea
         uiView.onOutcome = onOutcome
