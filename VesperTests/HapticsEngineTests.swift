@@ -3,13 +3,18 @@ import XCTest
 
 // HAPTICS ENGINE — a very small reachable surface, honestly stated.
 //
-// THE BOUNDARY. `HapticsEngine` has exactly three internal entry points —
+// THE BOUNDARY, re-derived from the source rather than taken on trust.
+// `HapticsEngine` exposes `shared` and exactly three internal entry points —
 // `warmUp()`, `pop(profile:sizeNorm:chained:)` and `cleared()` — and nothing
-// else. The three `UIFeedbackGenerator`s are `private let`, the delayed
-// follow-up `tap(_:intensity:after:)` is `private`, and the intensity
-// arithmetic (`base + perSize * sizeNorm`, ×0.8 when chained, clamped to
-// 0.1...1, ×1.25 for `.thud`) lives INLINE inside `pop` rather than in a
-// helper. `@testable import` exposes `internal`, not `private`.
+// else. The three `UIFeedbackGenerator`s (`soft`, `light`, `notify`) are
+// `private let`, `init` is `private`, the delayed follow-up
+// `tap(_:intensity:after:)` is `private`, and the intensity arithmetic
+// (`base + perSize * sizeNorm`, ×0.8 when chained, clamped to 0.1...1 by
+// `min(1, max(0.1, …))`, ×1.25 for `.thud`) lives INLINE inside `pop` rather
+// than in a helper. `@testable import` exposes `internal`, not `private`.
+// Neither the engine nor `SettingsStore` is actor-isolated, so this class
+// needs no `@MainActor`; XCTest runs these synchronous test methods on the
+// main thread, which is where `UIFeedbackGenerator` must be used anyway.
 //
 // The consequence is worth being blunt about: the properties this file would
 // most like to pin — that a bigger orb taps harder, that a chained echo is
@@ -31,19 +36,45 @@ import XCTest
 // otherwise be seen, and it covers the clamping arithmetic that keeps a NaN
 // or an out-of-range size from reaching `impactOccurred(intensity:)`, which
 // is documented to take 0...1.
+//
+// WHY THE NON-FINITE INPUTS BELOW ARE SAFE TO PASS, spelled out because the
+// answer depends on the exact shape of the clamp and would change if the
+// clamp did. Swift's `max(x, y)` is `y >= x ? y : x` and `min(x, y)` is
+// `y < x ? y : x`. So `max(0.1, .nan)` takes the false branch and yields 0.1,
+// and `min(1, 0.1)` yields 0.1: a NaN intensity arrives at the generator as
+// the floor. `+infinity` clamps to 1, `-infinity` to 0.1. Nothing here is
+// converted to an integer anywhere on this path, so there is no trap to hit —
+// unlike the audio engine's frequency keys, which is why that file's inputs
+// are kept tame and these are not.
+//
+// THE DELAYED TAPS, and why a test ending before they land is safe. `.double`,
+// `.ripple` and `.swell` schedule one or two follow-ups through
+// `DispatchQueue.main.asyncAfter` at 45–95 ms. A test method returns long
+// before those fire, so they land during a later test or at the end of the
+// run. That cannot crash and cannot corrupt anything: the generator is
+// captured `[weak generator]` but is a `private let` on an immortal singleton
+// so it never nils; the closure re-clamps its own intensity to 0.1...1; and it
+// re-reads `SettingsStore.shared.hapticsEnabled` when it lands, so the worst
+// case is a no-op tap on hardware that is not there. Deliberately NOT drained
+// with a run-loop wait: nothing in this file may depend on wall clock, and
+// there is nothing observable to wait for.
 final class HapticsEngineTests: XCTestCase {
 
     private var hapticsWereEnabled = true
+    private var soundWasEnabled = true
 
     override func setUp() {
         super.setUp()
         // Other test classes mutate SettingsStore.shared, so nothing here may
-        // assert a setting it did not itself set — only save and restore.
+        // assert a setting it did not itself set — only save and restore. Both
+        // flags are saved even though only `hapticsEnabled` is written here.
         hapticsWereEnabled = SettingsStore.shared.hapticsEnabled
+        soundWasEnabled = SettingsStore.shared.soundEnabled
     }
 
     override func tearDown() {
         SettingsStore.shared.hapticsEnabled = hapticsWereEnabled
+        SettingsStore.shared.soundEnabled = soundWasEnabled
         super.tearDown()
     }
 
@@ -69,6 +100,8 @@ final class HapticsEngineTests: XCTestCase {
     // pattern switch is the part that is newest and least exercised elsewhere.
     // Driving all five rhythms on both generators, direct and chained, at both
     // ends of the size range is the closest thing to a smoke test the hand has.
+    // 160 calls, each synchronous; the ~128 follow-up taps they schedule are
+    // accounted for in the header note.
     func testEveryPatternOnBothGeneratorsIsSafeDirectAndChained() {
         SettingsStore.shared.hapticsEnabled = true
         for profile in Self.profiles {
@@ -98,7 +131,10 @@ final class HapticsEngineTests: XCTestCase {
     // can hand it a value outside 0...1. `UIImpactFeedbackGenerator` documents
     // its intensity as 0...1; the clamp inside `pop` is what stands between
     // those two facts, and a NaN or an infinity must come out as a quiet tap
-    // rather than as a trap.
+    // rather than as a trap. Note that `0 * .infinity` is NaN, so the
+    // zero-`intensityPerSize` profiles in the list above turn the infinite
+    // sizes into NaN intensities — both branches of the header's reasoning are
+    // exercised by this one loop.
     func testAnOutOfRangeOrNonFiniteSizeStillProducesATapRatherThanACrash() {
         SettingsStore.shared.hapticsEnabled = true
         let sizes: [Double] = [-1, -0.001, 1.001, 4, 1e9, -1e9, .infinity, -.infinity, .nan]
@@ -132,9 +168,10 @@ final class HapticsEngineTests: XCTestCase {
     // Guardrail: the haptics toggle must silence every entry point. The
     // silence itself cannot be observed from outside the type — there is no
     // reachable witness to whether a generator fired — so what this pins is
-    // that the disabled path is executed and is harmless, including the
-    // delayed follow-up taps of `.double`, `.ripple` and `.swell`, which
-    // re-check the setting when they land rather than when they are scheduled.
+    // that the disabled path is executed and is harmless. With the setting off
+    // `pop` returns at its first guard, so no follow-up tap is even scheduled;
+    // the delayed taps' own re-check of the setting is what covers her turning
+    // haptics off mid-chain, and that is the test below.
     func testEveryEntryPointIsSafeWithHapticsTurnedOff() {
         SettingsStore.shared.hapticsEnabled = false
         HapticsEngine.shared.warmUp()
@@ -146,8 +183,11 @@ final class HapticsEngineTests: XCTestCase {
     }
 
     // She can turn haptics off in the middle of a chain, between a pop and the
-    // follow-up tap it scheduled. Toggling around live calls must not leave
-    // anything in a bad state either way.
+    // follow-up tap it scheduled. `.ripple` is used because it is the pattern
+    // that schedules the most — two deferred taps per pop — so this is the
+    // shape most likely to have a live block in flight when the setting flips
+    // under it. Toggling around live calls must not leave anything in a bad
+    // state either way.
     func testTogglingTheSettingAroundLiveCallsIsSafe() {
         let rippling = HapticProfile(baseIntensity: 0.35, intensityPerSize: 0.5,
                                      sharp: false, pattern: .ripple)
@@ -166,6 +206,11 @@ final class HapticsEngineTests: XCTestCase {
     // two entry points with no arguments to vary; they are called from
     // `onAppear` and from field completion, and both are called repeatedly
     // over a session.
+    //
+    // This is the thinnest test in the file and it is kept on purpose: it is
+    // the only coverage `warmUp()` and the `UINotificationFeedbackGenerator`
+    // have anywhere, and both of those are exactly the kind of call that
+    // acquires a force-unwrap or a hardware assumption later.
     func testWarmUpAndClearedAreSafeToRepeatOnHardwareThatMayNotExist() {
         SettingsStore.shared.hapticsEnabled = true
         for _ in 0..<5 {

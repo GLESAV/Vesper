@@ -344,7 +344,7 @@ final class EndToEndJourneyTests: XCTestCase {
     func testAFreshInstallPlaysADozenFieldsWithoutStallingAndTheStageClimbsThreeFieldsAtATime() {
         let stores = makeStores()
         XCTAssertEqual(stores.progression.fieldsCleared, 0, "this is not a fresh install")
-        XCTAssertEqual(stores.progression.unlockedNumbers(), [PopCatalog.classic.number],
+        XCTAssertEqual(stores.progression.unlockedNumbers(), Set([PopCatalog.classic.number]),
                        "a first launch has exactly the classic pop and nothing else")
 
         stores.map.ensureGenesis(unlocked: stores.progression.unlockedNumbers())
@@ -581,11 +581,9 @@ final class EndToEndJourneyTests: XCTestCase {
             XCTAssertEqual(now.fieldsCleared, previous.fieldsCleared + 1)
             previous = now
 
-            if field % 3 == 2 {
-                // stay on the same stone: replay
-            } else {
-                stepOnward(stores)
-            }
+            // Every third field she stays where she is, so the next one is a
+            // return to a stone she has already cleared.
+            if field % 3 != 2 { stepOnward(stores) }
         }
 
         XCTAssertEqual(log.violations, [], "something was spent, lost or reset")
@@ -653,11 +651,8 @@ final class EndToEndJourneyTests: XCTestCase {
             // past is remembered, to be checked at the end.
             let roads = stores.map.roads(from: currentID)
             untakenForks.formUnion(roads.dropFirst().map(\.id))
-            if field % 3 == 2 || roads.isEmpty {
-                // stay: the next field is a replay of this stone
-            } else {
-                stores.map.setActive(roads[0].id)
-            }
+            let staying = (field % 3 == 2) || roads.isEmpty
+            if !staying { stores.map.setActive(roads[0].id) }
         }
 
         XCTAssertEqual(log.violations, [], "the map went backwards")

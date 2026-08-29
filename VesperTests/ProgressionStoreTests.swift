@@ -102,8 +102,14 @@ final class ProgressionStoreTests: XCTestCase {
          store.fortunesFound, store.bestChain]
     }
 
+    // `file`/`line` default to the CALL SITE, so a failure is reported against
+    // the recording that caused it rather than against this helper — otherwise
+    // all seven checks below fail on the same line and the report says nothing
+    // about which door let the number down.
     private func assertNothingWentDown(_ store: ProgressionStore,
                                        _ what: String,
+                                       file: StaticString = #filePath,
+                                       line: UInt = #line,
                                        during body: () -> Void) {
         let before = counters(store)
         body()
@@ -111,7 +117,8 @@ final class ProgressionStoreTests: XCTestCase {
         for (index, name) in Self.counterNames.enumerated() {
             XCTAssertGreaterThanOrEqual(after[index], before[index],
                                         "\(what) made \(name) go down: "
-                                        + "\(before[index]) → \(after[index])")
+                                        + "\(before[index]) → \(after[index])",
+                                        file: file, line: line)
         }
     }
 
@@ -342,6 +349,14 @@ final class ProgressionStoreTests: XCTestCase {
 
     // A tally with an entry that is not a pop number keeps the entries that
     // are: a single junk key must not empty somebody's collection page.
+    //
+    // THE ONE INPUT THIS TEST MUST NEVER GROW. No two keys here may parse to
+    // the same Int — "7" and "07", or "7" and "+7", both answer 7. The store
+    // collapses duplicates with `uniquingKeysWith`, but if that ever goes back
+    // to `Dictionary(uniqueKeysWithValues:)` a colliding pair TRAPS, and a trap
+    // in a test aborts the whole process: every other test in the suite is
+    // reported as never having run, and the crash reads like infrastructure
+    // rather than like this line. Keep the junk key unparseable.
     func testATallyWithAJunkEntryKeepsTheEntriesItCanStillRead() {
         defaults.set(["7": 4, "notapopnumber": 3], forKey: Self.popCountsKey)
         let store = makeStore()
@@ -528,11 +543,18 @@ final class ProgressionStoreTests: XCTestCase {
         XCTAssertGreaterThan(opened.count, atTheStart.count,
                              "a long journey opened nothing new — this test would pass on a "
                              + "store that never unlocks anything")
-        // and every number the collection page shows must be a real pop
-        for number in opened {
-            XCTAssertNotNil(PopCatalog.byNumber[number],
-                            "pop #\(number) is unlocked but is not in the catalogue")
-        }
+        // and the field she is actually given must still agree with the
+        // collection the page shows her.
+        //
+        // (The obvious closing check — that every unlocked number is a real
+        // pop — cannot fail: `unlockedNumbers()` is built by filtering the
+        // catalogue, so it is a restatement of its own definition. This is the
+        // version that can: `fieldPops()` reaches the same answer down a
+        // different path, with its own featured-pop branch and its own empty
+        // fallback, and the two are free to drift apart.)
+        XCTAssertEqual(store.fieldPops(), opened.sorted(),
+                       "the field drifts through a different set of pops than the collection "
+                       + "says she has earned")
     }
 
     // MARK: - W24: the fresh install (DEBUG only)
