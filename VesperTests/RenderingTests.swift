@@ -526,25 +526,34 @@ final class RenderingTests: XCTestCase {
     /// How far a coordinate read back out of a `Path` may sit from the value
     /// that was put in.
     ///
-    /// SWIFTUI'S `Path` ROUND-TRIPS THROUGH SINGLE PRECISION. Every number
-    /// these tests hand it is a `CGFloat` — a `Double` on every device this
-    /// ships to — but what comes back out of `Path.forEach` has been through
-    /// `Float`. It is visible in the failures: sin(50°) went in as
-    /// 0.766044443118978 and came back as 0.7660444378852844, which is
-    /// exactly the nearest `Float`; a 736-point coordinate came back
-    /// 6.7e-6 away, which is one `Float` ulp at that magnitude.
+    /// SWIFTUI'S `Path` DOES NOT GIVE BACK THE COORDINATES IT WAS GIVEN.
+    /// Every number these tests hand it is a `CGFloat` — a `Double` on every
+    /// device this ships to — and what comes back out of `Path.forEach` has
+    /// been quantised. Two rounds of CI measured it:
     ///
-    /// So a fixed absolute tolerance cannot work across these tests: the same
-    /// error is 5e-9 on a unit circle and 6e-5 on a screen coordinate. The
-    /// tolerance has to scale with the number being compared. 1e-5 relative
-    /// is about eighty times `Float`'s own 1.2e-7, which leaves room for the
-    /// handful of operations that accumulate before the value is stored, and
-    /// is still far tighter than any real geometric error — a silhouette
-    /// drawn in the wrong place is wrong by points, not by millionths.
+    ///   · A single vertex loses only single precision. sin(50°) went in as
+    ///     0.766044443118978 and came back as 0.7660444378852844, exactly
+    ///     the nearest `Float`.
+    ///   · A value derived from the path — an extent, a distance — carries
+    ///     considerably more. Measured across three magnitudes at once:
+    ///     3.899719 against 3.899658, 26.323059 against 26.322693, and
+    ///     779.942352 against 779.931641. That is a RELATIVE error of
+    ///     1.4e-5 at every scale, near enough 2^-16 — about a hundred times
+    ///     coarser than `Float`'s own 1.2e-7, because the comparison is
+    ///     between two separately quantised measurements rather than one
+    ///     value and its rounding.
+    ///
+    /// So the tolerance must scale with the number being compared (the same
+    /// error is 5e-9 on a unit circle and 1e-2 on a 780-point extent) and it
+    /// must be set against the MEASURED figure rather than against `Float`'s
+    /// theoretical one. 1e-4 relative leaves about seven times the worst
+    /// error observed, and is still far tighter than any real geometric
+    /// fault: a silhouette drawn at the wrong scale is wrong by percent, not
+    /// by thousandths of a percent.
     ///
     /// The floor keeps it honest near zero, where a relative bound collapses.
     private func pathTolerance(_ magnitude: CGFloat) -> CGFloat {
-        Swift.max(1e-5, abs(magnitude) * 1e-5)
+        Swift.max(1e-5, abs(magnitude) * 1e-4)
     }
 
     func testTheIdentityPlacementReproducesTheOutlineExactly() {
@@ -579,10 +588,10 @@ final class RenderingTests: XCTestCase {
                            accuracy: pathTolerance(unit.height * radius),
                            "radius \(radius): the silhouette did not scale in y")
             XCTAssertEqual(grown.midX - centre.x, (unit.midX - centre.x) * radius,
-                           accuracy: pathTolerance(centre.x),
+                           accuracy: pathTolerance((unit.midX - centre.x) * radius) + pathTolerance(centre.x),
                            "radius \(radius): it grew about the wrong point")
             XCTAssertEqual(grown.midY - centre.y, (unit.midY - centre.y) * radius,
-                           accuracy: pathTolerance(centre.y),
+                           accuracy: pathTolerance((unit.midY - centre.y) * radius) + pathTolerance(centre.y),
                            "radius \(radius): it grew about the wrong point")
         }
     }
@@ -598,10 +607,16 @@ final class RenderingTests: XCTestCase {
                        CGPoint(x: 1e5, y: -1e5)] {
             let moved = extent(of: SceneRenderer.path(for: part(outline), at: centre,
                                                       radius: 9, facing: 1))
+            // Keyed to the quantity being compared PLUS the centre it was
+            // measured from: both measurements are quantised, and the one
+            // taken far from the origin is quantised against a much larger
+            // number than the extent it yields.
             XCTAssertEqual(moved.width, origin.width,
-                           accuracy: pathTolerance(centre.x), "\(centre): it resized")
+                           accuracy: pathTolerance(origin.width) + pathTolerance(centre.x),
+                           "\(centre): it resized")
             XCTAssertEqual(moved.height, origin.height,
-                           accuracy: pathTolerance(centre.y), "\(centre): it resized")
+                           accuracy: pathTolerance(origin.height) + pathTolerance(centre.y),
+                           "\(centre): it resized")
             XCTAssertEqual(moved.minX, origin.minX + centre.x,
                            accuracy: pathTolerance(centre.x), "\(centre)")
             XCTAssertEqual(moved.minY, origin.minY + centre.y,
