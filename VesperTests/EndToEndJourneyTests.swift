@@ -50,7 +50,7 @@ final class EndToEndJourneyTests: XCTestCase {
 
     // MARK: - The hermetic world
 
-    private final class TestClock {
+    fileprivate final class TestClock {
         var now: Date
         init(_ now: Date) { self.now = now }
     }
@@ -75,7 +75,7 @@ final class EndToEndJourneyTests: XCTestCase {
         super.tearDown()
     }
 
-    private struct Stores {
+    fileprivate struct Stores {
         let progression: ProgressionStore
         let map: MapStore
         let settings: SettingsStore
@@ -95,13 +95,13 @@ final class EndToEndJourneyTests: XCTestCase {
 
     /// One road on the map, as an edge rather than as a stone, so "no road is
     /// ever removed" can be checked as a set relation.
-    private struct Edge: Hashable {
+    fileprivate struct Edge: Hashable {
         let parent: UUID
         let child: UUID
     }
 
     /// Everything the game claims only ever accrues, read at one instant.
-    private struct Ledger {
+    fileprivate struct Ledger {
         var points = 0
         var lifetimePops = 0
         var fieldsCleared = 0
@@ -135,7 +135,7 @@ final class EndToEndJourneyTests: XCTestCase {
     /// one of five hundred pops would otherwise bury the report under five
     /// hundred identical failures, and the FIRST one is the one worth
     /// reading.
-    private final class JourneyLog {
+    fileprivate final class JourneyLog {
         private(set) var violations: [String] = []
 
         func note(_ text: String) {
@@ -172,7 +172,7 @@ final class EndToEndJourneyTests: XCTestCase {
 
     // MARK: - Playing one field, the way the view model does
 
-    private struct FieldRecord {
+    fileprivate struct FieldRecord {
         var index: Int
         var stage: Int
         var generation: Int
