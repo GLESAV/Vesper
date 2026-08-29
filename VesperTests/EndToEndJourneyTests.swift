@@ -58,6 +58,8 @@ final class EndToEndJourneyTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
     private var clock: TestClock!
+    /// Suites handed out by `isolatedProgression()`, swept in `tearDown`.
+    private var extraSuites: [String] = []
 
     override func setUp() {
         super.setUp()
@@ -69,6 +71,10 @@ final class EndToEndJourneyTests: XCTestCase {
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
+        for suite in extraSuites {
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        }
+        extraSuites = []
         defaults = nil
         suiteName = nil
         clock = nil
@@ -89,6 +95,22 @@ final class EndToEndJourneyTests: XCTestCase {
         return Stores(progression: ProgressionStore(defaults: defaults),
                       map: MapStore(defaults: defaults, now: { clock.now }),
                       settings: SettingsStore(defaults: defaults))
+    }
+
+    /// A progression store over a suite of its OWN, for the threshold probes.
+    ///
+    /// Each probe needs a journey with nothing else in it, and the tempting
+    /// way to get one — wiping this test's shared suite between probes — asks
+    /// `removePersistentDomain` to be visible to an instance that has already
+    /// read those keys. `ProgressionStoreTests.isolatedStore()` reached the
+    /// same conclusion for the same reason: a fresh suite per store is the
+    /// only isolation that does not depend on that.
+    private func isolatedProgression() -> ProgressionStore {
+        let suite = "vesper.tests.e2e.probe.\(UUID().uuidString)"
+        let suiteDefaults = UserDefaults(suiteName: suite)!
+        suiteDefaults.removePersistentDomain(forName: suite)
+        extraSuites.append(suite)
+        return ProgressionStore(defaults: suiteDefaults)
     }
 
     // MARK: - What a journey remembers
@@ -207,8 +229,52 @@ final class EndToEndJourneyTests: XCTestCase {
     }
 
     /// Seeds the field the stone she is standing on describes, plays it to
-    /// completion, and records everything into the stores exactly where
-    /// `GameViewModel` records it.
+    /// completion, and records what happens into the stores.
+    ///
+    /// ─────────────────────────────────────────────────────────────────────
+    /// THIS RE-IMPLEMENTS `GameViewModel`, IT DOES NOT USE IT, and that is
+    /// the first thing to know about every assertion below. The view model
+    /// reaches for `ProgressionStore.shared`, `MapStore.shared` and
+    /// `SettingsStore.shared` directly and takes nothing in its initialiser,
+    /// so a hermetic journey cannot be played through it. What is mirrored
+    /// here, read line by line against `applyFieldPops()`, `apply(_:)`,
+    /// `handlePop(orb:chained:)` and `handleCleared()`:
+    ///
+    ///   * the four inputs a field is seeded from — the stone's pops (else
+    ///     `fieldPops()`), the stage from lifetime fields cleared, the
+    ///     stone's generation, and its play count;
+    ///   * `.popped` → `recordPop(popNumber:points:chainLength:)`, with the
+    ///     view model's own scoring arithmetic and the chain length applied
+    ///     to the score before it is recorded, as it is there;
+    ///   * `.fortuneRevealed` → `recordFortune()`;
+    ///   * `.cleared` → `recordClear(bonus: 100)` and THEN, only while she is
+    ///     standing on a stone, `MapStore.recordClear(unlocked:)` — that
+    ///     order matters, because the roads that open are dealt from a
+    ///     collection that already counts this clear;
+    ///   * every other event recording NOTHING, which is itself one of the
+    ///     promises: a shell breaking, a splitter opening, a generator
+    ///     giving or closing must all leave every counter where they found it.
+    ///
+    /// WHAT IT DOES NOT COVER, so nothing below is mistaken for a claim
+    /// about it:
+    ///
+    ///   * CHAIN LENGTH IS MEASURED ON THE SIMULATED CLOCK. The view model's
+    ///     `noteChainProgress()` compares `Date()` against `chainWindow`, and
+    ///     no deterministic test can drive a wall clock; `seconds` below
+    ///     advances by `dt` and is compared against the same constant. The
+    ///     arithmetic is the view model's, the clock is not.
+    ///   * Sound, haptics, the point whispers, the done card, the chain and
+    ///     unlock notes, `sessionPoints`, and the onward sequence are the
+    ///     view model's alone and are not exercised here at all.
+    ///   * NOTHING IS ON THE GLASS: `sim.pointer` stays nil, so a drifter
+    ///     never eases away from a finger and a shy animal never keeps out of
+    ///     its way. Their motion is watched; their evasion is not.
+    ///
+    /// A divergence between this harness and the view model would therefore
+    /// show up as a journey that passes here and misbehaves in the app.
+    /// `GameViewModelTests` is what pins the bridge itself; this file pins
+    /// what the bridge feeds.
+    /// ─────────────────────────────────────────────────────────────────────
     ///
     /// `framesBetweenTaps` is 55 — a shade over `GameConfig.chainWindow` at
     /// 60 fps — so two of her OWN taps are never counted as one cascade,
@@ -228,14 +294,21 @@ final class EndToEndJourneyTests: XCTestCase {
         // stone she stands on, its stage rides on lifetime fields cleared,
         // and its depth on where the stone sits and how often she has been
         // here.
+        //
+        // ALL FOUR ARE SET BEFORE `layout`, WHICH IS WHY THERE IS NO
+        // `seedField()` CALL HERE. `layout(size:)` seeds the field the moment
+        // it first has bounds, so the world's order is "say what the field is,
+        // then give it a size" — and setting them afterwards would seed a
+        // stage-0 field, throw it away, and seed the real one from a
+        // generator that had already been drawn from. Deterministic either
+        // way; only one of the two is the order the app runs in.
         let stone = stores.map.activeStone
         let sim = GameSimulation(seed: seed)
-        sim.layout(size: fieldSize)
         sim.availablePops = stone?.popNumbers ?? stores.progression.fieldPops()
         sim.stage = FieldPlan.stage(forFieldsCleared: stores.progression.fieldsCleared)
         sim.generation = stone?.generation ?? 0
         sim.plays = stone.map { stores.map.plays[$0.id] ?? 0 } ?? 0
-        sim.seedField()
+        sim.layout(size: fieldSize)
 
         var record = FieldRecord(
             index: index,
@@ -306,12 +379,30 @@ final class EndToEndJourneyTests: XCTestCase {
             }
         }
         record.completed = sim.completed
+        // THE GUARD FAILS THE TEST; IT NEVER EXITS QUIETLY. Every loop in
+        // this file is bounded so that a regression can only ever fail a
+        // test and never hang CI — and a bound that is actually reached has
+        // to say so here, where the field it happened to is still in hand,
+        // rather than surfacing later as a bare "never finished".
+        if !sim.completed {
+            XCTFail("field \(index) ran to the \(iterationLimit)-iteration guard "
+                    + "without finishing: stage \(record.stage), generation "
+                    + "\(record.generation), \(record.seededTotal) orbs, "
+                    + "\(record.taps) taps, \(sim.aliveCount) still on the glass "
+                    + "and \(sim.reserve.count) waiting below")
+        }
         return record
     }
 
-    /// Takes the first road ahead, the way the onward sequence does when
-    /// there is one road and the way a tap on a star does when there is a
-    /// fork.
+    /// Takes the first road ahead.
+    ///
+    /// `GameViewModel.scheduleStepOnward()` walks on BY ITSELF only when
+    /// exactly one road is open; a fork deliberately stops the sequence in
+    /// the sky and waits, because choosing for her would be taking the one
+    /// decision The Path exists to offer. So this models the single-road case
+    /// as the app does it, and the fork case as she does it — a tap on the
+    /// first star. What it never models is her declining to move on, which is
+    /// covered instead by the tests that stay put and replay a stone.
     private func stepOnward(_ stores: Stores) {
         guard let currentID = stores.map.activeStoneID else { return }
         if let next = stores.map.roads(from: currentID).first {
@@ -320,15 +411,38 @@ final class EndToEndJourneyTests: XCTestCase {
     }
 
     /// Fastest anything of this kind is ever allowed to travel, from the
-    /// three ceilings the simulation actually applies.
+    /// three ceilings the simulation applies.
+    ///
+    /// EACH ONE IS THE INTENDED CEILING, NOT THE OBSERVED ONE, and that is
+    /// deliberate: this is a guardrail against a field that outruns her, so
+    /// it has to keep holding if any of the three ceilings is ever repaired
+    /// upward. Two of them are currently lower in fact than in intent, both
+    /// for the same reason — `applyWeather` ends by clamping EVERY orb to
+    /// `orbMaxSpeed × speedScale × 1.6`, and in `stepOrbs` it runs before the
+    /// animal's own ceiling is consulted and after the drifter's:
+    ///
+    ///   * an animal's startle is set to `animalStartleSpeed` (2.0) and is
+    ///     clamped to between 0.213 (fog) and 0.317 (storm) on the very next
+    ///     frame in every air but clear, so the dart she is supposed to see
+    ///     is roughly a seventh of itself;
+    ///   * `evadeMaxSpeed` (0.34) is above every one of those caps, so a
+    ///     drifter cannot reach it outside clear air either.
+    ///
+    /// Written to the intent, this test passes today AND after that ordering
+    /// is fixed. Written to what is observed, it would fail the moment the
+    /// startle worked — which is the wrong way round for a guardrail.
     private func speedCeiling(for orb: Orb, weather: Weather) -> CGFloat {
         let air = GameConfig.orbMaxSpeed * weather.speedScale * 1.6
         switch orb.kind {
         case .animal:
             // A startle is a briefly raised ceiling that decays with the
-            // dart itself; `animalStartleSpeed` is the top of it.
+            // dart itself; `animalStartleSpeed` is the top of it, and it is
+            // reached EXACTLY on the frame a chain startles the animal (the
+            // ring steps after the orbs do), which is what the small epsilon
+            // at the comparison is for.
             return GameConfig.animalStartleSpeed
         case .drifter:
+            // Its own ceiling in clear air, the weather's if that is higher.
             return max(air, GameConfig.evadeMaxSpeed)
         default:
             return air
@@ -455,7 +569,7 @@ final class EndToEndJourneyTests: XCTestCase {
     func testTheEarlyLadderFiresAtExactlyTheThresholdsTheCatalogueDeclares() {
         // #002 · points(100)
         do {
-            let store = ProgressionStore(defaults: defaults)
+            let store = isolatedProgression()
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 2)))
             store.recordPop(popNumber: 1, points: 99, chainLength: 1)
             XCTAssertEqual(store.popPoints, 99)
@@ -468,43 +582,39 @@ final class EndToEndJourneyTests: XCTestCase {
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 3)),
                            "#003 (250) opened at 100")
         }
-        defaults.removePersistentDomain(forName: suiteName)
 
         // #004 · totalPops(150)
         do {
-            let store = ProgressionStore(defaults: defaults)
+            let store = isolatedProgression()
             for _ in 0..<149 { store.recordPop(popNumber: 1, points: 0, chainLength: 1) }
             XCTAssertEqual(store.lifetimePops, 149)
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 4)))
             store.recordPop(popNumber: 1, points: 0, chainLength: 1)
             XCTAssertTrue(store.isUnlocked(PopCatalog.definition(for: 4)))
         }
-        defaults.removePersistentDomain(forName: suiteName)
 
         // #006 · fortunesFound(3)
         do {
-            let store = ProgressionStore(defaults: defaults)
+            let store = isolatedProgression()
             store.recordFortune()
             store.recordFortune()
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 6)))
             store.recordFortune()
             XCTAssertTrue(store.isUnlocked(PopCatalog.definition(for: 6)))
         }
-        defaults.removePersistentDomain(forName: suiteName)
 
         // #008 · fieldsCleared(5)
         do {
-            let store = ProgressionStore(defaults: defaults)
+            let store = isolatedProgression()
             for _ in 0..<4 { store.recordClear(bonus: 0) }
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 8)))
             store.recordClear(bonus: 0)
             XCTAssertTrue(store.isUnlocked(PopCatalog.definition(for: 8)))
         }
-        defaults.removePersistentDomain(forName: suiteName)
 
         // #010 · bestChain(4) — and a shorter chain afterwards never closes it
         do {
-            let store = ProgressionStore(defaults: defaults)
+            let store = isolatedProgression()
             store.recordPop(popNumber: 1, points: 0, chainLength: 3)
             XCTAssertFalse(store.isUnlocked(PopCatalog.definition(for: 10)))
             store.recordPop(popNumber: 1, points: 0, chainLength: 4)

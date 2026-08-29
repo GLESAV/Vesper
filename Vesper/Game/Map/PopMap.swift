@@ -12,7 +12,15 @@ import Foundation
 
 extension MapStone {
     /// The family this stone leans toward: whichever has the most pops on it,
-    /// tie broken by the lowest pop number so it is stable forever.
+    /// ties broken by the alphabetically first family name, so the answer is
+    /// stable forever.
+    ///
+    /// The tie-break is arbitrary and only has to be DETERMINISTIC — a stone
+    /// must lean the same way every time it is drawn, or the sky would
+    /// shimmer between two families as it redrew. (It is stated exactly here
+    /// because the comment used to say "the lowest pop number", which is a
+    /// different rule: a stone holding one Vesper and one Aurora leans
+    /// Aurora, not Vesper.)
     ///
     /// DERIVED, NEVER STORED. A stone's pops already say what it is, and
     /// adding a field to this Codable struct would make every previously
