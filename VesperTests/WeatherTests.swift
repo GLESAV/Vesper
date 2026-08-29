@@ -524,4 +524,37 @@ final class WeatherTests: XCTestCase {
         XCTAssertLessThanOrEqual(GameConfig.weatherFogOpacity, 0.16)
         XCTAssertLessThanOrEqual(GameConfig.weatherFoamOpacity, 0.2)
     }
+
+    // A CLEARED FIELD GOES QUIET, WHATEVER THE AIR. The pause can only hold
+    // what has already come to rest: before `WeatherField.presence` existed,
+    // a snowy field's quiescence froze flakes mid-fall under the done card —
+    // the last frame held them wherever the pause caught them. Now completion
+    // fades the weather from the glass, and only then may the clock stop.
+    func testAClearedFieldGoesQuietWhateverTheAir() {
+        for weather in [Weather.snow, .rain, .fog, .storm] {
+            let s = sim(weather)
+
+            var guardCount = 0
+            while !s.completed && guardCount < 4_000 {
+                if let target = s.orbs.first(where: \.alive) {
+                    s.tap(at: target.pos)
+                } else {
+                    _ = s.step(dt: 1.0 / 60)
+                }
+                guardCount += 1
+            }
+            XCTAssertTrue(s.completed, "\(weather): the field could not be finished")
+
+            XCTAssertFalse(s.isQuiescent,
+                           "\(weather): quiescence engaged with the air still on the glass")
+            var frames = 0
+            while !s.isQuiescent && frames < 600 {
+                _ = s.step(dt: 1.0 / 60)
+                frames += 1
+            }
+            XCTAssertTrue(s.isQuiescent, "\(weather): the air never left the glass")
+            XCTAssertEqual(s.weatherField.presence, 0,
+                           "\(weather): quiescence engaged before the fade finished")
+        }
+    }
 }

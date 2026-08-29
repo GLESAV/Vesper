@@ -166,16 +166,33 @@ struct WeatherField {
 
     // MARK: - Stepping
 
+    /// How much of the weather is on the glass, 0...1. Full while the field
+    /// is in play; once the field completes it eases to zero (`settling`), so
+    /// the held frame under the done card is a quiet field rather than
+    /// snowflakes frozen mid-fall — the pause can only hold what has already
+    /// come to rest. The renderer multiplies everything it draws by this.
+    private(set) var presence: CGFloat = 1
+
     /// One frame of weather. `seed` is read only when the air changes, so the
     /// same field always gets the same sky, and drawing from it never
-    /// disturbs the field's own sequence.
+    /// disturbs the field's own sequence. `settling` is the field's own
+    /// `completed`: while true the weather fades from the glass in about two
+    /// seconds and stops asking for frames.
     mutating func step(_ f: CGFloat, weather: Weather, bounds: CGSize,
-                       reduceMotion: Bool, orbs: [Orb], seed: UInt64) {
+                       reduceMotion: Bool, orbs: [Orb], seed: UInt64,
+                       settling: Bool = false) {
         if !configured || weather != self.weather || bounds != self.bounds
             || reduceMotion != self.reduceMotion {
             reset(weather: weather, bounds: bounds, reduceMotion: reduceMotion, seed: seed)
         }
         guard bounds.width > 0, bounds.height > 0, weather.hasField else { return }
+
+        if settling {
+            presence = max(0, presence - f / 120)
+            if presence <= 0 { return }
+        } else if presence < 1 {
+            presence = min(1, presence + f / 30)
+        }
 
         // UNDER REDUCE MOTION EVERYTHING STILL EXISTS AND ALMOST NOTHING
         // MOVES: the air becomes something to look at rather than something
@@ -200,6 +217,7 @@ struct WeatherField {
         self.bounds = bounds
         self.reduceMotion = reduceMotion
         configured = true
+        presence = 1
         rng = SplitMix64(seed: seed)
         crests.removeAll()
         eddies.removeAll()

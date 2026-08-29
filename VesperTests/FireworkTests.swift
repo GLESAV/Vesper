@@ -411,4 +411,47 @@ final class FireworkTests: XCTestCase {
         XCTAssertTrue(events.contains { if case .fuseLit = $0 { return true } else { return false } },
                       "a burning fuse stole a touch meant for an unlit shell")
     }
+
+    // A SHELL SHE NEVER TOUCHED SIMPLY FADES WITH THE FIELD — and the field
+    // then goes properly quiet. Before this held, a `.waiting` shell could
+    // never reach `.spent` once the field completed (`tap` refuses a
+    // completed field, so it could not even be lit any more), `isQuiescent`
+    // stayed false forever, and the frame clock ran at full rate over a
+    // still, cleared field for as long as she cared to sit with it.
+    func testAClearedFieldGoesQuietEvenWithUnlitShells() {
+        for seed in UInt64(31)...36 {
+            let s = display(seed: seed)
+            XCTAssertFalse(s.fireworks.isEmpty)
+
+            // Clear the field without ever aiming at a shell. A tap at an
+            // orb's own position may still light an overlapping shell — the
+            // shell-first tap priority — so the loop simply keeps going; a
+            // lit shell flies, breaks and spends on its own.
+            var guardCount = 0
+            while !s.completed && guardCount < 4_000 {
+                if let target = s.orbs.first(where: \.alive) {
+                    s.tap(at: target.pos)
+                } else {
+                    _ = s.step(dt: 1.0 / 60)
+                }
+                guardCount += 1
+            }
+            XCTAssertTrue(s.completed, "seed \(seed): the field could not be finished")
+
+            // Whatever mix of lit and never-touched shells remains, the field
+            // must go quiescent in bounded time. The bound is set by the
+            // slowest lit shell, not the fade: a fuse can run 165 frames, the
+            // rise ~60 more, and the smoke of a break needs up to ~600.
+            var frames = 0
+            while !s.isQuiescent && frames < 1_500 {
+                _ = s.step(dt: 1.0 / 60)
+                frames += 1
+            }
+            XCTAssertTrue(s.isQuiescent,
+                          "seed \(seed): a cleared display field never went quiet "
+                          + "(phases: \(s.fireworks.map(\.phase)))")
+            XCTAssertTrue(s.fireworks.allSatisfy { $0.phase == .spent },
+                          "seed \(seed): a shell survived the field it belonged to")
+        }
+    }
 }

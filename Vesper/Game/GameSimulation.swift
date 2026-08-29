@@ -110,10 +110,15 @@ final class GameSimulation {
     }
 
     // True once the field is cleared and every visual effect has faded —
-    // the moment rendering can stop entirely.
+    // the moment rendering can stop entirely. The weather is part of the
+    // predicate: a pause that engaged while snow was still on the glass
+    // would hold flakes frozen mid-fall under the done card, so completion
+    // fades the weather out (`WeatherField.presence`) and the clock stays
+    // awake only until that fade — about two seconds — has finished.
     var isQuiescent: Bool {
         completed && particles.isEmpty && rings.isEmpty && notes.isEmpty
             && smoke.isEmpty && !fireworks.contains { $0.phase != .spent }
+            && (!weather.hasField || weatherField.presence <= 0)
     }
 
     // MARK: - Setup
@@ -373,7 +378,13 @@ final class GameSimulation {
                     gen.sinceLast = 0
                     orbs[i].kind = .generator(gen)
                     started = true
-                    if let born = emit(from: orbs[i]) {
+                    // FORCED past the orb ceiling, deliberately. The ceiling
+                    // bounds AMBIENT emission; a press is her own hand, and a
+                    // press that consumed itself while yielding no orb, no
+                    // sound and no haptic is the dead tap this game must
+                    // never produce. The overshoot is bounded by the presses
+                    // themselves — a generator closes in 3–5 of them.
+                    if let born = emit(from: orbs[i], force: true) {
                         events.append(.emitted(orb: born, byTap: true))
                     }
                     break
@@ -660,7 +671,8 @@ final class GameSimulation {
         // quietly change every field that already exists.
         var sky = rng
         weatherField.step(f, weather: weather, bounds: bounds,
-                          reduceMotion: reduceMotion, orbs: orbs, seed: sky.next())
+                          reduceMotion: reduceMotion, orbs: orbs, seed: sky.next(),
+                          settling: completed)
 
         stepOrbs(f)
         stepFireworks(f, into: &events)
@@ -752,15 +764,24 @@ final class GameSimulation {
         // Wander: the heading turns, the speed does not rise. This is the
         // whole of storm, and the reason storm cannot make the field harder.
         if weather.wander > 0 {
-            let amount: CGFloat
+            // BOTH BRANCHES ARE RATE-CORRECTED so 60 and 120 Hz devices see
+            // the same weather per second, with f == 1 (the tuned reference)
+            // byte-identical to what it always was.
+            let a: CGFloat
             if weather.wanderIsStepped {
                 // Crunch: nothing, then a step. Snow moves in little jerks.
-                amount = (rnd(0 ... 1) < 0.06) ? weather.wander * 8 : 0
+                // A jerk is a discrete event: its RATE scales with f, its
+                // SIZE does not — scaling the size by f would make ProMotion
+                // snow twice as gentle and half as crunchy.
+                a = (rnd(0 ... 1) < 0.06 * f) ? weather.wander * 8 : 0
             } else {
-                amount = weather.wander * (rnd(-1 ... 1))
+                // A random walk's variance grows with f² per step and with
+                // 1/f steps per second — √f is what keeps the walk the same
+                // walk per second at any refresh rate. Plain f halves the
+                // storm's variance at 120 Hz.
+                a = weather.wander * rnd(-1 ... 1) * f.squareRoot()
             }
-            if amount != 0 {
-                let a = amount * f
+            if a != 0 {
                 let dx = orbs[i].vel.dx, dy = orbs[i].vel.dy
                 orbs[i].vel.dx = dx * cos(a) - dy * sin(a)
                 orbs[i].vel.dy = dx * sin(a) + dy * cos(a)
@@ -833,6 +854,18 @@ final class GameSimulation {
 
     private func stepFireworks(_ f: CGFloat, into events: inout [GameEvent]) {
         for i in fireworks.indices {
+            // A SHELL SHE NEVER TOUCHED SIMPLY FADES WITH THE FIELD — the
+            // promise at the top of Firework.swift, implemented here. Once
+            // the field is cleared no shell can be lit (`tap` guards
+            // `completed`), so a `.waiting` shell could otherwise never reach
+            // `.spent`, and `isQuiescent` — which waits for every shell —
+            // would hold the frame clock awake forever over a still field.
+            // It fades out on the same curve it faded in, then spends.
+            if completed, case .waiting = fireworks[i].phase {
+                fireworks[i].spawn -= (1 / GameConfig.riseFrames) * f
+                if fireworks[i].spawn <= 0 { fireworks[i].phase = .spent }
+                continue
+            }
             if fireworks[i].spawn < 1 {
                 fireworks[i].spawn = min(1, fireworks[i].spawn + (1 / GameConfig.riseFrames) * f)
             }
@@ -848,8 +881,10 @@ final class GameSimulation {
                     events.append(.fireworkLaunched(fireworks[i]))
                 } else {
                     fireworks[i].phase = .fuse(burned: next)
-                    // The cord sheds sparks where it is burning.
-                    if rnd(0 ... 1) < 0.5 {
+                    // The cord sheds sparks where it is burning. The chance
+                    // scales by f so the shed RATE is per second, not per
+                    // frame — otherwise a 120 Hz screen sheds twice the fire.
+                    if rnd(0 ... 1) < 0.5 * f {
                         addTrailSpark(at: fuseSpark(fireworks[i]), for: fireworks[i])
                     }
                 }
@@ -869,7 +904,11 @@ final class GameSimulation {
                 let next = min(1, progress + (1 / GameConfig.fireworkRiseFrames) * flight.speed * f)
                 let eased = 1 - pow(1 - next, 1.7)   // fast away, slowing at the top
                 let from = fireworks[i].origin, to = fireworks[i].apex
-                let wobble = sin(next * .pi * 5 + fireworks[i].angle)
+                // Under Reduce Motion the shell climbs STRAIGHT: the wobble
+                // and zigzag are the oscillating part of the fastest motion
+                // in the game, and an oscillation is what a vestibular system
+                // objects to far more than the climb itself (04 §11).
+                let wobble = reduceMotion ? 0 : sin(next * .pi * 5 + fireworks[i].angle)
                     * flight.wobble * GameConfig.fireworkWobbleWidth * (1 - next)
                 fireworks[i].pos = CGPoint(
                     x: from.x + (to.x - from.x) * eased + wobble,
@@ -877,7 +916,8 @@ final class GameSimulation {
 
                 // The trail: sparks shed on the way, which is most of what
                 // makes a rise read as a fuse rather than as a moving dot.
-                if rnd(0 ... 1) < 0.75 {
+                // Scaled by f for the same per-second rate at every refresh.
+                if rnd(0 ... 1) < 0.75 * f {
                     addTrailSpark(at: fireworks[i].pos, for: fireworks[i])
                 }
 
@@ -959,13 +999,23 @@ final class GameSimulation {
         let count = fireworks[i].fuseNodes.count
         guard count > 1 else { return }
         let rest = GameConfig.fuseSegmentLength
-        let damping = GameConfig.fuseDamping
+        // Damping is PER FRAME-UNIT, not per call: `pow` keeps a 120 Hz rope
+        // exactly as loose as the 60 Hz one it was tuned on (a per-call 0.94
+        // damps twice per frame-unit on ProMotion — 0.88 — and the cord hangs
+        // visibly stiffer). At f == 1 this is the tuned constant, untouched.
+        let damping = pow(GameConfig.fuseDamping, f)
+        // Verlet velocity is (current − previous) / the step that produced
+        // it. Dividing by the PREVIOUS step's f makes the hand-off between
+        // frames of different length exact; at a steady 60 fps it divides
+        // by 1 and nothing changes.
+        let lastF = max(0.0001, fireworks[i].fuseLastF)
+        fireworks[i].fuseLastF = f
 
         for k in 1..<count {
             let current = fireworks[i].fuseNodes[k]
             let previous = fireworks[i].fusePrev[k]
-            var vx = (current.x - previous.x) * damping
-            var vy = (current.y - previous.y) * damping
+            var vx = (current.x - previous.x) / lastF * damping
+            var vy = (current.y - previous.y) / lastF * damping
             // A rising shell drags its cord behind it.
             if case .rising = fireworks[i].phase { vy += GameConfig.fuseGravity * 0.4 * f }
             else { vy += GameConfig.fuseGravity * f }
@@ -1097,6 +1147,11 @@ final class GameSimulation {
 
         // THE SHOVE. It moves the field; it may not make it harder to play,
         // so the push is clamped to the same ceiling everything else obeys.
+        // Under Reduce Motion it is damped like the animal's startle is
+        // (04 §11): a break that flings the whole field is exactly the
+        // sudden, wide motion the setting asks this game not to make.
+        let shove = GameConfig.fireworkShove
+            * (reduceMotion ? GameConfig.animalReduceMotionScale : 1)
         for i in orbs.indices where orbs[i].alive {
             let dx = orbs[i].pos.x - shell.pos.x
             let dy = orbs[i].pos.y - shell.pos.y
@@ -1105,7 +1160,7 @@ final class GameSimulation {
             guard d2 < reach * reach, d2 > 0.01 else { continue }
             let d = sqrt(d2)
             let falloff = 1 - d / reach
-            let push = GameConfig.fireworkShove * falloff * falloff
+            let push = shove * falloff * falloff
             orbs[i].vel.dx += dx / d * push
             orbs[i].vel.dy += dy / d * push
             clampOrbSpeed(i)
@@ -1167,9 +1222,15 @@ final class GameSimulation {
         let falloff = sin(t * .pi)
 
         // Wall easing: how much room it still has in the direction it wants.
+        // Measured against the LIVE insets — the same walls the bounce and
+        // `clampIntoBounds` use — not the static fallback and never the bare
+        // screen edge: against a bottom signage band, room measured to the
+        // glass reads positive while the drifter is already pinned to the
+        // wall, so `cornered` never fades and it jitters against the band —
+        // the very failure `evadeWallEasing` exists to prevent.
         let room = min(min(orbs[i].pos.x, bounds.width - orbs[i].pos.x),
-                       min(orbs[i].pos.y - GameConfig.fieldTopInset,
-                           bounds.height - orbs[i].pos.y))
+                       min(orbs[i].pos.y - topInset,
+                           (bounds.height - bottomInset) - orbs[i].pos.y))
         let cornered = min(1, max(0, room) / GameConfig.evadeWallEasing)
 
         let push = GameConfig.evadeStrength * falloff * cornered * f
@@ -1238,8 +1299,10 @@ final class GameSimulation {
     /// nothing is queued, nothing is owed, and it will try again next
     /// interval.
     @discardableResult
-    private func emit(from generator: Orb) -> Orb? {
-        guard aliveCount < GameConfig.activeOrbCeiling else { return nil }
+    /// `force` lets a DIRECT press through the orb ceiling — see the tap
+    /// path. Ambient emission never forces.
+    private func emit(from generator: Orb, force: Bool = false) -> Orb? {
+        guard force || aliveCount < GameConfig.activeOrbCeiling else { return nil }
         let r = rnd(GameConfig.orbRadiusRange) * 0.86
         let angle = rnd(0 ... .pi * 2)
         var orb = generator

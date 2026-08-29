@@ -234,6 +234,9 @@ struct Firework {
     /// Slow drift while it waits, so it is alive on the field.
     var drift: CGVector = .zero
     var spawn: CGFloat = 0
+    /// The frame factor of the rope's previous step, for exact Verlet
+    /// velocity across frames of different length. 1 = a 60 fps frame.
+    var fuseLastF: CGFloat = 1
 
     /// THE FUSE, AS A ROPE. Node 0 is pinned to the shell and the rest hang
     /// and trail behind it.

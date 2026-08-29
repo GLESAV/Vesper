@@ -35,6 +35,17 @@ final class MapStore: ObservableObject {
         // ever lost; a separate key that simply reads as empty on first launch
         // keeps it true.
         static let plays = "vesper.map.plays"
+        // Where an undecodable blob is PRESERVED instead of lost. If a stored
+        // map ever fails to decode — corruption, or a future release changing
+        // `MapStone`'s stored shape — `load()` used to leave `stones` empty,
+        // `ensureGenesis` would lay a fresh stone, and the very first `save()`
+        // would overwrite the only copy of her whole Path. W08's contract is
+        // that nothing is ever lost, and that includes being lost to a bug:
+        // the raw bytes are moved here before anything can write over the
+        // live key, so a future release that understands them can bring the
+        // Path back.
+        static let stonesKeepsake = "vesper.map.stones.keepsake"
+        static let playsKeepsake = "vesper.map.plays.keepsake"
     }
 
     // The keys this store owns. See ProgressionStore.ownedDefaultsKeys for why
@@ -43,6 +54,8 @@ final class MapStore: ObservableObject {
         Keys.stones,
         Keys.active,
         Keys.plays,
+        Keys.stonesKeepsake,
+        Keys.playsKeepsake,
     ]
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
@@ -200,18 +213,31 @@ final class MapStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        if let data = defaults.data(forKey: Keys.stones),
-           let decoded = try? JSONDecoder().decode([MapStone].self, from: data) {
-            stones = decoded
+        if let data = defaults.data(forKey: Keys.stones) {
+            if let decoded = try? JSONDecoder().decode([MapStone].self, from: data) {
+                stones = decoded
+            } else {
+                // The blob exists and cannot be read. It is her whole Path,
+                // and the next `save()` would overwrite it with a fresh
+                // genesis — so it is moved aside FIRST, whole, where a future
+                // release that understands it can find it. Never overwritten
+                // once set: the first failure is the copy worth keeping.
+                if defaults.data(forKey: Keys.stonesKeepsake) == nil {
+                    defaults.set(data, forKey: Keys.stonesKeepsake)
+                }
+            }
         }
         if let raw = defaults.string(forKey: Keys.active), let id = UUID(uuidString: raw),
            stones.contains(where: { $0.id == id }) {
             activeStoneID = id
         }
-        if let data = defaults.data(forKey: Keys.plays),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            plays = Dictionary(uniqueKeysWithValues:
-                decoded.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+        if let data = defaults.data(forKey: Keys.plays) {
+            if let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+                plays = Dictionary(uniqueKeysWithValues:
+                    decoded.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+            } else if defaults.data(forKey: Keys.playsKeepsake) == nil {
+                defaults.set(data, forKey: Keys.playsKeepsake)
+            }
         }
     }
 
