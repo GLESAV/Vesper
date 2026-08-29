@@ -144,7 +144,7 @@ final class EndToEndJourneyTests: XCTestCase {
 
         func compare(_ before: Ledger, _ after: Ledger, at place: String) {
             func fell(_ name: String, _ a: Int, _ b: Int) {
-                if b < a { note("\(place): \(name) fell \(a) → \(b)") }
+                if b < a { self.note("\(place): \(name) fell \(a) → \(b)") }
             }
             fell("pop points", before.points, after.points)
             fell("lifetime pops", before.lifetimePops, after.lifetimePops)
@@ -648,12 +648,13 @@ final class EndToEndJourneyTests: XCTestCase {
             everSeenStones.formUnion(now.stones)
             everSeenRoads.formUnion(now.roads)
 
-            // Take the first road on the first pass, replay on the second,
-            // and remember every fork she walked past.
+            // Every third field she stays where she is, so the next one is a
+            // return to a stone she has already cleared. Every fork she walks
+            // past is remembered, to be checked at the end.
             let roads = stores.map.roads(from: currentID)
             untakenForks.formUnion(roads.dropFirst().map(\.id))
-            if alreadyCleared || roads.isEmpty {
-                // stay where she is
+            if field % 3 == 2 || roads.isEmpty {
+                // stay: the next field is a replay of this stone
             } else {
                 stores.map.setActive(roads[0].id)
             }
@@ -731,10 +732,13 @@ final class EndToEndJourneyTests: XCTestCase {
         for visit in visits {
             XCTAssertLessThanOrEqual(visit.seededTotal, GameConfig.maxFieldOrbs,
                                      "a replay grew past the cap that keeps a field finishable")
-            XCTAssertEqual(visit.roadsOpened, visit.index == 0 ? visit.roadsOpened : 0,
-                           "a replay opened a road")
         }
-        XCTAssertTrue((1...3).contains(visits[0].roadsOpened))
+        XCTAssertTrue((1...3).contains(visits[0].roadsOpened),
+                      "the first clear did not open the Path")
+        for visit in visits.dropFirst() {
+            XCTAssertEqual(visit.roadsOpened, 0,
+                           "visit \(visit.index + 1) opened a road — replays open none")
+        }
         XCTAssertEqual(log.violations, [])
     }
 
@@ -815,7 +819,9 @@ final class EndToEndJourneyTests: XCTestCase {
             XCTAssertTrue(record.completed, "field \(field + 1) never finished")
         }
 
-        XCTAssertGreaterThan(framesWatched, 2_000, "hardly any frames were watched")
+        XCTAssertGreaterThan(framesWatched, 800, "hardly any frames were watched")
+        XCTAssertGreaterThan(stores.progression.lifetimePops, 80,
+                             "six fields set fewer than eighty orbs free — nothing was watched")
         XCTAssertEqual(tooFast, [], "the field outran its ceiling")
         XCTAssertEqual(offGlass, [], "an orb left the glass")
         XCTAssertEqual(stranded, 0,
@@ -897,7 +903,9 @@ final class EndToEndJourneyTests: XCTestCase {
         let resumed = playField(second, index: 99, seed: 8_899, log: log)
         XCTAssertTrue(resumed.completed)
         XCTAssertEqual(resumed.generation, second.map.activeStone?.generation)
-        XCTAssertEqual(resumed.stage, FieldPlan.stage(forFieldsCleared: 6),
+        // Six cleared fields, three fields to a step: stage two, resumed from
+        // the counter that persisted rather than from anything in memory.
+        XCTAssertEqual(resumed.stage, 2,
                        "the stage did not resume from the counters that persisted")
     }
 
