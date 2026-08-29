@@ -46,6 +46,14 @@ import Foundation
 // — so no `MapStore` and no `UserDefaults` are involved. Releases inside scroll
 // tests are made from a stationary finger, which is what keeps
 // `SkyScrollState`'s wall-clock glide out of the measurement entirely.
+//
+// AND THAT IS ALSO A BOUNDARY. `SkyScrollState.run(_:)` steps the offset from
+// an unstructured `Task` that sleeps 16 ms and reads `Date()`, so no assertion
+// here can observe what a glide DOES without letting real time pass. Nothing
+// in this file waits on a clock: a projected glide is asserted through the pure
+// `projectedGlide`, and the behaviour that would need a running one is named as
+// unasserted where it arises rather than tested flakily — see
+// `testATouchDownReachesThePlaceAheadOfArbitrationAndKeepsHerPlace`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @MainActor
@@ -78,6 +86,17 @@ final class WorldIntegrationTests: XCTestCase {
 
         let model = WorldModel()
         var arbiter = InputArbiter()
+
+        // THE TWO OBSERVATIONAL HOOKS `WorldView` BINDS BESIDE THE THREE
+        // PREDICATES. Neither produces an `InputOutcome` and neither can change
+        // what the arbiter decides — which is exactly why a harness is tempted
+        // to drop them, and exactly why it must not. `onTouchDown` in
+        // particular is called AHEAD of arbitration and is the only thing that
+        // stops a coasting sky under a finger that never moves; a harness
+        // without it asserts a world where a tap on a gliding sky does nothing,
+        // which is the world we just stopped shipping.
+        private var onTouchDown: () -> Void = {}
+        private var onPointer: (CGPoint?) -> Void = { _ in }
 
         // What `WorldInputView.layoutSubviews` and `WorldView`'s
         // `GeometryReader` between them establish. Kept together because in
@@ -115,6 +134,13 @@ final class WorldIntegrationTests: XCTestCase {
                                    isFieldAtRest: { m.simActive },
                                    isCameraAtRest: { m.cameraResting },
                                    scrollRoom: { m.placeScrollRoom })
+            // The same two lines, from the same construction:
+            //     onTouchDown: { model.touchWentDown() }
+            //     onPointer:   { game.pointerMoved(to: $0) }
+            // (`game` there is `model.game`, hoisted by the view for the
+            // observed sub-object; it is the same instance.)
+            onTouchDown = { m.touchWentDown() }
+            onPointer = { m.game.pointerMoved(to: $0) }
 
             // One frame before anything happens, so `lastFrameDate` is primed
             // and the first real frame carries a real `dt`. Production gets
@@ -123,27 +149,61 @@ final class WorldIntegrationTests: XCTestCase {
         }
 
         // MARK: Touches — `WorldInputView`'s handlers, minus UIKit
+        //
+        // Statement for statement, in order, from `WorldInputView`. Two things
+        // it deliberately does NOT model, both stated here rather than left to
+        // be discovered:
+        //
+        //   * MULTI-TOUCH. Production sorts a `Set<UITouch>` by timestamp and
+        //     adopts one steering touch (§7.6); every gesture in this file is
+        //     one finger, so the sort is the identity and the adoption is
+        //     unconditional. The extra-finger policy is `InputArbiter`'s and is
+        //     proved in `WorldInputTests`.
+        //   * THE LOST-TOUCH RECOVERY. `touchesBegan` opens with
+        //     `if arbiter.isTracking && steeringTouch == nil { … cancelled() }`,
+        //     which fires only when a weak `UITouch` died under UIKit. There is
+        //     no `UITouch` here to lose, and every gesture below terminates in
+        //     `up` or `cancel`, so the branch is unreachable rather than
+        //     omitted. `willMove(toWindow:)`'s cancel is the same shape.
+        //
+        // Everything else — including both observational hooks and the exact
+        // position of each — is reproduced.
 
         @discardableResult
         func down(_ p: CGPoint) -> [InputOutcome] {
-            deliver(arbiter.began(at: p, timestamp: touchClock))
+            // Before anything is arbitrated, unconditionally: a place that is
+            // coasting stops here. `touchesBegan` calls this ahead of `began`
+            // so that a TAP stops a glide exactly as a drag does.
+            onTouchDown()
+            let raw = arbiter.began(at: p, timestamp: touchClock)
+            // Production reports the pointer after `began` and before `flush`.
+            onPointer(p)
+            return deliver(raw)
         }
 
         @discardableResult
         func move(to p: CGPoint, dt: TimeInterval = 1.0 / 60.0) -> [InputOutcome] {
             touchClock += dt
-            return deliver(arbiter.moved(to: p, timestamp: touchClock))
+            // One sample per event: coalescing is a fidelity of the digitizer,
+            // and `deliver` still collapses the batch the way `flush` does.
+            let raw = arbiter.moved(to: p, timestamp: touchClock)
+            onPointer(p)
+            return deliver(raw)
         }
 
         @discardableResult
         func up(_ p: CGPoint, dt: TimeInterval = 1.0 / 60.0) -> [InputOutcome] {
             touchClock += dt
+            // `touchesEnded` drops the steering touch and reports nil BEFORE it
+            // asks the arbiter for the release.
+            onPointer(nil)
             return deliver(arbiter.ended(at: p, timestamp: touchClock))
         }
 
         @discardableResult
         func cancel() -> [InputOutcome] {
-            deliver(arbiter.cancelled())
+            onPointer(nil)
+            return deliver(arbiter.cancelled())
         }
 
         // `touchesMoved`, `touchesEnded` and `touchesCancelled` all funnel
@@ -212,12 +272,22 @@ final class WorldIntegrationTests: XCTestCase {
 
         /// Runs the frame clock until the camera has nothing left to step — no
         /// settle in flight AND no end-of-axis acknowledgement still fading.
+        ///
+        /// THE CAP FAILS, IT DOES NOT SHRUG. 20,000 frames is ~166 s of
+        /// simulated time against a settle bounded at 0.65 s, so reaching it
+        /// means the camera can no longer come to rest — and a loop that
+        /// quietly gives up there turns a hang into a mystery a hundred lines
+        /// further down.
         @discardableResult
-        func runToIdle(limit: Int = 20_000) -> Int {
+        func runToIdle(limit: Int = 20_000,
+                       file: StaticString = #filePath, line: UInt = #line) -> Int {
             var n = 0
             while !model.camera.isIdle && n < limit {
                 advanceOneFrame()
                 n += 1
+            }
+            if n >= limit {
+                XCTFail("the camera never came to rest in \(limit) frames", file: file, line: line)
             }
             return n
         }
@@ -537,6 +607,113 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.placeScrollRoom.down, skyHistory, accuracy: 1e-9)
     }
 
+    // A TOUCH-DOWN REACHES THE PLACE BEFORE ANYTHING IS ARBITRATED — AND A TAP
+    // IS A TOUCH-DOWN.
+    //
+    // WHAT THIS IS FOR. The sky's glide used to be caught in
+    // `SkyScrollState.began()`, which the model reaches only from
+    // `.scrollBegan` — and the arbiter emits that ten points into a drag. So a
+    // finger placed on a gliding sky did not freeze it (the content coasted on
+    // under her for the first ~10 pt), and a TAP on a gliding sky never stopped
+    // it at all, while the star she was pressing kept moving out from under
+    // her. Production now fires `WorldInputView.onTouchDown` unconditionally at
+    // the top of `touchesBegan`, ahead of `began`, bound by `WorldView` to
+    // `WorldModel.touchWentDown()`. The harness reproduces that call in that
+    // position; this test is what makes the reproduction mean something.
+    //
+    // WHAT IS ASSERTED. The precondition — that an ordinary flick from here
+    // really would project a glide with somewhere to go and a duration to get
+    // there — through the pure `projectedGlide`. Then the hook's own contract,
+    // stated as what it must LEAVE ALONE: it may not move the world, arm the
+    // camera, add or remove an outcome, wake a flag, or throw away where she
+    // was reading. That last one is the mis-wiring most available to a future
+    // reader, because `returnToTip()` also cancels a glide and would look like
+    // a reasonable thing to call from here.
+    //
+    // WHAT DELIBERATELY IS NOT, AND WHY. That the glide actually STOPS.
+    // `SkyScrollState.run(_:)` steps the offset inside an unstructured `Task`
+    // that sleeps 16 ms and reads `Date()`, so the only way to observe "the
+    // content did not coast on" is to let real time pass and look again. A
+    // sleep on a shared CI simulator is a flake, and a flake in the suite that
+    // gates every merge costs more than the assertion is worth. If the glide is
+    // ever given an injectable clock, the behavioural half belongs in
+    // `SkyScrollTests`, beside the rest of the scroll's proofs.
+    func testATouchDownReachesThePlaceAheadOfArbitrationAndKeepsHerPlace() {
+        let h = makeWorld()
+        atRestingSky(h, stones: tallSkyPath)
+
+        // Look back 240 pt along the path, released from a stationary finger,
+        // so nothing is coasting yet and the state she is left in is exact.
+        h.drag(fromY: 200, toY: 450, stillBeforeRelease: true)
+        let reading = h.model.skyScroll.offset
+        XCTAssertEqual(reading, 250 - slop, accuracy: 1e-9)
+        XCTAssertGreaterThan(reading, 0, "the fixture never scrolled, so nothing is at stake")
+
+        // THE PRECONDITION, pure and clock-free: from here an ordinary flick
+        // has somewhere to coast to and a duration to coast over. That is the
+        // thing a touch-down has to be able to catch.
+        let flick = h.model.skyScroll.projectedGlide(velocity: -1_400)
+        XCTAssertGreaterThan(flick.duration, 0,
+                             "a flick from here projects no glide, so there would be nothing for "
+                             + "a touch-down to catch and this test would prove nothing")
+        XCTAssertLessThan(flick.offset, reading,
+                          "the projected glide does not move, so the fixture is degenerate")
+
+        // A TAP. The whole gesture is a touch-down and a release, and at the
+        // resting sky it asks the arbiter for nothing at all — which is exactly
+        // why arming was too late a place to catch a glide. The touch-down path
+        // still ran, and it left every number where it was.
+        h.clearLog()
+        XCTAssertEqual(h.down(CGPoint(x: 190, y: 300)), [],
+                       "a tap at the resting sky asked the arbiter for something")
+        XCTAssertEqual(h.model.skyScroll.offset, reading, accuracy: 1e-12,
+                       "the touch-down moved the sky's content — the hook is doing more than "
+                       + "stopping a glide, and a press on the sky now costs her the place she "
+                       + "was reading")
+        XCTAssertTrue(h.model.camera.isAtRest, "a press put the world into `.dragging`")
+        XCTAssertFalse(h.model.worldMoving, "a press took hit-testing away")
+        XCTAssertFalse(h.model.worldAwake, "a press woke the frame clock")
+        XCTAssertEqual(h.up(CGPoint(x: 190, y: 300)), [],
+                       "a touch that never armed has nothing to terminate")
+        XCTAssertEqual(h.model.skyScroll.offset, reading, accuracy: 1e-12,
+                       "the release moved the sky's content")
+
+        // The room she has in each direction is untouched, so the next gesture
+        // divides exactly as this one would have.
+        XCTAssertEqual(h.model.placeScrollRoom.up, reading, accuracy: 1e-9)
+        XCTAssertEqual(h.model.placeScrollRoom.up + h.model.placeScrollRoom.down,
+                       history(tallSkyPath, screen), accuracy: 1e-9)
+
+        // Idempotent, and reachable exactly as `WorldView` reaches it.
+        h.model.touchWentDown()
+        h.model.touchWentDown()
+        XCTAssertEqual(h.model.skyScroll.offset, reading, accuracy: 1e-12,
+                       "`touchWentDown` is not idempotent")
+        XCTAssertTrue(h.model.camera.isIdle, "`touchWentDown` woke the camera")
+        XCTAssertEqual(h.model.place, .sky)
+
+        // A DRAG's touch-down is the same touch-down, and the drag that follows
+        // it still measures from where the content actually is.
+        let out = h.drag(fromY: 400, toY: 340, stillBeforeRelease: true)
+        XCTAssertTrue(out.contains(.scrollBegan), "the drag never reached the sky")
+        XCTAssertFalse(out.contains(.panBegan), "60 pt inside 240 pt of room reached the camera")
+        XCTAssertEqual(h.model.skyScroll.offset, reading - (60 - slop), accuracy: 1e-9,
+                       "the gesture after a touch-down did not measure from where the sky was")
+
+        // AND AT THE FIELD IT IS THE SAME CALL, made just as unconditionally: a
+        // place with nothing coasting has nothing to catch, and the hook must
+        // not come between her finger and the pop.
+        let f = makeWorld()
+        f.measureSky(tallSkyPath)
+        let p = CGPoint(x: 190, y: 400)
+        XCTAssertEqual(f.down(p), [.pop(p)],
+                       "the touch-down hook came between her finger and the pop")
+        XCTAssertTrue(f.model.camera.isAtRest)
+        XCTAssertEqual(f.model.skyScroll.offset, 0, accuracy: 1e-12,
+                       "a touch at the field moved the sky's content")
+        XCTAssertEqual(f.up(p), [], "a tap that never armed has nothing to terminate")
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // MARK: - 3. The field, and the places that do not scroll
     // ─────────────────────────────────────────────────────────────────────────
@@ -645,6 +822,22 @@ final class WorldIntegrationTests: XCTestCase {
         XCTAssertEqual(h.model.camera.offset,
                        h.model.camera.restOffset(of: h.model.place), accuracy: 1e-9,
                        "the grab left the world between two places")
+        // ── PINNING CURRENT BEHAVIOUR, NOT ENDORSING IT ────────────────────
+        //
+        // `WorldModel.handle` calls `skyScroll.returnToTip()` whenever the
+        // published `place` CHANGES to `.sky`, and `place` is mirrored from
+        // `camera.place`, which moves at the COMMIT instant. A
+        // `.settleToNearest` that resolves back to the sky is such a change —
+        // the commit off the sky had already set `place` to `.field` — so a
+        // grab she cancels by settling home to a sky SHE NEVER LEFT throws away
+        // her reading position, exactly as a real arrival does.
+        //
+        // That is arguably wrong (a bounce-back is not an arrival), and it is
+        // recorded as a finding rather than fixed here: this file may not touch
+        // production. THIS ASSERTION THEREFORE STATES WHAT THE WORLD DOES
+        // TODAY. If the bounce-back is ever taught to keep her place, this line
+        // is the one that must be updated — expect `skyHistory` in both
+        // branches, and delete this note.
         XCTAssertEqual(h.model.skyScroll.offset,
                        h.model.place == .sky ? 0 : skyHistory, accuracy: 1e-9,
                        "an arrival at the sky must open on the tip; anywhere else must leave her "
@@ -757,6 +950,7 @@ final class WorldIntegrationTests: XCTestCase {
             frames += 1
             assertLatchesConsistent(h, "settle frame \(frames)")
         }
+        XCTAssertLessThan(frames, 20_000, "the camera never came to rest")
         XCTAssertGreaterThan(frames, 30, "the settle was too short to have measured anything")
         XCTAssertTrue(h.model.camera.isAtRest)
 
@@ -829,6 +1023,7 @@ final class WorldIntegrationTests: XCTestCase {
             // `isAtRest`, which stays true for the whole envelope.
             XCTAssertTrue(h.model.camera.isAtRest && h.model.camera.place == .sky)
         }
+        XCTAssertLessThan(frames, 20_000, "the acknowledgement never faded")
         XCTAssertGreaterThan(frames, 10, "the acknowledgement was never stepped")
         XCTAssertEqual(h.model.camera.offset, restingOffset, accuracy: 1e-12,
                        "the acknowledgement moved the world")
@@ -902,6 +1097,7 @@ final class WorldIntegrationTests: XCTestCase {
             frames += 1
             check("sky-bound frame \(frames)")
         }
+        XCTAssertLessThan(frames, 20_000, "the camera never arrived at the sky")
         drainMainQueue()
         check("arrived at the sky")
         XCTAssertFalse(h.model.placeScrollRoom.isEmpty, "the resting sky offered nothing")
@@ -916,6 +1112,7 @@ final class WorldIntegrationTests: XCTestCase {
             frames += 1
             check("field-bound frame \(frames)")
         }
+        XCTAssertLessThan(frames, 20_000, "the camera never arrived at the field")
         drainMainQueue()
         check("arrived at the field")
         XCTAssertEqual(h.model.place, .field)
@@ -930,6 +1127,7 @@ final class WorldIntegrationTests: XCTestCase {
             frames += 1
             check("journal-bound frame \(frames)")
         }
+        XCTAssertLessThan(frames, 20_000, "the camera never arrived at the journal")
         drainMainQueue()
         check("arrived at the journal")
         XCTAssertEqual(h.model.place, .journal)
@@ -1281,6 +1479,22 @@ final class WorldIntegrationTests: XCTestCase {
             for i in 0..<budget {
                 h.advanceOneFrame()
                 assertWorldConsistent(h, "step \(step), frame \(i)", stones: stones)
+            }
+
+            // AND THE DEFERRED HALF OF THE LATCHES IS LET THROUGH, PERIODICALLY.
+            //
+            // `worldSettled` and `worldQuietened` CLEAR their flags on a
+            // main-queue hop (the render pass may never publish), and nothing
+            // else in this loop yields the main actor. Without this the two
+            // flags would be set once, early, and never cleared again for the
+            // whole session — which would leave every latch implication below
+            // vacuously true and quietly turn the longest test in the file into
+            // one that cannot see the bug it is named for. It also keeps the
+            // backlog of queued clears bounded rather than letting ~14,000
+            // frames' worth pile up for one drain at the end.
+            if step % 10 == 0 {
+                drainMainQueue()
+                assertWorldConsistent(h, "step \(step), after the deferred clears", stones: stones)
             }
 
             // The world changes shape under her from time to time — but never
