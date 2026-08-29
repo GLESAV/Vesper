@@ -17,8 +17,10 @@ import XCTest
 // Nothing here touches `ProgressionStore.shared`, `MapStore.shared`,
 // `SettingsStore.shared` or `UserDefaults.standard`. Each test builds its own
 // three stores over a PRIVATE suite named for a fresh UUID, wiped before the
-// first store reads it and again in `tearDown`. Two consequences, and both
-// are the point:
+// first store reads it and again in `tearDown` — and where a test needs
+// several independent journeys at once, each gets a fresh suite of its own
+// (`isolatedProgression`) rather than a shared one wiped in between. Two
+// consequences, and both are the point:
 //
 //   * a journey starts from a genuine fresh install every time, so "twelve
 //     fields from empty" means what it says rather than "twelve fields on top
@@ -277,10 +279,13 @@ final class EndToEndJourneyTests: XCTestCase {
     /// ─────────────────────────────────────────────────────────────────────
     ///
     /// `framesBetweenTaps` is 55 — a shade over `GameConfig.chainWindow` at
-    /// 60 fps — so two of her OWN taps are never counted as one cascade,
-    /// while the chained pops a shockwave sets off in the frames after a tap
-    /// still are. That is a player tapping about once a second, which is what
-    /// the chain window was tuned against.
+    /// 60 fps — so two of her OWN taps with nothing between them are never
+    /// counted as one cascade, while the chained pops a shockwave sets off in
+    /// the frames after a tap are, and a tap that lands inside the window of
+    /// one of those goes on extending it. That last part is not an accident
+    /// of the harness: it is exactly what the view model's wall-clock reading
+    /// of the same constant does. It is a player tapping about once a second,
+    /// which is what the chain window was tuned against.
     @discardableResult
     private func playField(_ stores: Stores,
                            index: Int,
@@ -850,13 +855,15 @@ final class EndToEndJourneyTests: XCTestCase {
     // The largest field the growth curves can build — the cap itself — with
     // every mechanic on it. If anything is ever unfinishable, it is this.
     func testTheDeepestFieldTheGameCanBuildIsStillFinishable() {
+        // Said before the size arrives, the way `playField` and the world
+        // itself say it: `layout(size:)` seeds the field as soon as it has
+        // bounds.
         let sim = GameSimulation(seed: 31)
-        sim.layout(size: fieldSize)
         sim.stage = FieldPlan.finalStage
         sim.generation = 40
         sim.plays = 2
         sim.availablePops = Array(1...30)
-        sim.seedField()
+        sim.layout(size: fieldSize)
 
         let total = sim.orbs.count + sim.reserve.count - sim.plan.generators
         XCTAssertEqual(total, GameConfig.maxFieldOrbs,
