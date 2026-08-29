@@ -1,0 +1,406 @@
+# Anima — the build loop
+
+The ordered plan an autonomous loop works through. **This file is the loop's
+memory.** Each iteration reads it, does the first unchecked item, ticks it, and
+commits. Nothing else carries state between iterations.
+
+## The iteration contract
+
+1. `git pull` the working branch.
+2. **Check CI on the open PR first.** If it is red, fixing it *is* this
+   iteration — stop after pushing the fix. Assets are never authored against
+   an engine that does not compile.
+3. If CI is green, do the **first unchecked item** below. One item per
+   iteration, no skipping ahead.
+4. Tick it, commit with a message that says what was learned, push.
+5. If every item is ticked and CI is green, the loop is done.
+
+## Definition of done
+
+- [x] 100 demo assets, one per pop number 1–100, each in its `PopFamily`
+- [x] Every asset validated against the pop paradigm by a test
+- [x] A hub page showing all 100 — **built and verified; publishing needs
+      GitHub Pages enabled and this branch merged** (see E5)
+- [x] CI green on both configurations
+- [x] Export under 8 MB and the page usable on a phone (673,791 bytes zipped)
+
+---
+
+## Phase E — finish the engine
+
+Assets cannot be authored until these are done, and the order matters.
+
+### E1 — Shrink the export by ~55×  ⟵ **blocks everything**
+
+- [x] E1 — **done.** CI measured format 1 at **9,253,479 bytes for six
+      objects** (1.54 MB each → 154 MB for a hundred), confirming the estimate
+      below almost exactly. Format 2 ships each part's rest outline once and a
+      resolved affine matrix plus opacity per frame — seven numbers per part
+      per frame instead of a hundred and twenty-eight.
+
+Measured, not estimated. The exporter currently writes a full 64-point outline
+per part **per frame**:
+
+| | |
+|---|---|
+| average parts per object | 4.8 |
+| bytes per object | 1.50 MB |
+| **100 objects** | **150 MB** |
+
+That is unshippable, un-openable in a browser, and would blow the 12 MB test
+cap on roughly the ninth asset. Four changes, together ~55×:
+
+1. **Export a resolved affine matrix per part per frame, and each part's
+   outline exactly once.** Six numbers instead of 128. This is the big one.
+2. **Round coordinates to 4 decimal places.** In unit space 1e-4 is 0.0034 pt
+   at the largest orb — three orders of magnitude below a pixel.
+3. **32-point outlines for export** (the app keeps 64). The previewer draws at
+   ~200 px; the sagitta at 32 points is well under one CSS pixel there.
+4. **24 fps, not 30.**
+
+**The drift rule still holds, and it is worth restating because this change is
+exactly where it could be lost.** The previewer must still contain no easing,
+no interpolation, no hierarchy composition and no `exp`. Export the final
+**affine matrix** (a, b, c, d, e, f) — already resolved through rest, merge,
+lag and parentage by `AnimaClip.pose` — so the previewer's only arithmetic is
+`x' = a·x + c·y + e`. Do **not** export `squash` and recompute the axes in
+JavaScript; that would put `exp` on both sides of the fence.
+
+Keep `AnimaPose` itself unchanged for the app. Add the matrix to
+`AnimaPosedPart`, and keep the verification honest by having it reconstruct
+the outline from matrix × rest-outline and compare to the app's posed outline.
+Done as `testExportedFramesReconstructTheApplicationsOwnPoses`, at a tolerance
+of 0.002 — which is the 4dp rounding, not slack.
+
+### E2 — Reduce Motion variants
+
+- [x] E2 — **done.** `AnimaClip.reduced`, computed rather than authored so an
+      author cannot forget to write one and it cannot go stale when a clip is
+      retimed.
+
+04 §11: every motion needs a defined reduced variant, and none may carry
+information. The two clauses pull in opposite directions, so the two kinds of
+clip reduce differently:
+
+- **A looping idle reduces to stillness** — structurally, by carrying no
+  tracks at all, so "a reduced idle is still" holds exactly rather than to
+  within a tolerance. Its opacity goes with it: `SkyView` already settled this
+  for the stars ("the breath is an affordance, never information, so removing
+  it may not also dim them"), so a reduced idle is fully lit and still.
+- **A one-shot keeps its opacity exactly and damps everything else** (×0.35).
+  Here the opacity *is* the information — a part fading to nothing in
+  `release` is the whole message — and damping it would lose meaning, which is
+  §11's second clause. Not damped to zero either: deleting the motion deletes
+  the feedback, trading an accessibility problem for a usability one.
+
+The three direction-reversing easings (`anticipate`, `overshoot`, `settle`)
+are flattened to `easeInOut`. A reversal is what a vestibular system objects
+to, far more than distance travelled.
+
+Five tests, all measuring **peak travel from rest** rather than inspecting
+curve values — which would only prove the arithmetic, not the result.
+
+### E3 — The pop-paradigm bridge
+
+- [x] E3 — **done.** `AnimaPop.object(for:)` generates a drawable object for
+      every one of the hundred catalogue pops, wearing that pop's own paints
+      and played on the instrument its own definition asks for.
+
+The 100 assets are not free-standing art; they are the visual half of the
+existing 100-pop catalog. Add `AnimaPopBinding`:
+
+- keyed by `PopDefinition.number` (1–100, stable forever)
+- a **family shape signature** on `PopFamily`, exactly parallel to the `voice`
+  / `burst` / `haptic` signatures it already carries — the family is the
+  silhouette vocabulary, the ten pops in it are variations on it
+- paints drawn from the bound `PopDefinition.style.paints`, never invented
+- a test that every binding's number exists in `PopCatalog`, that its family
+  matches, and that its paints are the pop's own
+
+Ten families × ten pops is the paradigm; a hundred one-offs is not.
+
+**How it came out.** The ten silhouettes are a disc with a moon (vesper), a
+flame and its sparks (ember), a drop over a ripple (tide), petals about a
+heart (bloom), a radial crystal (frost), a hanging bar (chime), a body with a
+handle (lantern), a streamer (current), a hard shard with a beam (prism), and
+stacked open bands (aurora). A test computes each family's structural
+fingerprint — part count plus primitive kinds — and fails if any two match,
+because shape reads before colour and two families that cannot be told apart
+as black shapes are one family.
+
+**The ten notes inside a family** come from `AnimaVariation`: four knobs
+(`trait`, `accent`, `count`, `tilt`) whose meaning each family's builder
+decides for itself. Deliberately not named for shapes — a knob called
+`earLength` would be meaningless in nine families out of ten. Until a pop's
+variation is authored it derives one from its own number, so all hundred are
+previewable now and each phase-A batch replaces derivation with intent.
+
+**Voice coverage** had to be completed for the mapping to be total: `tone`,
+`pluck`, `crackle` and `shimmer` were added, verified numerically against
+every voice invariant before any Swift was written. `AnimaLibrary.voice(for:)`
+has no `default:`, so a new `SoundVoice` case stops the build rather than
+silently inheriting a fallback and making two families sound alike.
+
+### E4 — The hub page
+
+- [x] E4 — **done.** A gallery of all 100 plus the six reference figures,
+      grouped by family, filterable by family and rarity, searchable by name,
+      number and flavour, with a Reduce Motion toggle that plays the engine's
+      own reduced variants.
+
+Three things this needed beyond the page itself:
+
+- **Revision 3 makes voices a table.** A hundred pops share ten instruments,
+  so inlining PCM per object shipped each instrument about ten times — some
+  2.5 MB of duplicated audio, most of the file. Written once and referenced by
+  name it is ~350 KB however many objects there are.
+- **Every performance ships its reduced variant beside it.** §11 is not only
+  an app property: an author reviewing a hundred assets has to see what
+  someone who asked for less motion actually gets, and the only honest way to
+  show it is the engine's own `reduced` through the same export path. A
+  reduced idle carries no tracks, so it exports as **one** frame rather than
+  thirty-two identical ones.
+- **Only visible tiles animate**, via `IntersectionObserver`. A hundred
+  canvases redrawing at once is a lot of a laptop for no benefit.
+
+Measured before pushing: **2.16 MB** for all 106 objects, against an 8 MB
+gate.
+
+### E5 — Publish it
+
+- [x] E5 — **built and verified as far as it can be from here.** Two things
+      remain outside the loop's reach; both are named below rather than
+      quietly ticked.
+
+The workflow runs the export on the macOS runner — the only toolchain in this
+picture — and uploads it unconditionally as a build artifact. Measured on the
+full gallery: **673,791 bytes zipped** (`index.html` + `library.json`), 106
+objects.
+
+**The page itself is verified**, which no Swift test can do, because the page
+is JavaScript. Driven in headless Chromium against a hand-built revision-3
+fixture:
+
+| check | result |
+|---|---|
+| cards rendered | 100 |
+| family groups / buttons | 10 / 10 |
+| canvases actually painted | 16 — the `IntersectionObserver` working; only visible tiles animate |
+| search `pop 042` | 1 card |
+| family filter `frost` | 10 cards |
+| Reduce Motion toggle | all 100 switch to a `(reduced)` clip |
+| console errors | none |
+
+That run found two real defects, both fixed: a missing favicon (the browser
+requests `/favicon.ico`, gets a 404, and logs a console error on a page whose
+whole job is to be trusted) and "1 instruments".
+
+CI now also runs `node --check` over the page's extracted `<script>`. A syntax
+error there fails nothing upstream — it ships a **blank gallery**, to an
+author with no way to tell a broken page from an empty library. Free, since
+the runner already has node, and no new repository dependency.
+
+#### Still blocked, and not by anything the loop can do
+
+1. **GitHub Pages is not enabled.** Settings → Pages → Source: *GitHub
+   Actions*. The `Publish to Pages` job is written to skip rather than fail
+   without it, so nothing else is held up — but there is no public URL until
+   this is flipped.
+2. **The publish job only runs on `main`**, which is correct (a PR branch must
+   not overwrite the live site) and means the deploy path itself is unproven
+   until this branch merges.
+
+The full-fidelity check — the real export, in the real page, on the real URL —
+is one command once Pages is on:
+`python3 -m http.server -d tools/anima-studio 8000` against a downloaded
+artifact, or simply the deployed page.
+
+---
+
+## Phase A — the 100 assets
+
+One family per iteration, ten assets each, in catalog order. Each asset is an
+`AnimaObject` bound to its pop number, using its family's shape signature, its
+pop's own paints, and one authored performance beyond the shared `wake` /
+`release`.
+
+- [x] A1 — **vesper** 001–010 · the original dusk. `trait` = how far the
+      companion sits, `accent` = how large and high, `tilt` = the angle of the
+      pair. Authored to each flavour line rather than spread evenly — an even
+      spread is a gradient, and a gradient is not ten things. Reach spans
+      1.00–1.33; closest pair in the variation plane 0.13. **#001 is pinned at
+      exactly 1.00**, the most orb-like of the hundred (guardrail 5), by a test.
+- [x] A2 — **ember** 011–020. `trait` = flame sharpness, `accent` = spark
+      reach and size, `count` = how many. The family line "warm, not burning"
+      constrains the whole batch, not just #011 — nothing here is a blaze.
+      Reach 1.05–1.37; closest pair 0.16.
+- [x] A3 — **tide** 021–030. `trait` = drop sharpness, `accent` = how far the
+      swell reaches. **The spread test caught a builder defect here**: `accent`
+      moved only the ripple's sweep, so all ten had an identical silhouette
+      extent. A wider swell genuinely reaches further, so `accent` now moves
+      its size too. Reach 1.05–1.48; closest pair 0.16.
+- [x] A4 — **bloom** 031–040. `trait` = petal length, `accent` = sharpness,
+      `count` = how many. **`count` leads in this family** — three petals and
+      nine are different objects at a glance in a way a length change is not —
+      so the ten span seven distinct counts. Reach 1.00–1.29; closest pair 0.14.
+
+      **The spread test caught a rendering defect here, not a content one.** A
+      limaçon petal's fat end sits at local θ = π, so rotating each petal by
+      the same angle as its offset turned that fat end back toward the centre:
+      every bloom folded its petals over its own heart, and since offset and
+      scale are equal the tips landed exactly on the origin. The family drew at
+      a fraction of its intended size and all ten measured an identical extent.
+      Fixed to `a + π`. The same class of error had ember's flame and tide's
+      drop lying on their sides; both now stand up.
+- [x] A5 — **frost** 041–050. `trait` = spoke length, `accent` = spoke
+      thickness — independent here in a way they are not elsewhere, which lets
+      frost say "needle-thin and long" and "short and thick" as separate ideas.
+      Reach 1.07–1.37; closest pair 0.21; nothing on the floor.
+
+      **A second sizing defect, caught before pushing.** A spoke's `scale`
+      shrinks its LENGTH as well as its thickness, so a scale of 0.13 on a
+      length-3 capsule is a 0.2-unit stub: the crystal never left the 1.0 reach
+      floor and all ten measured identically — bloom's failure by a different
+      route. Length is in units of the capsule's own radius, so a long thin
+      spoke needs a large `length` and a modest `scale`.
+- [x] A6 — **chime** 051–060. `trait` = length, `accent` = thickness, `tilt` =
+      the swing. Reach 1.20–1.48; closest pair 0.16; nothing on the floor.
+
+      **A third sizing defect, same family of cause.** For a capsule `scale` is
+      the RADIUS and `length` is in radius units, so scaling a bar down to make
+      it thin makes it short too — "long and slender" and "short and thick"
+      collapse into one idea. Nine of the ten sat on the 1.0 floor. Now the
+      thickness and half-length are authored directly and the capsule's
+      `length` is derived by dividing.
+- [x] A7 — **lantern** 061–070. `trait` = size, `accent` = roundness,
+      `count` = sides. Reach 1.06–1.44; closest pair 0.13; six distinct side
+      counts.
+
+      **A fourth defect, and a new shape of one: no size axis at all.** Sides
+      came from `trait` and roundness from `accent`, and neither is an extent —
+      every lantern measured exactly 1.160, because the handle sits at a fixed
+      offset and dominates. Ten members differing only in facet count read as
+      one object drawn ten times. Sides moved to `count` (the knob for "how
+      many of something", and lantern was the only family not using it) and
+      `trait` became a real size.
+- [x] A8 — **current** 071–080. `trait` = trail length, `accent` = trail
+      width and head size, `count` = two to four trails. Reach 1.01–1.51 (the
+      widest span of any family); closest pair 0.15; nothing on the floor.
+
+      First family that needed **no builder fix** — both knobs already moved
+      the extent. The only care needed was avoiding the low-trait/low-accent
+      corner, which draws shorter than a plain orb and lands on the floor.
+- [x] A9 — **prism** 081–090. `trait` = shard size, `accent` = beam throw,
+      `count` = sides (3–6). Reach 1.19–1.43; closest pair 0.13; four distinct
+      side counts.
+
+      **A fifth defect, the capsule trap again** — measured exactly 1.000 at
+      every corner: the beam never reached past the body and the body was
+      itself under an orb. Same fix as chime: author the thickness and the
+      half-length, derive `length`, and centre the beam half its own length
+      along its heading so it emerges rather than hiding inside.
+- [x] A10 — **aurora** 091–100. `trait` = size, `accent` = sweep, `count` =
+      two to four bands. Reach 1.03–1.26; closest pair 0.16; nothing floored.
+
+      **The sixth and last builder fix, and the only one that was simply "too
+      small"** rather than a knob multiplying the wrong thing: the body arc
+      was fixed at 0.9 scale, inside a plain orb, so every aurora measured
+      1.000.
+
+      #100 Morning Star — *"Vesper's other name. It was you all along."* — is
+      the largest and narrowest sweep in the family, which is the closest an
+      arc comes to closing into the circle that #001 is. The catalogue ends
+      where it began.
+
+### How to verify a batch
+
+**Use the faithful port of `restReach`** (`tools/anima-reach.py`) — outline
+sampling, the transform stack, the parent chain — so it computes what Swift
+computes. Do **not** use an analytic estimate. The one used for A1–A4 assumed
+a primitive's furthest point lies along its offset, which is backwards for a
+petal; it reported bloom's spread as 0.286 when the truth was 0.000, and it
+was wrong for three of the four families it was used on.
+
+### Standing rules for every asset
+
+- **Silhouette first.** A family must be recognisable at arm's length in the
+  dark, before colour is read. If two families would be confused as black
+  shapes, the second one is wrong.
+- **Reuse the shared performances.** `wake` and `release` work on every figure
+  because of the one-root-named-`body` convention. An asset that needs its own
+  copy of a generic performance is a signal the convention was broken.
+- **Muted palette, no pure white, no outlines** — guardrail 4, enforced by
+  `AnimaTests`.
+- **Nothing is wired into gameplay.** These are demo assets and a preview.
+  Guardrail 5 holds; adoption is a separate change with its own before/after.
+
+---
+
+## Phase Z — close out
+
+- [x] Z1 — **Verified.** CI green on both configurations across the whole
+      suite; export 673,791 bytes zipped for 106 objects against an 8 MB gate;
+      hub page driven in headless Chromium (100 cards, family grouping,
+      search, filters, Reduce Motion toggle, zero console errors).
+
+      Measured across the finished library, every family independently:
+
+      | family | span | min | max | closest pair |
+      |---|---|---|---|---|
+      | vesper | 0.325 | 1.000 | 1.325 | 0.130 |
+      | ember | 0.316 | 1.052 | 1.368 | 0.158 |
+      | tide | 0.429 | 1.053 | 1.482 | 0.158 |
+      | bloom | 0.286 | 1.002 | 1.288 | 0.141 |
+      | frost | 0.305 | 1.065 | 1.370 | 0.206 |
+      | chime | 0.280 | 1.200 | 1.479 | 0.164 |
+      | lantern | 0.382 | 1.058 | 1.441 | 0.130 |
+      | current | 0.504 | 1.006 | 1.511 | 0.149 |
+      | prism | 0.241 | 1.186 | 1.427 | 0.130 |
+      | aurora | 0.228 | 1.032 | 1.260 | 0.156 |
+
+      Gates are span > 0.15 and closest pair > 0.08; every family clears both
+      with margin. Whole-catalogue reach 1.000–1.511, and **#001 sits at
+      exactly 1.000** — the most orb-like of the hundred, as guardrail 5
+      requires.
+
+- [x] Z2 — Docs updated; PR body rewritten. **Not marked ready for review** —
+      the user has not asked for that, and E5's two blockers (Pages not
+      enabled, publish gated to `main`) are theirs to decide on.
+
+---
+
+## What the loop found
+
+Worth keeping, because none of it was visible without measuring.
+
+**Six of the ten family builders were wrong**, and one rule explains every
+one: *a builder is wrong whenever a knob multiplies a primitive's own
+parameters instead of adding to its extent.*
+
+| family | defect | how it showed |
+|---|---|---|
+| bloom | petals rotated by their own offset angle | fat end pointed inward; tips landed exactly on the origin |
+| ember | flame unrotated | lay on its side instead of standing |
+| tide | `accent` moved sweep only | all ten had identical extent |
+| frost | spoke `scale` shrinks length too | crystal never left the 1.0 floor |
+| chime | same, both axes at once | nine of ten on the floor |
+| lantern | no size axis at all | constant 1.160 at every corner |
+| prism | beam `scale` is a radius | exactly 1.000 everywhere |
+| aurora | body arc pinned inside an orb | exactly 1.000 everywhere |
+
+`current` was the only family that needed nothing — it composes additively.
+
+**Two tests did nearly all the finding**, and neither was written for it. The
+spread gate exists to stop ten pops being one shape at ten sizes; it found a
+family drawn inside out and five drawn too small. The separation gate exists
+to stop duplicates; it caught two authored points 0.071 apart.
+
+**Verify against the engine, not against a model of it.** The analytic reach
+estimate used for A1–A4 assumed a primitive's furthest point lies along its
+offset — backwards for a petal. It reported bloom's spread as 0.286 when the
+truth was 0.000, and hid a real rendering defect behind a plausible number.
+`tools/anima-reach.py` exists because of that.
+
+**Check that a commit contains what its message claims.** One iteration pushed
+a backlog tick and a description of work whose code edit had silently aborted;
+the repository then disagreed with itself, and nothing in CI could say so.

@@ -1,0 +1,174 @@
+name: Anima Studio
+
+# THE MACOS RUNNER IS THE ONLY TOOLCHAIN THERE IS.
+#
+# `library.json` is produced by running the Anima engine itself — that is the
+# whole reason the previewer cannot drift from the app — so generating it
+# needs Xcode. Nobody authoring content should need a Mac, and the agent that
+# writes the content does not have one either. This workflow is where the
+# export actually happens.
+#
+# It always uploads the export as a build artifact, so the data is reachable
+# with no repository settings at all. It additionally publishes to GitHub
+# Pages when Pages is enabled (Settings → Pages → Source: GitHub Actions); the
+# deploy job is skipped rather than failed when it is not, so the export is
+# never blocked on a setting.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Vesper/Anima/**'
+      - 'Vesper/Rendering/AnimaRenderer.swift'
+      - 'tools/anima-studio/**'
+      - '.github/workflows/anima-pages.yml'
+  pull_request:
+    paths:
+      - 'Vesper/Anima/**'
+      - 'Vesper/Rendering/AnimaRenderer.swift'
+      - 'tools/anima-studio/**'
+      - '.github/workflows/anima-pages.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: anima-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  export:
+    name: Export the library
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+
+      # Same simulator discovery as ci.yml, and for the same reason: runner
+      # images change the devices they ship, and a hardcoded name turns an
+      # image update into a red build that looks like a code failure.
+      - name: Choose an iOS simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
+                          c=[x for v in d.values() for x in v if 'iPhone' in x['name']]; \
+                          print(c[0]['udid'] if c else '')")
+          if [ -z "$udid" ]; then
+            runtime=$(xcrun simctl list runtimes -j \
+              | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[-1] if r else '')")
+            if [ -z "$runtime" ]; then
+              xcodebuild -downloadPlatform iOS
+              runtime=$(xcrun simctl list runtimes -j \
+                | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[-1] if r else '')")
+            fi
+            devtype=$(xcrun simctl list devicetypes -j \
+              | python3 -c "import json,sys; t=[x['identifier'] for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x['name']]; print(t[-1] if t else '')")
+            udid=$(xcrun simctl create "vesper-anima" "$devtype" "$runtime")
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Run the exporter
+        env:
+          # `TEST_RUNNER_` IS LOAD-BEARING, NOT DECORATION.
+          #
+          # The test runs inside the iOS Simulator, in a process that does not
+          # inherit this step's environment. `xcodebuild test` forwards only
+          # the variables prefixed `TEST_RUNNER_`, stripping the prefix on the
+          # way in -- so the test sees `ANIMA_EXPORT_DIR` and this file has to
+          # spell it the long way.
+          #
+          # Without the prefix the export test SKIPS, cheerfully, and the run
+          # is green right up until the step that looks for the file. That is
+          # the failure this comment exists to stop recurring.
+          TEST_RUNNER_ANIMA_EXPORT_DIR: ${{ github.workspace }}/tools/anima-studio
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Vesper.xcodeproj \
+            -scheme Vesper \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -only-testing:VesperTests/AnimaStudioTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM=
+
+      # A loud, cheap check that the export is a usable size. The Swift test
+      # caps it too, but this reports the number into the run log where the
+      # loop that is authoring assets can actually read it.
+      - name: Report the export
+        run: |
+          set -euo pipefail
+          file=tools/anima-studio/library.json
+          test -s "$file" || {
+            echo "::error::the exporter wrote nothing. The most likely cause is that"
+            echo "::error::TEST_RUNNER_ANIMA_EXPORT_DIR did not reach the simulator, so"
+            echo "::error::testWriteTheStudioExport skipped. Check the test log above."
+            exit 1
+          }
+          bytes=$(wc -c < "$file")
+          echo "library.json: $bytes bytes ($((bytes/1024)) KB)"
+          # ONE LINE, DELIBERATELY. A multi-line `python3 -c "..."` written at
+          # column 0 terminates the YAML block scalar this `run:` is inside —
+          # the workflow then fails to parse at all, instantly, with no job to
+          # read logs from. Indenting it instead would satisfy YAML and break
+          # Python, which rejects a uniformly-indented -c script.
+          python3 -c "import json;d=json.load(open('$file'));print('objects:',len(d['objects']));print('clips:',sum(len(o['clips']) for o in d['objects']))"
+          if [ "$bytes" -gt 8388608 ]; then
+            echo "::error::export is over 8 MB - see docs/anima_backlog.md E1"
+            exit 1
+          fi
+
+      # THE PAGE IS JAVASCRIPT AND NO SWIFT TEST CAN PARSE IT. A syntax error
+      # here does not fail anything upstream -- it ships a blank gallery, to
+      # an author with no way to tell a broken page from an empty library.
+      # `node --check` is free (the runner already has node) and catches
+      # exactly that class of error.
+      - name: Syntax-check the previewer
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import re, sys
+          html = open('tools/anima-studio/index.html').read()
+          m = re.search(r'<script>\n(.*?)\n</script>', html, re.S)
+          if not m:
+              print('::error::no <script> block found in the previewer'); sys.exit(1)
+          open('/tmp/anima-page.js', 'w').write(m.group(1))
+          print(f'extracted {len(m.group(1).splitlines())} lines')
+          EOF
+          node --check /tmp/anima-page.js
+          echo "previewer JavaScript parses"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anima-studio
+          path: tools/anima-studio/
+          if-no-files-found: error
+
+      - name: Package for Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/anima-studio/
+
+  publish:
+    name: Publish to Pages
+    if: github.ref == 'refs/heads/main'
+    needs: export
+    runs-on: ubuntu-latest
+    # Skipped rather than failed when Pages is not enabled for the repository,
+    # so the export above is never blocked on a settings change.
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

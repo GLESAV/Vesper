@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anima Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27%23d9d5e4%27/%3E%3C/svg%3E">
+<!--
+  ANIMA STUDIO — the previewer.
+
+  Open this file. It loads library.json from beside it and plays every object
+  in the library: scrub a performance, hear the voice, read the note.
+
+  WHAT THIS PAGE DELIBERATELY DOES NOT CONTAIN, and why it is the whole point:
+
+    * no easing functions
+    * no keyframe interpolation
+    * no hierarchy or transform maths
+    * no oscillators, envelopes or filters
+
+  It fills polygons and plays PCM. Everything else was computed by the Swift
+  engine and baked into library.json.
+
+  Format 2 does ask this page for ONE piece of arithmetic — a 2-D affine
+  multiply, x' = a*x + c*y + tx — because shipping a transformed outline for
+  every part of every frame came to 154 MB at a hundred assets. That is a
+  deliberate, bounded concession and it is the only one: six multiplications
+  and four additions, no transcendentals, nothing with a convention to get
+  backwards. A Swift test reconstructs these same matrices against the app's
+  own posed outlines on every run. A previewer that
+  reimplemented the runtime would agree with it for about a week and then
+  start quietly lying to whoever was authoring against it, which is worse than
+  having no previewer at all.
+
+  Regenerate library.json with:
+
+    TEST_RUNNER_ANIMA_EXPORT_DIR="$PWD/tools/anima-studio" \
+      xcodebuild test -project Vesper.xcodeproj -scheme Vesper \
+      -destination 'platform=iOS Simulator,name=iPhone 16' \
+      CODE_SIGNING_ALLOWED=NO \
+      -only-testing:VesperTests/AnimaStudioTests/testWriteTheStudioExport
+
+  Some browsers refuse fetch() on file:// URLs. If the page says it cannot
+  load the library, serve the folder instead:
+
+    python3 -m http.server -d tools/anima-studio 8000
+-->
+<style>
+  :root {
+    --ground:#14121b; --panel:#1c1a25; --line:#2b2836;
+    --ink:#d9d5e4; --dim:#8e88a3; --accent:#b9a8d8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif}
+  header{padding:26px 26px 16px;border-bottom:1px solid var(--line);
+         position:sticky;top:0;background:var(--ground);z-index:5}
+  h1{margin:0;font:400 24px/1.2 ui-serif,Georgia,"Times New Roman",serif;letter-spacing:.01em}
+  .sub{color:var(--dim);margin-top:6px;font-size:13px}
+  .controls{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center}
+  input[type=search],select,button{background:#262233;color:var(--ink);
+       border:1px solid var(--line);border-radius:7px;padding:7px 11px;font:inherit;font-size:13px}
+  input[type=search]{min-width:200px;flex:1;max-width:320px}
+  button,select{cursor:pointer}
+  button:hover,select:hover,input:focus{border-color:var(--accent);outline:none}
+  button[aria-pressed=true]{background:var(--accent);color:#1a1622;border-color:var(--accent)}
+  .familybar{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .familybar button{padding:5px 10px;font-size:12px;text-transform:lowercase}
+  h2.group{margin:30px 26px 0;font:400 17px/1.3 ui-serif,Georgia,serif;
+           color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:7px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+        gap:14px;padding:16px 26px 40px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px}
+  .card.dim{opacity:.5}
+  .id{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .num{font:400 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
+  .rarity{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+  .rarity.rare{color:#c8b0e0}.rarity.secret{color:#e0c9a8}
+  .nm{margin:2px 0 0;font:400 15px/1.25 ui-serif,Georgia,serif}
+  .flavor{color:var(--dim);font-size:11.5px;min-height:2.6em;margin:3px 0 7px}
+  canvas{width:100%;aspect-ratio:1;display:block;border-radius:8px;background:#100e17}
+  .row{display:flex;gap:6px;align-items:center;margin-top:8px}
+  .row select{flex:1;font-size:12px;padding:5px 8px}
+  .row button{padding:5px 9px;font-size:12px}
+  .empty{padding:50px 26px;color:var(--dim)}
+  .error{padding:26px;color:#e0b4b4;max-width:62ch}
+  code{background:#262233;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Anima Studio</h1>
+  <div class="sub" id="sub">loading the library…</div>
+  <div class="controls">
+    <input type="search" id="q" placeholder="search name, number or flavour…" aria-label="Search">
+    <select id="rarity" aria-label="Rarity">
+      <option value="">every rarity</option>
+    </select>
+    <select id="clip" aria-label="Performance">
+      <option value="">each object's first performance</option>
+    </select>
+    <button id="motion" aria-pressed="false" title="Preview the Reduce Motion variants">reduce motion</button>
+  </div>
+  <div class="familybar" id="families"></div>
+</header>
+<div id="gallery"></div>
+
+<script>
+"use strict";
+
+// The one number this page checks. An old page against a new export does not
+// fail on its own -- it draws nonsense -- so the pairing is asserted here and,
+// more usefully, by a Swift test that reads this very line.
+const EXPECTED_REVISION = 3;
+
+const el = function (id) { return document.getElementById(id); };
+const gallery = el("gallery"), sub = el("sub");
+let LIB = null, CARDS = [];
+
+function fail(message, detail) {
+  document.body.innerHTML =
+    '<div class="error"><h1>Anima Studio</h1><p>' + message + "</p>" +
+    (detail ? "<p><code>" + detail + "</code></p>" : "") +
+    '<p>Some browsers refuse <code>fetch()</code> on <code>file://</code>. Serve the folder:</p>' +
+    "<p><code>python3 -m http.server -d tools/anima-studio 8000</code></p></div>";
+}
+
+fetch("library.json")
+  .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+  .then(build)
+  .catch(function (e) { fail("Could not load <code>library.json</code>.", e.message); });
+
+// ── Drawing ───────────────────────────────────────────────────────────────
+//
+// The whole renderer. It fills polygons. The ONLY arithmetic on this page is
+// one 2-D affine multiply per point, x' = a*x + c*y + tx, because shipping a
+// transformed outline for every part of every frame came to 154 MB at a
+// hundred assets. There is no easing here, no keyframe interpolation, no
+// hierarchy, no lag and no exp() -- every one of which is a place two
+// implementations could plausibly disagree. A Swift test reconstructs these
+// same matrices against the app's own posed outlines on every run.
+
+function css(rgb, a) {
+  return "rgba(" + Math.round(rgb[0]*255) + "," + Math.round(rgb[1]*255) + "," +
+         Math.round(rgb[2]*255) + "," + a + ")";
+}
+
+function draw(canvas, object, frame) {
+  const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth;
+  if (!size) return;
+  if (canvas.width !== Math.round(size * dpr)) {
+    canvas.width = Math.round(size * dpr); canvas.height = Math.round(size * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  const cx = size/2, cy = size/2;
+  const radius = (size * 0.30) / Math.max(1, object.reach);
+
+  const glow = object.paints[0] ? object.paints[0].glow : [1,1,1];
+  const haloR = radius * object.reach * 1.8;
+  const g = ctx.createRadialGradient(cx, cy, radius*0.5, cx, cy, haloR);
+  g.addColorStop(0, css(glow, 0.20)); g.addColorStop(1, css(glow, 0));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+
+  // object.parts is already in draw order -- the exporter took it from a
+  // depth-sorted pose -- and every frame lists its matrices in that same
+  // order, which is why the outlines could be written once instead of once
+  // per frame.
+  object.parts.forEach(function (part, index) {
+    const pts = part.points;
+    if (pts.length < 6) return;
+    const o = index * 7;
+    const a = frame[o], b = frame[o+1], c = frame[o+2];
+    const d = frame[o+3], tx = frame[o+4], ty = frame[o+5], op = frame[o+6];
+    if (!(op > 0.002)) return;
+    const paint = object.paints[part.paint] || object.paints[0];
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = pts[i], y = pts[i+1];
+      const px = cx + (a*x + c*y + tx) * radius;
+      const py = cy + (b*x + d*y + ty) * radius;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = css(paint.fill, op);
+    ctx.fill();                       // never stroke -- see AnimaRenderer
+  });
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────
+// Decodes the base64 Int16 the exporter wrote. No synthesis: these are the
+// samples AnimaVoice.render produced, so what is heard here is the arithmetic
+// that reaches the phone.
+
+let audio = null, decoded = {};
+function actx() {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  return audio;
+}
+function play(name) {
+  const voice = LIB.voices[name];
+  if (!voice) return;
+  const ctx = actx();
+  if (ctx.state === "suspended") ctx.resume();
+  if (!decoded[name]) {
+    const bin = atob(voice.pcm), count = bin.length >> 1;
+    const view = new DataView(new ArrayBuffer(bin.length));
+    for (let i = 0; i < bin.length; i++) view.setUint8(i, bin.charCodeAt(i));
+    const buf = ctx.createBuffer(1, count, LIB.sampleRate);
+    const ch = buf.getChannelData(0);
+    // Little-endian, matching AnimaStudio.base64Int16.
+    for (let i = 0; i < count; i++) ch[i] = view.getInt16(i*2, true) / 32767;
+    decoded[name] = buf;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = decoded[name]; src.connect(ctx.destination); src.start();
+}
+
+// ── Cards ─────────────────────────────────────────────────────────────────
+
+function card(object) {
+  const wrap = document.createElement("div");
+  wrap.className = "card";
+  const num = object.number ? String(object.number).padStart(3, "0") : "ref";
+  wrap.innerHTML =
+    '<div class="id"><span class="num">#' + num + '</span>' +
+    '<span class="rarity ' + object.rarity + '">' + object.rarity + "</span></div>" +
+    '<div class="nm">' + object.name + "</div>" +
+    '<div class="flavor">' + (object.flavor || "") + "</div>" +
+    "<canvas></canvas>" +
+    '<div class="row"><select></select><button title="Hear this pop">♪</button></div>';
+
+  const canvas = wrap.querySelector("canvas");
+  const select = wrap.querySelector("select");
+  wrap.querySelector("button").addEventListener("click", function () { play(object.voice); });
+
+  object.clips.forEach(function (c, i) {
+    const opt = document.createElement("option");
+    opt.value = String(i); opt.textContent = c.name + (c.loops ? " ↻" : "");
+    select.appendChild(opt);
+  });
+
+  const state = { object: object, canvas: canvas, index: 0, t: 0, visible: false };
+  select.addEventListener("change", function () {
+    state.index = Number(select.value); state.t = 0;
+  });
+  state.setClip = function (name) {
+    if (!name) return;
+    const i = object.clips.findIndex(function (c) { return c.name === name; });
+    if (i >= 0) { state.index = i; state.t = 0; select.value = String(i); }
+  };
+  state.card = wrap;
+  CARDS.push(state);
+  return wrap;
+}
+
+// ONLY VISIBLE TILES ANIMATE. A hundred canvases redrawing at once is a lot
+// of a laptop for no benefit, since most of them are off screen -- so an
+// IntersectionObserver gates the work, and a tile that scrolls away stops
+// costing anything. Dependency-free, like everything else here.
+const seen = new IntersectionObserver(function (entries) {
+  entries.forEach(function (e) {
+    const state = CARDS.find(function (s) { return s.card === e.target; });
+    if (state) state.visible = e.isIntersecting;
+  });
+}, { rootMargin: "150px" });
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  for (const s of CARDS) {
+    if (!s.visible || s.card.style.display === "none") continue;
+    const clip = s.object.clips[s.index];
+    if (!clip || !clip.frames.length) continue;
+    s.t += dt;
+    const per = clip.duration / clip.frames.length;
+    let i = Math.floor(s.t / per);
+    if (clip.loops) { i = i % clip.frames.length; }
+    else if (i >= clip.frames.length) {
+      if (s.t > clip.duration + 0.7) { s.t = 0; i = 0; } else i = clip.frames.length - 1;
+    }
+    draw(s.canvas, s.object, clip.frames[i]);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ── Filtering ─────────────────────────────────────────────────────────────
+
+function applyFilters() {
+  const q = el("q").value.trim().toLowerCase();
+  const rarity = el("rarity").value;
+  const family = document.querySelector("#families button[aria-pressed=true]");
+  const fam = family ? family.dataset.family : "";
+  let shown = 0;
+  for (const s of CARDS) {
+    const o = s.object;
+    const hay = (o.name + " " + o.number + " " + (o.flavor || "") + " " + o.family).toLowerCase();
+    const ok = (!q || hay.indexOf(q) >= 0) &&
+               (!rarity || o.rarity === rarity) &&
+               (!fam || o.family === fam);
+    s.card.style.display = ok ? "" : "none";
+    if (ok) shown++;
+  }
+  document.querySelectorAll("h2.group").forEach(function (h) {
+    const grid = h.nextElementSibling;
+    const any = Array.prototype.some.call(grid.children, function (c) {
+      return c.style.display !== "none";
+    });
+    h.style.display = any ? "" : "none";
+    grid.style.display = any ? "" : "none";
+  });
+  const voices = Object.keys(LIB.voices).length;
+  sub.textContent = shown + " of " + LIB.objects.length + " objects · " +
+    voices + (voices === 1 ? " instrument" : " instruments") +
+    " · audio at " + LIB.sampleRate + " Hz";
+}
+
+// ── Build ─────────────────────────────────────────────────────────────────
+
+function build(library) {
+  if (library.revision !== EXPECTED_REVISION) {
+    fail("This page is revision " + EXPECTED_REVISION + " and the export is revision " +
+         library.revision + ". Re-export, or check out the matching version of this page.");
+    return;
+  }
+  LIB = library;
+
+  const groups = {};
+  library.objects.forEach(function (o) {
+    (groups[o.family] = groups[o.family] || []).push(o);
+  });
+  const order = Object.keys(groups).sort(function (a, b) {
+    if (a === "reference") return 1;
+    if (b === "reference") return -1;
+    return (groups[a][0].number || 0) - (groups[b][0].number || 0);
+  });
+
+  const rarities = {};
+  order.forEach(function (family) {
+    const h = document.createElement("h2");
+    h.className = "group";
+    h.textContent = family + " · " + groups[family].length;
+    gallery.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    groups[family].forEach(function (o) {
+      rarities[o.rarity] = true;
+      const c = card(o);
+      grid.appendChild(c);
+      seen.observe(c);
+    });
+    gallery.appendChild(grid);
+  });
+
+  Object.keys(rarities).sort().forEach(function (r) {
+    const opt = document.createElement("option");
+    opt.value = r; opt.textContent = r; el("rarity").appendChild(opt);
+  });
+
+  const bar = el("families");
+  order.forEach(function (family) {
+    const b = document.createElement("button");
+    b.textContent = family; b.dataset.family = family; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", function () {
+      const on = b.getAttribute("aria-pressed") === "true";
+      bar.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", on ? "false" : "true");
+      applyFilters();
+    });
+    bar.appendChild(b);
+  });
+
+  const names = {};
+  library.objects.forEach(function (o) { o.clips.forEach(function (c) { names[c.name] = true; }); });
+  Object.keys(names).sort().forEach(function (n) {
+    const opt = document.createElement("option");
+    opt.value = n; opt.textContent = n; el("clip").appendChild(opt);
+  });
+  el("clip").addEventListener("change", function () {
+    const n = el("clip").value;
+    CARDS.forEach(function (s) { s.setClip(n); });
+  });
+
+  // The Reduce Motion toggle previews the `(reduced)` variants the exporter
+  // ships beside each performance -- the same ones the app would play for
+  // someone who has asked the system for less motion.
+  el("motion").addEventListener("click", function () {
+    const b = el("motion");
+    const on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    CARDS.forEach(function (s) {
+      const current = s.object.clips[s.index];
+      if (!current) return;
+      const want = on ? current.name + " (reduced)" : current.name.replace(" (reduced)", "");
+      s.setClip(want);
+    });
+  });
+
+  el("q").addEventListener("input", applyFilters);
+  el("rarity").addEventListener("change", applyFilters);
+  applyFilters();
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
